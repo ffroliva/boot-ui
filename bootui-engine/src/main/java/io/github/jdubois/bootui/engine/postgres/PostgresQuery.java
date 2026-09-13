@@ -130,9 +130,13 @@ final class PostgresQuery {
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
         } catch (SQLException | RuntimeException ex) {
-            rollback(connection);
+            String rollbackFailure = rollback(connection);
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-            return CredentialRedaction.redact(message.strip());
+            String reason = CredentialRedaction.redact(message.strip());
+            if (rollbackFailure != null) {
+                return reason + " The transaction rollback after that failure also failed: " + rollbackFailure;
+            }
+            return reason;
         }
         return null;
     }
@@ -162,11 +166,13 @@ final class PostgresQuery {
         }
     }
 
-    private static void rollback(Connection connection) {
+    private static String rollback(Connection connection) {
         try {
             connection.rollback();
+            return null;
         } catch (SQLException | RuntimeException ex) {
-            // The transaction is already unusable; the next query reports its own failure.
+            String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            return CredentialRedaction.redact(message.strip());
         }
     }
 

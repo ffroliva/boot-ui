@@ -95,11 +95,11 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("ERROR");
         assertThat(report.databases()).singleElement().satisfies(database -> {
             assertThat(database.status()).isEqualTo("ERROR");
-            assertThat(database.message()).contains("already in a transaction");
+            assertThat(database.message()).contains("already in manual-commit mode");
             assertThat(database.sections()).isEmpty();
         });
         assertThat(report.limitations())
-                .anySatisfy(limitation -> assertThat(limitation).contains("already in a transaction"));
+                .anySatisfy(limitation -> assertThat(limitation).contains("already in manual-commit mode"));
         assertThat(dataSource.executedSql()).isEmpty();
         assertThat(dataSource.preparedSql()).isEmpty();
     }

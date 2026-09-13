@@ -269,7 +269,7 @@ public final class PostgresInsightService {
         try {
             originalAutoCommit = connection.getAutoCommit();
             if (!originalAutoCommit) {
-                String reason = "The datasource connection is already in a transaction, so BootUI skipped this"
+                String reason = "The datasource connection is already in manual-commit mode, so BootUI skipped this"
                         + " PostgreSQL read to avoid touching the application's transaction state.";
                 diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
                 return errorDatabase(name, version.describe(), version.major(), reason);
