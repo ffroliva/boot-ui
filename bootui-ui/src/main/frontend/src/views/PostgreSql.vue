@@ -18,6 +18,7 @@ const actionMessage = ref(null)
 const loading = ref(false)
 const initialLoading = ref(true)
 const showDiagnostics = ref(false)
+const activeSections = ref({})
 
 const DATABASE_STATUS_CLASSES = {
   READ: 'text-bg-success',
@@ -184,6 +185,51 @@ function sectionReadable(candidate) {
   return Boolean(candidate) && candidate.status === 'AVAILABLE'
 }
 
+// Vital signs stay pinned above the tabs, because they are the summary a reader wants while
+// looking at any other section; everything else is one table each and becomes a tab.
+function tabSections(database) {
+  return (database.sections || []).filter((candidate) => candidate.id !== 'vital-signs')
+}
+
+// The selected tab is remembered per datasource. A later read can report a different set of
+// sections, so a remembered id that is no longer there falls back to the first section rather
+// than leaving the card with no visible panel.
+function activeSection(database) {
+  const sections = tabSections(database)
+  if (sections.length === 0) return null
+  const selected = activeSections.value[database.name]
+  return sections.find((candidate) => candidate.id === selected) || sections[0]
+}
+
+function isActiveSection(database, candidate) {
+  return activeSection(database)?.id === candidate.id
+}
+
+function selectSection(database, id) {
+  activeSections.value = {...activeSections.value, [database.name]: id}
+}
+
+function handleTabKeydown(event, database, index) {
+  const sections = tabSections(database)
+  let nextIndex
+  if (event.key === 'ArrowRight') {
+    nextIndex = (index + 1) % sections.length
+  } else if (event.key === 'ArrowLeft') {
+    nextIndex = (index - 1 + sections.length) % sections.length
+  } else if (event.key === 'Home') {
+    nextIndex = 0
+  } else if (event.key === 'End') {
+    nextIndex = sections.length - 1
+  } else {
+    return
+  }
+  event.preventDefault()
+  selectSection(database, sections[nextIndex].id)
+  // Each datasource renders its own tablist, so the next button is taken from the list the event
+  // came from rather than from a shared ref array.
+  event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[nextIndex]?.focus()
+}
+
 function sessionBusy(session) {
   return BUSY_STATES.includes(session.state) || Boolean(session.blockedBy)
 }
@@ -337,7 +383,7 @@ onMounted(async () => {
           </ul>
         </details>
 
-        <div v-for="database in databases" :key="database.name" class="card mb-3">
+        <div v-for="(database, databaseIndex) in databases" :key="database.name" class="card mb-3">
           <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div class="d-flex flex-wrap align-items-center gap-2">
               <span :class="databaseStatusClass(database.status)" class="badge">{{
@@ -439,303 +485,352 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div
-            v-for="part in (database.sections || []).filter((candidate) => candidate.id !== 'vital-signs')"
-            :key="part.id"
-            class="card-body border-bottom"
-          >
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <h4 class="fs-6 fw-semibold mb-0">{{ part.title }}</h4>
-              <span :class="sectionStatusClass(sectionBadge(part))" class="badge">{{ sectionBadge(part) }}</span>
-              <span v-if="part.status === 'AVAILABLE'" class="text-muted small"
-                >{{ formatNumber(part.rowCount) }} {{ pluralize(part.rowCount, 'row') }}</span
+          <div v-if="tabSections(database).length > 0" class="card-body pb-0">
+            <ul class="postgres-tabs" role="tablist" :aria-label="`${database.name} sections`">
+              <li
+                v-for="(part, partIndex) in tabSections(database)"
+                :key="part.id"
+                class="postgres-tabs__item"
+                role="presentation"
               >
-              <span v-if="part.truncated" class="badge text-bg-warning">Truncated</span>
-            </div>
-            <div v-if="sectionNote(part)" class="small text-muted mb-2">
-              <i class="bi bi-info-circle me-1"></i>{{ sectionNote(part) }}
-            </div>
-            <div v-if="part.hint" class="small text-muted font-monospace mb-2">
-              <i class="bi bi-lightbulb me-1"></i>{{ part.hint }}
-            </div>
-
-            <div v-if="part.id === 'sessions' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">PID</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Application</th>
-                    <th scope="col">State</th>
-                    <th scope="col">Waiting on</th>
-                    <th scope="col">Blocked by</th>
-                    <th scope="col" class="text-end">Transaction</th>
-                    <th scope="col" class="text-end">In state</th>
-                    <th scope="col" class="text-end">Statement age</th>
-                    <th scope="col">Statement</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="session in database.sessions || []" :key="session.pid" :class="sessionRowClass(session)">
-                    <td class="font-monospace">{{ session.pid }}</td>
-                    <td class="font-monospace">
-                      {{ text(session.user) }}
-                      <div v-if="session.clientAddress" class="text-muted small">{{ session.clientAddress }}</div>
-                    </td>
-                    <td class="font-monospace">{{ text(session.applicationName) }}</td>
-                    <td>
-                      <span class="font-monospace">{{ text(session.state) }}</span>
-                      <i v-if="sessionBusy(session)" class="bi bi-activity ms-1" aria-hidden="true"></i>
-                    </td>
-                    <td class="font-monospace">
-                      <template v-if="session.waitEventType"
-                        >{{ session.waitEventType }}<span v-if="session.waitEvent">/{{ session.waitEvent }}</span>
-                      </template>
-                      <template v-else>—</template>
-                    </td>
-                    <td class="font-monospace">{{ text(session.blockedBy) }}</td>
-                    <td class="font-monospace text-end">{{ seconds(session.transactionSeconds) }}</td>
-                    <td class="font-monospace text-end">{{ seconds(session.stateSeconds) }}</td>
-                    <td class="font-monospace text-end">{{ seconds(session.querySeconds) }}</td>
-                    <td class="font-monospace small text-break">{{ text(session.query) }}</td>
-                  </tr>
-                  <tr v-if="(database.sessions || []).length === 0">
-                    <td class="text-muted" colspan="10">No client backend was connected at the time of the read.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div v-else-if="part.id === 'statements' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Normalized statement</th>
-                    <th scope="col" class="text-end">Calls</th>
-                    <th scope="col" class="text-end">Total</th>
-                    <th scope="col" class="text-end">Mean</th>
-                    <th scope="col" class="text-end">Max</th>
-                    <th scope="col" class="text-end">Rows</th>
-                    <th scope="col" class="text-end">Cache hit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="statement in database.statements || []" :key="statement.queryId">
-                    <td class="font-monospace small text-break">{{ text(statement.query) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(statement.calls) }}</td>
-                    <td class="font-monospace text-end">{{ millis(statement.totalTimeMs) }}</td>
-                    <td class="font-monospace text-end">{{ millis(statement.meanTimeMs) }}</td>
-                    <td class="font-monospace text-end">{{ millis(statement.maxTimeMs) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(statement.rows) }}</td>
-                    <td class="font-monospace text-end">{{ percent(statement.cacheHitRatio) }}</td>
-                  </tr>
-                  <tr v-if="(database.statements || []).length === 0">
-                    <td class="text-muted" colspan="7">pg_stat_statements reported no statement for this database.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div v-else-if="part.id === 'indexes' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Index</th>
-                    <th scope="col">Table</th>
-                    <th scope="col" class="text-end">Scans</th>
-                    <th scope="col" class="text-end">Tuples read</th>
-                    <th scope="col" class="text-end">Size</th>
-                    <th scope="col">Kind</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="index in database.indexes || []" :key="`${index.schema}.${index.index}`">
-                    <td class="font-monospace">{{ index.index }}</td>
-                    <td class="font-monospace">{{ index.schema }}.{{ index.table }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(index.scans) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(index.tuplesRead) }}</td>
-                    <td class="font-monospace text-end">{{ formatBytes(index.sizeBytes) }}</td>
-                    <td class="small">
-                      <span v-if="index.primaryKey" class="badge text-bg-light border text-dark me-1">primary key</span>
-                      <span v-else-if="index.unique" class="badge text-bg-light border text-dark me-1">unique</span>
-                      <span
-                        v-if="index.constraintBacked && !index.primaryKey"
-                        class="badge text-bg-light border text-dark"
-                        >constraint</span
-                      >
-                    </td>
-                  </tr>
-                  <tr v-if="(database.indexes || []).length === 0">
-                    <td class="text-muted" colspan="6">No user index was reported for this database.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div v-else-if="part.id === 'tables' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Table</th>
-                    <th scope="col" class="text-end">Total size</th>
-                    <th scope="col" class="text-end">Heap</th>
-                    <th scope="col" class="text-end">Indexes</th>
-                    <th scope="col" class="text-end">Live rows</th>
-                    <th scope="col" class="text-end">Dead rows</th>
-                    <th scope="col" class="text-end">Seq scans</th>
-                    <th scope="col" class="text-end">Index scans</th>
-                    <th scope="col" class="text-end">Seq share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="table in database.tables || []" :key="`${table.schema}.${table.table}`">
-                    <td class="font-monospace">{{ table.schema }}.{{ table.table }}</td>
-                    <td class="font-monospace text-end">{{ formatBytes(table.totalSizeBytes) }}</td>
-                    <td class="font-monospace text-end">{{ formatBytes(table.tableSizeBytes) }}</td>
-                    <td class="font-monospace text-end">{{ formatBytes(table.indexSizeBytes) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(table.liveTuples) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(table.deadTuples) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(table.sequentialScans) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(table.indexScans) }}</td>
-                    <td class="font-monospace text-end">{{ percent(table.sequentialScanRatio) }}</td>
-                  </tr>
-                  <tr v-if="(database.tables || []).length === 0">
-                    <td class="text-muted" colspan="9">No user relation was reported for this database.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div v-else-if="part.id === 'vacuum' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Table</th>
-                    <th scope="col" class="text-end">Dead rows</th>
-                    <th scope="col" class="text-end">Dead share</th>
-                    <th scope="col" class="text-end">Autovacuum at</th>
-                    <th scope="col">Last vacuum</th>
-                    <th scope="col">Last analyze</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="relation in database.vacuum || []"
-                    :key="`${relation.schema}.${relation.table}`"
-                    :class="relation.vacuumDue ? 'table-warning' : ''"
+                <button
+                  :id="`postgresql-${databaseIndex}-tab-${part.id}`"
+                  type="button"
+                  class="postgres-tabs__button"
+                  :class="{active: isActiveSection(database, part)}"
+                  role="tab"
+                  :aria-selected="isActiveSection(database, part)"
+                  :aria-controls="`postgresql-${databaseIndex}-panel-${part.id}`"
+                  :tabindex="isActiveSection(database, part) ? 0 : -1"
+                  @click="selectSection(database, part.id)"
+                  @keydown="handleTabKeydown($event, database, partIndex)"
+                >
+                  <span>{{ part.title }}</span>
+                  <span
+                    v-if="sectionReadable(part)"
+                    class="postgres-tabs__count"
+                    :class="{'postgres-tabs__count--partial': sectionPartial(part)}"
+                    >{{ formatNumber(part.rowCount) }}</span
                   >
-                    <td class="font-monospace">
-                      {{ relation.schema }}.{{ relation.table }}
-                      <span v-if="!relation.autovacuumEnabled" class="badge text-bg-secondary ms-1"
-                        >autovacuum off</span
-                      >
-                    </td>
-                    <td class="font-monospace text-end">{{ formatNumber(relation.deadTuples) }}</td>
-                    <td class="font-monospace text-end">{{ percent(relation.deadTupleRatio) }}</td>
-                    <td class="font-monospace text-end">{{ formatNumber(relation.vacuumThreshold) }}</td>
-                    <td class="font-monospace small">
-                      {{ since(latest(relation.lastAutoVacuum, relation.lastVacuum)) }}
-                    </td>
-                    <td class="font-monospace small">
-                      {{ since(latest(relation.lastAutoAnalyze, relation.lastAnalyze)) }}
-                    </td>
-                  </tr>
-                  <tr v-if="(database.vacuum || []).length === 0">
-                    <td class="text-muted" colspan="6">No user relation was reported for this database.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  <i
+                    v-else
+                    class="bi"
+                    :class="part.status === 'FAILED' ? 'bi-exclamation-octagon' : 'bi-slash-circle'"
+                    aria-hidden="true"
+                  ></i>
+                  <span v-if="!sectionReadable(part)" class="visually-hidden">{{
+                    part.status === 'FAILED' ? 'failed' : 'skipped'
+                  }}</span>
+                </button>
+              </li>
+            </ul>
+          </div>
 
-            <div v-else-if="part.id === 'replication' && sectionReadable(part) && database.replication">
-              <div class="row g-3 mb-2">
-                <div class="col-6 col-md-3">
-                  <div class="text-muted small">Role</div>
-                  <div class="fw-semibold font-monospace">
-                    {{ database.replication.inRecovery ? 'standby' : 'primary' }}
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="text-muted small">WAL level</div>
-                  <div class="fw-semibold font-monospace">{{ text(database.replication.walLevel) }}</div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="text-muted small">Checkpoints (timed / requested)</div>
-                  <div class="fw-semibold font-monospace">
-                    {{ formatNumber(database.replication.checkpointsTimed) }} /
-                    {{ formatNumber(database.replication.checkpointsRequested) }}
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="text-muted small">Checkpoint write time</div>
-                  <div class="fw-semibold font-monospace">
-                    {{ seconds(database.replication.checkpointWriteSeconds) }}
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="text-muted small">Slots (inactive)</div>
-                  <div class="fw-semibold font-monospace">
-                    {{ formatNumber(database.replication.replicationSlots) }} ({{
-                      formatNumber(database.replication.inactiveReplicationSlots)
-                    }})
-                  </div>
-                </div>
+          <template v-for="part in tabSections(database)" :key="part.id">
+            <div
+              v-if="isActiveSection(database, part)"
+              :id="`postgresql-${databaseIndex}-panel-${part.id}`"
+              class="card-body border-bottom"
+              role="tabpanel"
+              :aria-labelledby="`postgresql-${databaseIndex}-tab-${part.id}`"
+            >
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <h4 class="fs-6 fw-semibold mb-0">{{ part.title }}</h4>
+                <span :class="sectionStatusClass(sectionBadge(part))" class="badge">{{ sectionBadge(part) }}</span>
+                <span v-if="part.status === 'AVAILABLE'" class="text-muted small"
+                  >{{ formatNumber(part.rowCount) }} {{ pluralize(part.rowCount, 'row') }}</span
+                >
+                <span v-if="part.truncated" class="badge text-bg-warning">Truncated</span>
               </div>
-              <div v-if="(database.replication.replicas || []).length > 0" class="table-responsive">
+              <div v-if="sectionNote(part)" class="small text-muted mb-2">
+                <i class="bi bi-info-circle me-1"></i>{{ sectionNote(part) }}
+              </div>
+              <div v-if="part.hint" class="small text-muted font-monospace mb-2">
+                <i class="bi bi-lightbulb me-1"></i>{{ part.hint }}
+              </div>
+
+              <div v-if="part.id === 'sessions' && sectionReadable(part)" class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                   <thead>
                     <tr>
+                      <th scope="col">PID</th>
+                      <th scope="col">Role</th>
                       <th scope="col">Application</th>
-                      <th scope="col">Client</th>
                       <th scope="col">State</th>
-                      <th scope="col">Sync</th>
-                      <th scope="col" class="text-end">Sent lag</th>
-                      <th scope="col" class="text-end">Flush lag</th>
-                      <th scope="col" class="text-end">Replay lag</th>
+                      <th scope="col">Waiting on</th>
+                      <th scope="col">Blocked by</th>
+                      <th scope="col" class="text-end">Transaction</th>
+                      <th scope="col" class="text-end">In state</th>
+                      <th scope="col" class="text-end">Statement age</th>
+                      <th scope="col">Statement</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(replica, index) in database.replication.replicas" :key="index">
-                      <td class="font-monospace">{{ text(replica.applicationName) }}</td>
-                      <td class="font-monospace">{{ text(replica.clientAddress) }}</td>
-                      <td class="font-monospace">{{ text(replica.state) }}</td>
-                      <td class="font-monospace">{{ text(replica.syncState) }}</td>
-                      <td class="font-monospace text-end">{{ formatBytes(replica.sentLagBytes) }}</td>
-                      <td class="font-monospace text-end">{{ formatBytes(replica.flushLagBytes) }}</td>
-                      <td class="font-monospace text-end">{{ formatBytes(replica.replayLagBytes) }}</td>
+                    <tr v-for="session in database.sessions || []" :key="session.pid" :class="sessionRowClass(session)">
+                      <td class="font-monospace">{{ session.pid }}</td>
+                      <td class="font-monospace">
+                        {{ text(session.user) }}
+                        <div v-if="session.clientAddress" class="text-muted small">{{ session.clientAddress }}</div>
+                      </td>
+                      <td class="font-monospace">{{ text(session.applicationName) }}</td>
+                      <td>
+                        <span class="font-monospace">{{ text(session.state) }}</span>
+                        <i v-if="sessionBusy(session)" class="bi bi-activity ms-1" aria-hidden="true"></i>
+                      </td>
+                      <td class="font-monospace">
+                        <template v-if="session.waitEventType"
+                          >{{ session.waitEventType }}<span v-if="session.waitEvent">/{{ session.waitEvent }}</span>
+                        </template>
+                        <template v-else>—</template>
+                      </td>
+                      <td class="font-monospace">{{ text(session.blockedBy) }}</td>
+                      <td class="font-monospace text-end">{{ seconds(session.transactionSeconds) }}</td>
+                      <td class="font-monospace text-end">{{ seconds(session.stateSeconds) }}</td>
+                      <td class="font-monospace text-end">{{ seconds(session.querySeconds) }}</td>
+                      <td class="font-monospace small text-break">{{ text(session.query) }}</td>
+                    </tr>
+                    <tr v-if="(database.sessions || []).length === 0">
+                      <td class="text-muted" colspan="10">No client backend was connected at the time of the read.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div v-else class="small text-muted">No streaming replica is connected to this server.</div>
-            </div>
 
-            <div v-else-if="part.id === 'settings' && sectionReadable(part)" class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th scope="col">Setting</th>
-                    <th scope="col">Value</th>
-                    <th scope="col">Source</th>
-                    <th scope="col">Why it is shown</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="setting in database.settings || []" :key="setting.name">
-                    <td class="font-monospace">{{ setting.name }}</td>
-                    <td class="font-monospace">
-                      {{ text(setting.value) }}<span v-if="setting.unit"> {{ setting.unit }}</span>
-                    </td>
-                    <td class="font-monospace small">{{ text(setting.source) }}</td>
-                    <td class="small text-muted">{{ text(setting.note) }}</td>
-                  </tr>
-                  <tr v-if="(database.settings || []).length === 0">
-                    <td class="text-muted" colspan="4">No notable setting was reported by this server.</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div v-else-if="part.id === 'statements' && sectionReadable(part)" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Normalized statement</th>
+                      <th scope="col" class="text-end">Calls</th>
+                      <th scope="col" class="text-end">Total</th>
+                      <th scope="col" class="text-end">Mean</th>
+                      <th scope="col" class="text-end">Max</th>
+                      <th scope="col" class="text-end">Rows</th>
+                      <th scope="col" class="text-end">Cache hit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="statement in database.statements || []" :key="statement.queryId">
+                      <td class="font-monospace small text-break">{{ text(statement.query) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(statement.calls) }}</td>
+                      <td class="font-monospace text-end">{{ millis(statement.totalTimeMs) }}</td>
+                      <td class="font-monospace text-end">{{ millis(statement.meanTimeMs) }}</td>
+                      <td class="font-monospace text-end">{{ millis(statement.maxTimeMs) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(statement.rows) }}</td>
+                      <td class="font-monospace text-end">{{ percent(statement.cacheHitRatio) }}</td>
+                    </tr>
+                    <tr v-if="(database.statements || []).length === 0">
+                      <td class="text-muted" colspan="7">
+                        pg_stat_statements reported no statement for this database.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else-if="part.id === 'indexes' && sectionReadable(part)" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Index</th>
+                      <th scope="col">Table</th>
+                      <th scope="col" class="text-end">Scans</th>
+                      <th scope="col" class="text-end">Tuples read</th>
+                      <th scope="col" class="text-end">Size</th>
+                      <th scope="col">Kind</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="index in database.indexes || []" :key="`${index.schema}.${index.index}`">
+                      <td class="font-monospace">{{ index.index }}</td>
+                      <td class="font-monospace">{{ index.schema }}.{{ index.table }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(index.scans) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(index.tuplesRead) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(index.sizeBytes) }}</td>
+                      <td class="small">
+                        <span v-if="index.primaryKey" class="badge text-bg-light border text-dark me-1"
+                          >primary key</span
+                        >
+                        <span v-else-if="index.unique" class="badge text-bg-light border text-dark me-1">unique</span>
+                        <span
+                          v-if="index.constraintBacked && !index.primaryKey"
+                          class="badge text-bg-light border text-dark"
+                          >constraint</span
+                        >
+                      </td>
+                    </tr>
+                    <tr v-if="(database.indexes || []).length === 0">
+                      <td class="text-muted" colspan="6">No user index was reported for this database.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else-if="part.id === 'tables' && sectionReadable(part)" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Table</th>
+                      <th scope="col" class="text-end">Total size</th>
+                      <th scope="col" class="text-end">Heap</th>
+                      <th scope="col" class="text-end">Indexes</th>
+                      <th scope="col" class="text-end">Live rows</th>
+                      <th scope="col" class="text-end">Dead rows</th>
+                      <th scope="col" class="text-end">Seq scans</th>
+                      <th scope="col" class="text-end">Index scans</th>
+                      <th scope="col" class="text-end">Seq share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="table in database.tables || []" :key="`${table.schema}.${table.table}`">
+                      <td class="font-monospace">{{ table.schema }}.{{ table.table }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(table.totalSizeBytes) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(table.tableSizeBytes) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(table.indexSizeBytes) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(table.liveTuples) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(table.deadTuples) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(table.sequentialScans) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(table.indexScans) }}</td>
+                      <td class="font-monospace text-end">{{ percent(table.sequentialScanRatio) }}</td>
+                    </tr>
+                    <tr v-if="(database.tables || []).length === 0">
+                      <td class="text-muted" colspan="9">No user relation was reported for this database.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else-if="part.id === 'vacuum' && sectionReadable(part)" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Table</th>
+                      <th scope="col" class="text-end">Dead rows</th>
+                      <th scope="col" class="text-end">Dead share</th>
+                      <th scope="col" class="text-end">Autovacuum at</th>
+                      <th scope="col">Last vacuum</th>
+                      <th scope="col">Last analyze</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="relation in database.vacuum || []"
+                      :key="`${relation.schema}.${relation.table}`"
+                      :class="relation.vacuumDue ? 'table-warning' : ''"
+                    >
+                      <td class="font-monospace">
+                        {{ relation.schema }}.{{ relation.table }}
+                        <span v-if="!relation.autovacuumEnabled" class="badge text-bg-secondary ms-1"
+                          >autovacuum off</span
+                        >
+                      </td>
+                      <td class="font-monospace text-end">{{ formatNumber(relation.deadTuples) }}</td>
+                      <td class="font-monospace text-end">{{ percent(relation.deadTupleRatio) }}</td>
+                      <td class="font-monospace text-end">{{ formatNumber(relation.vacuumThreshold) }}</td>
+                      <td class="font-monospace small">
+                        {{ since(latest(relation.lastAutoVacuum, relation.lastVacuum)) }}
+                      </td>
+                      <td class="font-monospace small">
+                        {{ since(latest(relation.lastAutoAnalyze, relation.lastAnalyze)) }}
+                      </td>
+                    </tr>
+                    <tr v-if="(database.vacuum || []).length === 0">
+                      <td class="text-muted" colspan="6">No user relation was reported for this database.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else-if="part.id === 'replication' && sectionReadable(part) && database.replication">
+                <div class="row g-3 mb-2">
+                  <div class="col-6 col-md-3">
+                    <div class="text-muted small">Role</div>
+                    <div class="fw-semibold font-monospace">
+                      {{ database.replication.inRecovery ? 'standby' : 'primary' }}
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="text-muted small">WAL level</div>
+                    <div class="fw-semibold font-monospace">{{ text(database.replication.walLevel) }}</div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="text-muted small">Checkpoints (timed / requested)</div>
+                    <div class="fw-semibold font-monospace">
+                      {{ formatNumber(database.replication.checkpointsTimed) }} /
+                      {{ formatNumber(database.replication.checkpointsRequested) }}
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="text-muted small">Checkpoint write time</div>
+                    <div class="fw-semibold font-monospace">
+                      {{ seconds(database.replication.checkpointWriteSeconds) }}
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="text-muted small">Slots (inactive)</div>
+                    <div class="fw-semibold font-monospace">
+                      {{ formatNumber(database.replication.replicationSlots) }} ({{
+                        formatNumber(database.replication.inactiveReplicationSlots)
+                      }})
+                    </div>
+                  </div>
+                </div>
+                <div v-if="(database.replication.replicas || []).length > 0" class="table-responsive">
+                  <table class="table table-sm align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th scope="col">Application</th>
+                        <th scope="col">Client</th>
+                        <th scope="col">State</th>
+                        <th scope="col">Sync</th>
+                        <th scope="col" class="text-end">Sent lag</th>
+                        <th scope="col" class="text-end">Flush lag</th>
+                        <th scope="col" class="text-end">Replay lag</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(replica, index) in database.replication.replicas" :key="index">
+                        <td class="font-monospace">{{ text(replica.applicationName) }}</td>
+                        <td class="font-monospace">{{ text(replica.clientAddress) }}</td>
+                        <td class="font-monospace">{{ text(replica.state) }}</td>
+                        <td class="font-monospace">{{ text(replica.syncState) }}</td>
+                        <td class="font-monospace text-end">{{ formatBytes(replica.sentLagBytes) }}</td>
+                        <td class="font-monospace text-end">{{ formatBytes(replica.flushLagBytes) }}</td>
+                        <td class="font-monospace text-end">{{ formatBytes(replica.replayLagBytes) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-else class="small text-muted">No streaming replica is connected to this server.</div>
+              </div>
+
+              <div v-else-if="part.id === 'settings' && sectionReadable(part)" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Setting</th>
+                      <th scope="col">Value</th>
+                      <th scope="col">Source</th>
+                      <th scope="col">Why it is shown</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="setting in database.settings || []" :key="setting.name">
+                      <td class="font-monospace">{{ setting.name }}</td>
+                      <td class="font-monospace">
+                        {{ text(setting.value) }}<span v-if="setting.unit"> {{ setting.unit }}</span>
+                      </td>
+                      <td class="font-monospace small">{{ text(setting.source) }}</td>
+                      <td class="small text-muted">{{ text(setting.note) }}</td>
+                    </tr>
+                    <tr v-if="(database.settings || []).length === 0">
+                      <td class="text-muted" colspan="4">No notable setting was reported by this server.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </template>
 
           <div v-if="database.changes && database.changes.length" class="card-body">
             <h4 class="fs-6 fw-semibold mb-2">What changed since the previous read</h4>
@@ -778,3 +873,105 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.postgres-tabs {
+  align-items: center;
+  background: var(--bootui-surface-alt);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+  display: flex;
+  gap: 0.2rem;
+  list-style: none;
+  margin-bottom: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.22rem;
+  scrollbar-width: thin;
+  width: max-content;
+}
+
+.postgres-tabs__item {
+  flex: 0 0 auto;
+}
+
+.postgres-tabs__button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--bootui-radius-sm);
+  color: var(--bootui-text-muted);
+  display: inline-flex;
+  font-size: 0.875rem;
+  font-weight: 700;
+  gap: 0.45rem;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.postgres-tabs__button:hover:not(.active) {
+  background: var(--bootui-nav-hover-bg);
+  color: var(--bootui-nav-hover-color);
+}
+
+.postgres-tabs__button.active {
+  background: var(--bootui-nav-active-bg);
+  box-shadow: 0 0.35rem 0.8rem rgba(25, 135, 84, 0.2);
+  color: var(--bootui-nav-active-color);
+}
+
+.postgres-tabs__button:focus-visible {
+  outline: 2px solid var(--bootui-blue);
+  outline-offset: 2px;
+}
+
+.postgres-tabs__count {
+  align-items: center;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: var(--bootui-radius-pill);
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  height: 1.4rem;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0 0.3rem;
+}
+
+/* A partly read section keeps its row count, so the count itself has to say that the rows it
+   carries are not all of them. */
+.postgres-tabs__count--partial {
+  background: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
+}
+
+.postgres-tabs__button.active .postgres-tabs__count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 575.98px) {
+  .postgres-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    width: 100%;
+  }
+
+  .postgres-tabs__button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .postgres-tabs__button {
+    transition: none;
+  }
+}
+</style>

@@ -88,12 +88,24 @@ function report(overrides = {}) {
   }
 }
 
-async function mountWith(body, {status = 200} = {}) {
+async function mountWith(body, {status = 200, attachTo} = {}) {
   const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), {status})))
   vi.stubGlobal('fetch', fetchMock)
-  const wrapper = mount(PostgreSql)
+  const wrapper = mount(PostgreSql, attachTo ? {attachTo} : {})
   await flushPromises()
   return {wrapper, fetchMock}
+}
+
+function tabs(wrapper) {
+  return wrapper.findAll('[role="tab"]')
+}
+
+// Sections are tabbed, so a section other than the selected one is genuinely not rendered:
+// a test that wants its rows has to open it exactly like a reader does.
+async function openTab(wrapper, label) {
+  const tab = tabs(wrapper).find((candidate) => candidate.text().startsWith(label))
+  expect(tab, `no section tab labelled ${label}`).toBeTruthy()
+  await tab.trigger('click')
 }
 
 describe('PostgreSql', () => {
@@ -191,8 +203,11 @@ describe('PostgreSql', () => {
     expect(text).toContain('12.5 s')
     expect(text).toContain('Temporary files')
     expect(text).toContain('Temporary bytes')
-    expect(text).toContain('Checkpoint write time')
-    expect(text).toContain('6.5 s')
+
+    await openTab(wrapper, 'Replication')
+
+    expect(wrapper.text()).toContain('Checkpoint write time')
+    expect(wrapper.text()).toContain('6.5 s')
   })
 
   it('renders the statement, index, table and settings tables from the read', async () => {
@@ -253,8 +268,14 @@ describe('PostgreSql', () => {
     )
 
     expect(wrapper.text()).toContain('select * from orders')
+
+    await openTab(wrapper, 'Index usage')
     expect(wrapper.text()).toContain('orders_customer_idx')
+
+    await openTab(wrapper, 'Table access')
     expect(wrapper.text()).toContain('public.orders')
+
+    await openTab(wrapper, 'Settings')
     expect(wrapper.text()).toContain('work_mem')
     expect(wrapper.text()).toContain('Per-sort memory')
   })
@@ -299,7 +320,128 @@ describe('PostgreSql', () => {
 
     expect(wrapper.text()).toContain('PARTIAL')
     expect(wrapper.text()).toContain('pg_stat_activity hides the state of other backends')
+
+    await openTab(wrapper, 'Table access')
     expect(wrapper.text()).toContain('A row bound was reached')
+  })
+
+  it('shows one section at a time, keeping the vital signs and the other tabs in view', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('vital-signs', 'Vital signs', 'AVAILABLE', {rowCount: 1}),
+              section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 1}),
+              section('settings', 'Settings', 'AVAILABLE', {rowCount: 1})
+            ],
+            sessions: [session()],
+            settings: [{name: 'work_mem', value: '4', unit: 'MB', source: 'default', note: 'Per-sort memory'}]
+          })
+        ]
+      })
+    )
+
+    // Vital signs stay pinned above the tabs, so they are never one of them.
+    expect(tabs(wrapper).map((tab) => tab.text().replace(/\s+/g, ' ').trim())).toEqual(['Sessions1', 'Settings1'])
+    expect(wrapper.text()).toContain('Cache hit ratio')
+    expect(wrapper.findAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('sample-app')
+    expect(wrapper.text()).not.toContain('work_mem')
+
+    await openTab(wrapper, 'Settings')
+
+    expect(wrapper.findAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('work_mem')
+    expect(wrapper.text()).not.toContain('sample-app')
+    expect(wrapper.text()).toContain('Cache hit ratio')
+  })
+
+  it('marks exactly one section tab as selected and keeps the others out of the tab order', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 0}),
+              section('settings', 'Settings', 'AVAILABLE', {rowCount: 0})
+            ]
+          })
+        ]
+      })
+    )
+
+    const selected = tabs(wrapper).filter((tab) => tab.attributes('aria-selected') === 'true')
+    expect(selected).toHaveLength(1)
+    expect(selected[0].text()).toContain('Sessions')
+    expect(tabs(wrapper).map((tab) => tab.attributes('tabindex'))).toEqual(['0', '-1'])
+    const panel = wrapper.find('[role="tabpanel"]')
+    expect(panel.attributes('aria-labelledby')).toBe(selected[0].attributes('id'))
+    expect(panel.attributes('id')).toBe(selected[0].attributes('aria-controls'))
+  })
+
+  it('moves between section tabs with the arrow keys', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 0}),
+              section('settings', 'Settings', 'AVAILABLE', {rowCount: 0})
+            ],
+            settings: [{name: 'work_mem', value: '4', unit: 'MB', source: 'default', note: 'Per-sort memory'}]
+          })
+        ]
+      }),
+      {attachTo: document.body}
+    )
+
+    await tabs(wrapper)[0].trigger('keydown', {key: 'ArrowRight'})
+
+    expect(tabs(wrapper)[1].attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(tabs(wrapper)[1].element)
+    expect(wrapper.text()).toContain('work_mem')
+
+    await tabs(wrapper)[1].trigger('keydown', {key: 'ArrowRight'})
+
+    // The list wraps rather than trapping the reader at its end.
+    expect(tabs(wrapper)[0].attributes('aria-selected')).toBe('true')
+
+    wrapper.unmount()
+  })
+
+  it('falls back to the first section when a later read no longer reports the selected one', async () => {
+    const first = report({
+      databases: [
+        database({
+          sections: [
+            section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 0}),
+            section('statements', 'Statement ranking', 'AVAILABLE', {rowCount: 0})
+          ]
+        })
+      ]
+    })
+    // A second read where pg_stat_statements is gone must not leave the card with no panel at all.
+    const second = report({
+      databases: [database({sections: [section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 0})]})]
+    })
+    const bodies = [first, second]
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify(bodies.shift() ?? second), {status: 200}))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(PostgreSql)
+    await flushPromises()
+
+    await openTab(wrapper, 'Statement ranking')
+    expect(wrapper.find('[role="tabpanel"]').attributes('id')).toContain('statements')
+
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(tabs(wrapper)).toHaveLength(1)
+    expect(wrapper.findAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(wrapper.find('[role="tabpanel"]').attributes('id')).toContain('sessions')
   })
 
   it('presents a failed read as a failure rather than an empty database', async () => {

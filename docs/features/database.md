@@ -31,8 +31,11 @@ The PostgreSQL panel is a runtime view of the application's own PostgreSQL datab
 report about this database right now?" and shows the answer as tables you read yourself: the live session snapshot, the
 vital signs (cache hit ratio, rollbacks, connections, transaction-id age, database size, deadlocks), the top normalized
 statements, index usage, relation size and access shape, autovacuum state, replication and WAL, and a curated set of
-operational settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL
-until you click **Run PostgreSQL read**.
+operational settings. Each datasource is one card: its vital signs stay in view, and the other sections are tabs, so
+reading a section never means scrolling past the ones before it. Each tab carries its row count, or a skipped/failed
+marker when the section could not be read, so the state of the sections you are not looking at is still visible. The
+read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL until you click
+**Run PostgreSQL read**.
 
 It grades nothing. There is no rule catalogue, no severity, and no score here — the panel reports the server's own
 numbers, names every section it could not read, and leaves the judgement to you. Sections that could not be read are
