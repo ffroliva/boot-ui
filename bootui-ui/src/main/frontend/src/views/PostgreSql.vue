@@ -882,15 +882,15 @@ onMounted(async () => {
   border-radius: var(--bootui-radius-md);
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
   display: flex;
+  /* Eight sections with descriptive titles do not fit one row on a laptop, and a horizontally
+     scrolled strip would hide the very sections the tabs exist to expose. */
+  flex-wrap: wrap;
   gap: 0.2rem;
   list-style: none;
   margin-bottom: 0;
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
   padding: 0.22rem;
-  scrollbar-width: thin;
-  width: max-content;
+  width: 100%;
 }
 
 .postgres-tabs__item {
@@ -960,8 +960,6 @@ onMounted(async () => {
   .postgres-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: visible;
-    width: 100%;
   }
 
   .postgres-tabs__button {

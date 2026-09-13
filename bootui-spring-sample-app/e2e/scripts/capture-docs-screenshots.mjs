@@ -5850,6 +5850,8 @@ const screenshots = [
     'bootui-postgresql.webp',
     async (page) => {
       await page.getByText('idle in transaction').first().waitFor()
+      // Sections are tabs, so the index rows only exist once their tab is the selected one.
+      await page.getByRole('tab', {name: /^Index usage/}).click()
       await page.getByText('orders_customer_created_idx').waitFor()
     }
   ],
