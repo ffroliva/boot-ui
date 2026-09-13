@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopContext;
@@ -35,6 +37,9 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.repository.NoRepositoryBean;
+import org.springframework.data.repository.RepositoryDefinition;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -291,11 +296,87 @@ class ArchitectureRulesTests {
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-SPRING-009");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
         assertThat(result.violationCount()).isEqualTo(2);
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("TransactionalInterface"));
         assertThat(result.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("TransactionalMethodInterface"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            classes = {
+                TransactionalSpringDataRepository.class,
+                JakartaTransactionalSpringDataRepository.class,
+                TransactionalSpringDataCrudRepository.class,
+                SpringDataBaseRepository.class,
+                IndirectTransactionalSpringDataRepository.class,
+                DefinedTransactionalSpringDataRepository.class,
+                JakartaDefinedTransactionalSpringDataRepository.class,
+                InheritedDefinedTransactionalSpringDataRepository.class,
+                ComposedDefinedTransactionalSpringDataRepository.class,
+                InheritedComposedDefinedTransactionalSpringDataRepository.class
+            })
+    void transactionalAnnotationsOnSpringDataRepositoryInterfacesAreSupported(Class<?> repositoryType) {
+        ArchitectureRuleResultDto result =
+                evaluate(new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(), repositoryType);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).isEmpty();
+    }
+
+    @Test
+    void springDataRepositoriesDoNotHideOrdinaryTransactionalInterfaceFindings() {
+        ArchitectureRuleResultDto result = evaluate(
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
+                TransactionalSpringDataRepository.class,
+                DefinedTransactionalSpringDataRepository.class,
+                TransactionalInterface.class,
+                TransactionalMethodInterface.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations())
+                .containsExactlyInAnyOrder(
+                        "Interface " + TransactionalInterface.class.getName() + " is annotated with @Transactional",
+                        "Interface method " + TransactionalMethodInterface.class.getName()
+                                + ".save() is annotated with @Transactional");
+    }
+
+    @Test
+    void repositoryNamesAndStereotypesDoNotExemptOrdinaryTransactionalInterfaces() {
+        ArchitectureRuleResultDto result = evaluate(
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
+                TransactionalLookalikeRepository.class,
+                TransactionalStereotypeRepository.class,
+                JakartaTransactionalInterface.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .containsExactlyInAnyOrder(
+                        "Interface " + TransactionalLookalikeRepository.class.getName()
+                                + " is annotated with @Transactional",
+                        "Interface method " + TransactionalStereotypeRepository.class.getName()
+                                + ".save() is annotated with @Transactional",
+                        "Interface " + JakartaTransactionalInterface.class.getName()
+                                + " is annotated with @Transactional",
+                        "Interface method " + JakartaTransactionalInterface.class.getName()
+                                + ".save() is annotated with @Transactional");
+    }
+
+    @Test
+    void springDataRepositoryExemptionDoesNotChangeQuarkusInterfaceChecks() {
+        JavaClasses classes = new ClassFileImporter().importClasses(JakartaTransactionalSpringDataRepository.class);
+        ArchitectureRuleResultDto result = new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule()
+                .evaluate(new ArchitectureContext(
+                        classes, List.of(getClass().getPackageName()), ArchitecturePlatform.QUARKUS));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(2);
     }
 
     @Test
@@ -1091,6 +1172,100 @@ class ArchitectureRulesTests {
     private interface TransactionalMethodInterface {
 
         @Transactional
+        void save();
+    }
+
+    @Transactional(readOnly = true)
+    private interface TransactionalSpringDataRepository
+            extends org.springframework.data.repository.Repository<Object, Long> {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        int expireIfDueInOwnTransaction(Long id);
+    }
+
+    @jakarta.transaction.Transactional
+    private interface JakartaTransactionalSpringDataRepository
+            extends org.springframework.data.repository.Repository<Object, Long> {
+
+        @jakarta.transaction.Transactional(jakarta.transaction.Transactional.TxType.REQUIRES_NEW)
+        int expireIfDueInOwnTransaction(Long id);
+    }
+
+    private interface TransactionalSpringDataCrudRepository extends CrudRepository<Object, Long> {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        int expireIfDueInOwnTransaction(Long id);
+    }
+
+    @NoRepositoryBean
+    @Transactional
+    private interface SpringDataBaseRepository<T, ID> extends CrudRepository<T, ID> {}
+
+    private interface IndirectTransactionalSpringDataRepository extends SpringDataBaseRepository<Object, Long> {
+
+        @Transactional
+        void saveInTransaction();
+    }
+
+    @RepositoryDefinition(domainClass = Object.class, idClass = Long.class)
+    @Transactional(readOnly = true)
+    private interface DefinedTransactionalSpringDataRepository {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        int expireIfDueInOwnTransaction(Long id);
+    }
+
+    @RepositoryDefinition(domainClass = Object.class, idClass = Long.class)
+    @jakarta.transaction.Transactional
+    private interface JakartaDefinedTransactionalSpringDataRepository {
+
+        @jakarta.transaction.Transactional
+        void save();
+    }
+
+    @Transactional
+    private interface InheritedDefinedTransactionalSpringDataRepository
+            extends DefinedTransactionalSpringDataRepository {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        void saveInNewTransaction();
+    }
+
+    @Target(ElementType.TYPE)
+    @Retention(RetentionPolicy.RUNTIME)
+    @RepositoryDefinition(domainClass = Object.class, idClass = Long.class)
+    private @interface ComposedRepositoryDefinition {}
+
+    @ComposedRepositoryDefinition
+    @Transactional
+    private interface ComposedDefinedTransactionalSpringDataRepository {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        void saveInNewTransaction();
+    }
+
+    @jakarta.transaction.Transactional
+    private interface InheritedComposedDefinedTransactionalSpringDataRepository
+            extends ComposedDefinedTransactionalSpringDataRepository {
+
+        @jakarta.transaction.Transactional
+        void save();
+    }
+
+    @Transactional
+    private interface TransactionalLookalikeRepository {}
+
+    @Repository
+    private interface TransactionalStereotypeRepository {
+
+        @Transactional
+        void save();
+    }
+
+    @jakarta.transaction.Transactional
+    private interface JakartaTransactionalInterface {
+
+        @jakarta.transaction.Transactional
         void save();
     }
 

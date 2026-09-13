@@ -465,10 +465,22 @@ Dismissed rules remove all of their instances from the score.
 
 - **Severity**: MEDIUM
 - **Inspects**: Spring or Jakarta `@Transactional` annotations on interfaces and interface methods.
-- **Fires when**: an interface or one of its methods declares transaction metadata.
+- **Fires when**: a non-exempt interface or one of its methods declares transaction metadata.
+- **Spring Data exception**: on Spring, interfaces extending `org.springframework.data.repository.Repository`
+  (directly or through interfaces such as `CrudRepository`, `JpaRepository`, or application-owned base repositories)
+  and interfaces carrying `@RepositoryDefinition` (directly, through a composed annotation, or via a superinterface)
+  are exempt. Spring Data's repository proxies read transaction declarations from these interfaces, including
+  interface-level defaults and method-level overrides such as
+  `@Transactional(propagation = REQUIRES_NEW)`. The exemption does not require `@Query` or `@Modifying`; it applies to
+  supported repository declarations generally. A repository-like name or the `@Repository` stereotype alone does not
+  establish a Spring Data repository. Custom fragment interfaces without either marker remain subject to the
+  ordinary-interface guidance.
 - **Why it matters**: Spring recommends annotating concrete classes or methods because interface-declared annotations can
-  behave differently across proxy modes and may be silently ignored with AspectJ weaving.
-- **Recommendation**: move transaction annotations to concrete implementation classes or methods.
+  behave differently across proxy modes and may be silently ignored with AspectJ weaving. Spring Data repositories are a
+  documented exception, not an instruction to move annotations to an application implementation that may not exist.
+- **Recommendation**: move transaction annotations on ordinary interfaces to concrete implementation classes or methods.
+  Keep supported Spring Data repository declarations on the interface; see
+  [Transactional query methods](https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html#transactional-query-methods).
 
 ### ARCH-SPRING-010 - Proxy-driven methods should be interceptable
 

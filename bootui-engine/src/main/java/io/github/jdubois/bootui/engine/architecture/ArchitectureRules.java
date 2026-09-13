@@ -1155,7 +1155,8 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
 
 /**
  * Flags transaction annotations on interfaces, which Spring recommends avoiding because behaviour
- * differs between proxy modes and can be silently ignored with AspectJ weaving.
+ * differs between proxy modes and can be silently ignored with AspectJ weaving. Spring Data repository
+ * interfaces are exempt on Spring because its repository proxies read their transaction declarations.
  */
 final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends AbstractArchitectureRule {
 
@@ -1166,9 +1167,11 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                         "Transactional annotations should not be declared on interfaces",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Transactional on interfaces or interface methods.",
+                        "Detects @Transactional on interfaces or interface methods, excluding Spring Data repositories"
+                                + " on Spring.",
                         "Declare transaction semantics on concrete implementation classes or methods so proxy and"
-                                + " weaving modes behave consistently.",
+                                + " weaving modes behave consistently. Spring Data repository interfaces are supported"
+                                + " transaction declaration sites.",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
@@ -1178,7 +1181,9 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                 .should(new ArchCondition<JavaClass>("not declare @Transactional on interfaces") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (!javaClass.isInterface()) {
+                        if (!javaClass.isInterface()
+                                || (context.platform() == ArchitecturePlatform.SPRING
+                                        && isSpringDataRepository(javaClass))) {
                             return;
                         }
                         context.evidence().observed();
@@ -1198,6 +1203,17 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                     }
                 })
                 .as("Transactional annotations should not be declared on interfaces");
+    }
+
+    private static boolean isSpringDataRepository(JavaClass javaClass) {
+        return javaClass.isAssignableTo("org.springframework.data.repository.Repository")
+                || hasRepositoryDefinition(javaClass)
+                || javaClass.getAllRawInterfaces().stream()
+                        .anyMatch(TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule::hasRepositoryDefinition);
+    }
+
+    private static boolean hasRepositoryDefinition(JavaClass javaClass) {
+        return javaClass.isMetaAnnotatedWith("org.springframework.data.repository.RepositoryDefinition");
     }
 
     private static boolean hasTransactionalAnnotation(CanBeAnnotated annotated) {

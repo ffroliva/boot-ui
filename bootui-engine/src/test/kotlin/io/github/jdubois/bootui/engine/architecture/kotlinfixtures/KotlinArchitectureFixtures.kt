@@ -1,9 +1,13 @@
 package io.github.jdubois.bootui.engine.architecture.kotlinfixtures
 
+import java.time.Instant
+import java.util.UUID
 import org.slf4j.LoggerFactory
+import org.springframework.data.repository.CrudRepository
 import org.springframework.scheduling.annotation.Async
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 
 /**
@@ -22,6 +26,19 @@ fun parseOrderId(reference: String): Long = reference.removePrefix("ORD-").toLon
 
 /** Data class: `component1`, `component2`, `copy` and `copy$default` are generated, not written. */
 data class KotlinOrder(val id: Long, val customer: String)
+
+data class KotlinCart(val id: UUID)
+
+@Transactional(readOnly = true)
+interface KotlinCartRepository : CrudRepository<KotlinCart, UUID> {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun expireIfDueInOwnTransaction(id: UUID, now: Instant): Int
+}
+
+interface KotlinCartOperations {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun expireIfDueInOwnTransaction(id: UUID, now: Instant): Int
+}
 
 /** Ordinary class with a hand-written `copy`: it must stay visible to the rules. */
 class KotlinOrderDraft(val customer: String) {
