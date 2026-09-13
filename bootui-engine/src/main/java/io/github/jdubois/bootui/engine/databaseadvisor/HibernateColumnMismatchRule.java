@@ -14,6 +14,7 @@ final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceR
                 DatabaseAdvisorCategory.HIBERNATE_MAPPING,
                 DatabaseAdvisorRuleSupport.MEDIUM,
                 "Compares @Column(nullable=false) with known nullable physical columns resolved by declaration name. "
+                        + "Views and materialized views are outside this constraint check. "
                         + "Default-valued nullable=true is unknown, and Java type families are not JDBC mapping evidence.",
                 "Review the nondefault DDL declaration against the observed column and intended constraint. "
                         + "Annotation names may be transformed by a physical naming strategy; confirm the effective "
@@ -24,6 +25,11 @@ final class HibernateColumnMismatchRule extends AbstractHibernateCrossReferenceR
     @Override
     boolean hasApplicableDeclarations(MappedEntityFacts entity) {
         return entity.columns().stream().anyMatch(column -> Boolean.FALSE.equals(column.nullable()));
+    }
+
+    @Override
+    boolean supportsRelation(TableModel table) {
+        return !"VIEW".equalsIgnoreCase(table.type()) && !"MATERIALIZED VIEW".equalsIgnoreCase(table.type());
     }
 
     @Override

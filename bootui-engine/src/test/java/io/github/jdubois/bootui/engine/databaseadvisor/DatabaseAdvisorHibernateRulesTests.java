@@ -22,6 +22,9 @@ import java.sql.Types;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Hibernate ↔ physical schema cross-reference rules (DB-HIB-001..007). */
 class DatabaseAdvisorHibernateRulesTests {
@@ -159,6 +162,145 @@ class DatabaseAdvisorHibernateRulesTests {
                         .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(users)), entity))
                         .status())
                 .isEqualTo(SKIPPED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW", "view", "materialized view"})
+    void hibernateColumnMismatchRuleSkipsViewsWithoutLosingRelationOrColumnResolution(String type) {
+        TableModel view = nullableRelation("users", type);
+        MappedEntityFacts mapped = nonNullableEmail("User", "users");
+        DatabaseAdvisorContext context = hibernateContext(schema("ds", Dialect.GENERIC, List.of(view)), mapped);
+
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(SKIPPED);
+        assertThat(result.violationCount()).isZero();
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+        assertThat(new HibernateMissingTableRule().evaluate(context).status()).isEqualTo(PASS);
+        assertThat(new HibernateMissingColumnRule().evaluate(context).status()).isEqualTo(PASS);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"TABLE", "PARTITIONED TABLE", "BASE TABLE", "table", "partitioned table"})
+    void hibernateColumnMismatchRulePreservesNonViewComparisons(String type) {
+        DatabaseAdvisorContext context = hibernateContext(
+                schema("ds", Dialect.GENERIC, List.of(nullableRelation("users", type))),
+                nonNullableEmail("User", "users"));
+
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations()).singleElement().asString().contains("User#email", "public.users.email");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW"})
+    void hibernateColumnMismatchRuleRetainsTableFindingsAlongsideViews(String type) {
+        DatabaseAdvisorContext context = hibernateContext(
+                List.of(schema(
+                        "ds",
+                        Dialect.GENERIC,
+                        List.of(nullableRelation("users", "TABLE"), nullableRelation("profiles", type)))),
+                List.of(nonNullableEmail("User", "users"), nonNullableEmail("Profile", "profiles")));
+
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("User#email")
+                .doesNotContain("Profile");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW"})
+    void hibernateColumnMismatchRuleSkipsSecondaryViewsWithoutHidingPrimaryTableFindings(String type) {
+        MappedEntityFacts mapped = new MappedEntityFacts(
+                "User",
+                "users",
+                null,
+                null,
+                List.of(),
+                List.of(
+                        new MappedColumnFacts("User#email", "email", false, "String"),
+                        new MappedColumnFacts(
+                                "User#profileEmail", "email", false, "String", null, false, false, false, "profiles")),
+                List.of(),
+                List.of(new MappedSecondaryTableFacts("profiles", null, null)));
+        DatabaseAdvisorContext context = hibernateContext(
+                schema(
+                        "ds",
+                        Dialect.GENERIC,
+                        List.of(nullableRelation("users", "TABLE"), nullableRelation("profiles", type))),
+                mapped);
+
+        DatabaseAdvisorRuleResultDto result = new HibernateColumnMismatchRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("User#email")
+                .doesNotContain("profileEmail");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void hibernateColumnMismatchRulePreservesMatchingAndUnknownTableNullability() {
+        TableModel users = table(
+                "users", List.of(notNullColumn("email", "varchar", Types.VARCHAR)), List.of(), List.of(), List.of());
+        MappedEntityFacts mapped = nonNullableEmail("User", "users");
+        assertThat(new HibernateColumnMismatchRule()
+                        .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(users)), mapped))
+                        .status())
+                .isEqualTo(PASS);
+
+        TableModel unknown = table(
+                "users",
+                List.of(new ColumnModel(
+                        "email", "varchar", Types.VARCHAR, ColumnModel.Nullability.UNKNOWN, null, null, false)),
+                List.of(),
+                List.of(),
+                List.of());
+        DatabaseAdvisorContext context = hibernateContext(schema("ds", Dialect.GENERIC, List.of(unknown)), mapped);
+        assertThat(new HibernateColumnMismatchRule().evaluate(context).status()).isEqualTo(SKIPPED);
+        assertThat(context.evaluationDiagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo(SchemaDiagnostic.WARNING);
+            assertThat(diagnostic.message()).contains("physical nullability is unknown");
+        });
+    }
+
+    private static MappedEntityFacts nonNullableEmail(String entityName, String tableName) {
+        return entity(
+                entityName,
+                tableName,
+                List.of(),
+                List.of(new MappedColumnFacts(entityName + "#email", "email", false, "String")),
+                List.of());
+    }
+
+    private static TableModel nullableRelation(String name, String type) {
+        return new TableModel(
+                "app",
+                "public",
+                name,
+                type,
+                List.of(column("email", "varchar", Types.VARCHAR)),
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                false,
+                false,
+                TableMetadata.COMPLETE);
     }
 
     // --- DB-HIB-004: mapped length longer than the physical column ---

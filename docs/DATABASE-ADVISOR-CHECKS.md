@@ -302,6 +302,12 @@ relation type, privileges, migration and persistence-unit/datasource assignment 
 ### DB-HIB-003 - Mapped column type/nullability mismatch
 
 **MEDIUM.** Retains supported nondefault `nullable=false` comparison with known physical nullability.
+Relations reported by JDBC as `VIEW` or `MATERIALIZED VIEW`, including secondary views, are excluded:
+a view's reported nullable column does not establish a missing physical NOT NULL constraint.
+Views remain available for relation-name and column-name checks. When only view columns would be
+compared, this rule is `SKIPPED` with an informational diagnostic, not a finding or a passing check;
+ordinary table mismatches in the same scan are still reported. Entity annotations such as `@Immutable`
+do not exempt a physical table from the comparison.
 Default-valued true does not establish explicit intent. Raw Java type family no longer proves an effective
 JDBC type mismatch: converters, Boolean/UUID emulation and custom types are valid.
 Review declarations and actual column constraints, not a guessed Java-to-SQL representation.
