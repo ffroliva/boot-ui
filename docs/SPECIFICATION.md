@@ -864,7 +864,11 @@ Features:
   target. False/empty means no candidate was established, not that the dependency is unaffected or no upstream fix
   exists. Candidates do not guarantee compatibility, artifact publication, or reachability remediation.
 - Report provider coverage separately from scan completion. Spring enumerates conventional/manifest-selected nested
-  libraries or classpath JARs and attributes names to coordinates. Report unidentified names as `INCOMPLETE` with exact
+  libraries or JARs from `java.class.path` and local application-classloader URLs, and attributes names to coordinates.
+  This includes MVC and WebFlux applications extracted with `jarmode=tools extract --layers --launcher`, with layers
+  merged and launched through `JarLauncher`; the dependency JARs need not appear in `java.class.path`.
+  Archive counts remain separate from SBOM component totals and completed OSV queries. An SBOM alone never changes
+  an unobservable archive census to `COMPLETE`. Report unidentified names as `INCOMPLETE` with exact
   reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. `COMPLETE` describes
   the provider's reported identification, not independently verified runtime completeness: filename attribution and
   Quarkus missing/malformed model overclaims remain deferred below.
