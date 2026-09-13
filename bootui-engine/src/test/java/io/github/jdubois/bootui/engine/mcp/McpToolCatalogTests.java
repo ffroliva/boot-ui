@@ -13,10 +13,25 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(78);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(78);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(77);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(62);
+        assertThat(McpToolCatalog.entries()).hasSize(85);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(85);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(84);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(69);
+    }
+
+    @Test
+    void everyAdvisorDetailToolIsAReadOnTheSameStacksAndPanelAsItsReport() {
+        for (String advisor :
+                List.of("architecture", "hibernate", "spring", "rest_api", "memory", "security", "database_advisor")) {
+            McpToolCatalog.Entry details =
+                    McpToolCatalog.byName("get_" + advisor + "_rule_violations").orElseThrow();
+            McpToolCatalog.Entry report =
+                    McpToolCatalog.byName("get_" + advisor + "_report").orElseThrow();
+            assertThat(details.schema()).isEqualTo(McpToolSchema.RULE_VIOLATIONS);
+            assertThat(details.action()).isFalse();
+            assertThat(details.panelId()).isEqualTo(report.panelId());
+            assertThat(details.stacks()).isEqualTo(report.stacks());
+        }
     }
 
     @Test

@@ -1,5 +1,10 @@
 # Quarkus checks
 
+The application advisor keeps its twenty-entry `sampleViolations` preview and full `violationCount`.
+**View violations** and `GET <api>/spring/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded,
+sanitized details retained by the same scan without invoking application beans. Retention truncation is separate
+from evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Quarkus application advisor is the Quarkus flavor of the shared **Spring** panel:
 the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and the shared
 `SpringReport` JSON and dismissal contract are unchanged. It is separate from the

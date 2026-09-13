@@ -26,6 +26,58 @@ class ReactiveSecurityScannerTests {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
+    void allCorsViolationsRemainAvailableWithoutChangingSamplesOrRefreshingObservations() {
+        List<CorsConfigObservation> cors = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(index -> new CorsConfigObservation(
+                        "/resource-" + index + "/**", List.of("*"), List.of(), List.of(), List.of(), false))
+                .toList();
+        var baseline = minimalObservation();
+        var observation = new ReactiveSecurityObservation(
+                baseline.chains(), cors, true, List.of(), List.of(), List.of(), baseline.environment(), List.of());
+        var context = ReactiveSecurityContext.from(observation);
+        List<String> expected = cors.stream()
+                .map(config -> "CORS config for pattern '" + config.pattern() + "' uses wildcard origins. "
+                        + "Confirm these resources are intended for public noncredentialed sharing.")
+                .map(ReactiveSecuritySupport::detail)
+                .toList();
+        AtomicInteger collections = new AtomicInteger();
+        ReactiveSecurityScanner scanner = ReactiveSecurityScanner.using(
+                () -> {
+                    collections.incrementAndGet();
+                    return observation;
+                },
+                CLOCK);
+        SecurityReport report = scanner.scan();
+        String id = "SEC-RXF-CORS-001";
+        String scanId = report.violationDetails().scanId();
+        var finding = new ReactiveCorsWildcardOriginRule().evaluate(context);
+        assertThat(report.results()).contains(finding);
+        assertThat(finding.violationCount()).isEqualTo(16);
+        assertThat(finding.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+        assertThat(scanner.ruleViolations(id, scanId, 0, 11).violations())
+                .containsExactlyElementsOf(expected.subList(0, 11));
+        var last = scanner.ruleViolations(id, scanId, 11, 11);
+        assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+        assertThat(last.page().hasMore()).isFalse();
+        assertThat(last.truncated()).isFalse();
+        assertThat(scanner.applyDismissals(report, Set.of(id)).violationDetails())
+                .isEqualTo(report.violationDetails());
+        assertThat(scanner.lastReport()).isSameAs(report);
+        assertThat(collections).hasValue(1);
+
+        scanner.setViolationRetentionLimit(() -> 7);
+        SecurityReport bounded = scanner.scan();
+        assertThat(bounded.results()).isEqualTo(report.results());
+        assertThat(bounded.evidence()).isEqualTo(report.evidence());
+        assertThat(bounded.violationDetails().total())
+                .isEqualTo(report.violationDetails().total());
+        assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+        assertThat(scanner.ruleViolations(id, bounded.violationDetails().scanId(), 0, null)
+                        .truncated())
+                .isTrue();
+    }
+
+    @Test
     void corsEvaluatorOwnsZeroTargetCompletedAndMissingEvidenceOutcomes() {
         ReactiveSecurityContext empty =
                 new ReactiveSecurityContext(List.of(), List.of(), true, ReactiveSecurityEnvironmentSnapshot.empty());

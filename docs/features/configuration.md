@@ -1,5 +1,10 @@
 # Configuration
 
+For advisor detail retention, configure the positive `bootui.advisors.max-retained-violations` setting (default
+`10000`, per advisor's latest scan). Changing the limit does not expand an existing snapshot: recovery of omitted
+details requires an explicit new scan. Counts and compact samples remain unchanged. See the
+[property reference](../PROPERTIES.md#advisor-violation-retention).
+
 ## Configuration
 
 ![BootUI Configuration panel](../images/bootui-configuration.webp)

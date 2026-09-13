@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -54,6 +55,17 @@ final class SecurityRuleSupport {
     static SecurityRuleResultDto violation(
             SecurityRuleDefinition definition, String severityOverride, List<String> details) {
         return result(definition, VIOLATION, severityOverride, details.size(), samples(details));
+    }
+
+    static SecurityRuleResultDto violation(
+            SecurityRuleDefinition definition,
+            String severityOverride,
+            List<String> details,
+            AdvisorViolationCollector collector) {
+        if (collector != null) {
+            collector.record(definition.id(), details.size(), details, SecurityRuleSupport::detail);
+        }
+        return violation(definition, severityOverride, details);
     }
 
     static SecurityRuleResultDto result(

@@ -1,18 +1,22 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.core.env.Environment;
@@ -32,6 +36,7 @@ final class SpringScanner {
     private final Supplier<SpringContext> contextSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<SpringReport> scanState = new AdvisorScanState<>(SpringReport::withViolationDetails);
 
     SpringScanner(ConfigurableListableBeanFactory beanFactory, Environment environment, boolean reactive, Clock clock) {
         this(() -> SpringInventory.discover(beanFactory, environment, reactive), clock);
@@ -57,10 +62,25 @@ final class SpringScanner {
     }
 
     SpringReport scan() {
-        return singleFlight.run(ActionOperations.SPRING_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.SPRING_SCAN, () -> {
+            AdvisorViolationCollector collector = scanState.collector();
+            return scanState.publish(doScan(collector), collector);
+        });
     }
 
-    private SpringReport doScan() {
+    SpringReport lastReport() {
+        return scanState.currentReport(this::initialReport);
+    }
+
+    AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanState.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    void setViolationRetentionLimit(IntSupplier limit) {
+        scanState.setRetentionLimit(limit);
+    }
+
+    private SpringReport doScan(AdvisorViolationCollector collector) {
         SpringContext context;
         try {
             context = contextSupplier.get();
@@ -82,9 +102,10 @@ final class SpringScanner {
                     0,
                     List.of());
         }
+        SpringContext evaluationContext = context.withViolationCollector(collector);
         context.observations().evaluation().reset();
         List<SpringRuleResultDto> results = SpringRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
+                .map(rule -> rule.evaluate(evaluationContext))
                 .toList();
         List<String> inspected = new ArrayList<>();
         inspected.add("Bean definitions: " + context.beanDefinitionCount() + "; bounded, non-eager metadata only.");
@@ -165,24 +186,25 @@ final class SpringScanner {
                 marked.stream().filter(result -> !result.dismissed()).toList();
         SpringScanStatusDto scan = report.scan();
         return new SpringReport(
-                report.localOnly(),
-                report.disclaimer(),
-                report.inspected(),
-                report.componentsAnalyzed(),
-                report.rulesEvaluated(),
-                active.size(),
-                severityCounts(active),
-                new SpringScanStatusDto(
-                        scan.analyzer(),
-                        scan.status(),
-                        scan.message(),
-                        scan.scannedAt(),
-                        scan.rulesEvaluated(),
-                        scan.componentsAnalyzed(),
-                        active.size()),
-                marked,
-                report.analysisErrors(),
-                report.evidence());
+                        report.localOnly(),
+                        report.disclaimer(),
+                        report.inspected(),
+                        report.componentsAnalyzed(),
+                        report.rulesEvaluated(),
+                        active.size(),
+                        severityCounts(active),
+                        new SpringScanStatusDto(
+                                scan.analyzer(),
+                                scan.status(),
+                                scan.message(),
+                                scan.scannedAt(),
+                                scan.rulesEvaluated(),
+                                scan.componentsAnalyzed(),
+                                active.size()),
+                        marked,
+                        report.analysisErrors(),
+                        report.evidence())
+                .withViolationDetails(report.violationDetails());
     }
 
     static List<SpringRuleResultDto> analysisErrors(List<SpringRuleResultDto> results) {

@@ -173,8 +173,10 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    MemoryScanner bootUiMemoryScanner(ThreadDumpService threadDumpService) {
-        return MemoryScanner.create(threadDumpService, Clock.systemUTC());
+    MemoryScanner bootUiMemoryScanner(ThreadDumpService threadDumpService, BootUiProperties properties) {
+        MemoryScanner scanner = MemoryScanner.create(threadDumpService, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        return scanner;
     }
 
     @Bean
@@ -189,11 +191,14 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    ArchitectureScanner bootUiArchitectureScanner(BasePackageProvider basePackageProvider) {
+    ArchitectureScanner bootUiArchitectureScanner(
+            BasePackageProvider basePackageProvider, BootUiProperties properties) {
         // Live policy: base packages are re-read on every scan via the BasePackageProvider SPI, and the
         // ArchUnit classpath import runs only on demand (POST /scan), never at bean construction.
-        return ArchitectureScanner.usingClasspath(
+        ArchitectureScanner scanner = ArchitectureScanner.usingClasspath(
                 basePackageProvider::basePackages, ArchitecturePlatform.SPRING, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        return scanner;
     }
 
     @Bean
@@ -202,13 +207,14 @@ public class BootUiEngineConfiguration {
     DatabaseAdvisorScanner bootUiDatabaseAdvisorScanner(
             ObjectProvider<ListableBeanFactory> beanFactoryProvider,
             ObjectProvider<EntityDiscoverySource> entityDiscoverySource,
-            ObjectProvider<SqlTraceRecorder> sqlTraceRecorder) {
+            ObjectProvider<SqlTraceRecorder> sqlTraceRecorder,
+            BootUiProperties properties) {
         // javax.sql.DataSource is core JDK (unlike EntityManagerFactory), so DataSource discovery needs no
         // @ConditionalOnClass gating; the Hibernate cross-reference half is optional and only resolved when
         // the nested HibernateAdvisorConfiguration below is active, via the EntityDiscoverySource seam.
         SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
-        return DatabaseAdvisorScanner.usingDiscovery(
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
                 dataSourceProvider::discover,
                 () -> {
                     EntityDiscoverySource source = entityDiscoverySource.getIfAvailable();
@@ -224,23 +230,30 @@ public class BootUiEngineConfiguration {
                     return recorder == null ? List.of() : recorder.entries(false);
                 },
                 Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        return scanner;
     }
 
     @Bean
     @Lazy
     @ConditionalOnMissingBean
     RestApiScanner bootUiRestApiScanner(
-            BasePackageProvider basePackageProvider, Environment environment, ApplicationContext applicationContext) {
+            BasePackageProvider basePackageProvider,
+            Environment environment,
+            ApplicationContext applicationContext,
+            BootUiProperties properties) {
         // Live policy: base packages are re-read on every scan via the shared BasePackageProvider SPI, the
         // OpenAPI annotation presence (Swagger's @Operation, honored by springdoc) is probed live, and the
         // ArchUnit import runs only on demand (POST /scan). The Quarkus adapter probes for the equivalent
         // MicroProfile OpenAPI @Operation annotation instead (see BootUiEngineProducer).
-        return RestApiScanner.usingClasspath(
+        RestApiScanner scanner = RestApiScanner.usingClasspath(
                 basePackageProvider::basePackages,
                 () -> ClassUtils.isPresent(
                         "io.swagger.v3.oas.annotations.Operation", BootUiEngineConfiguration.class.getClassLoader()),
                 () -> isSpringApiVersioningConfigured(environment, applicationContext),
                 Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        return scanner;
     }
 
     @Bean
@@ -492,8 +505,11 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         HibernateScanner bootUiHibernateScanner(
-                io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource observations) {
-            return HibernateScanner.observing(observations, Clock.systemUTC());
+                io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource observations,
+                BootUiProperties properties) {
+            HibernateScanner scanner = HibernateScanner.observing(observations, Clock.systemUTC());
+            scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+            return scanner;
         }
 
         /**

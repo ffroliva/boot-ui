@@ -1,5 +1,11 @@
 # Database checks
 
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
+`GET <api>/database-advisor/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve sanitized details
+already retained by that scan without borrowing connections or querying the database. Retrieval truncation is
+separate from schema/observation bounds; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Database advisor runs **24 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations and already-retained SQL Trace
 observations. It never executes DDL, advances a sequence, queries application rows or starts work on page load.

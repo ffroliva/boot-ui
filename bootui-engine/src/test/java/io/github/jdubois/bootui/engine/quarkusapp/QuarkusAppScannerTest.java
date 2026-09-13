@@ -635,7 +635,13 @@ class QuarkusAppScannerTest {
         snap.problems.add(new QuarkusAppEvidenceProblem("QA-PROD-002", limit));
         SpringReport report = scan(snap);
         Collections.reverse(snap.problems);
-        assertThat(scan(snap)).isEqualTo(report);
+        SpringReport reordered = scan(snap);
+        assertThat(reordered.violationDetails().scanId())
+                .isNotEqualTo(report.violationDetails().scanId());
+        assertThat(reordered)
+                .usingRecursiveComparison()
+                .ignoringFields("violationDetails.scanId")
+                .isEqualTo(report);
         assertThat(find(report, "QA-PROD-002")).isNotNull();
         assertThat(report.analysisErrors())
                 .singleElement()
@@ -715,7 +721,15 @@ class QuarkusAppScannerTest {
                 .toList();
         List<SharedField> reversed = new ArrayList<>(fields);
         Collections.reverse(reversed);
-        SpringReport first = scan(new Snap().fields(fields.toArray(SharedField[]::new)));
+        Snap snap = new Snap().fields(fields.toArray(SharedField[]::new));
+        AtomicInteger collections = new AtomicInteger();
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(
+                () -> {
+                    collections.incrementAndGet();
+                    return snap.build();
+                },
+                CLOCK);
+        SpringReport first = scanner.scan();
         SpringReport second = scan(new Snap().fields(reversed.toArray(SharedField[]::new)));
         SpringRuleResultDto result = find(first, "QA-CDI-001");
         assertThat(result).isEqualTo(find(second, "QA-CDI-001"));
@@ -724,6 +738,34 @@ class QuarkusAppScannerTest {
         assertThat(first.severityCounts()).contains(new SpringSeverityCountDto("LOW", 35));
         assertThat(first.violationsFound()).isOne();
         assertThat(first.scan().violationsFound()).isOne();
+        String scanId = first.violationDetails().scanId();
+        List<String> expected = fields.stream()
+                .map(field -> field.className() + "." + field.fieldName())
+                .toList();
+        var page = scanner.ruleViolations("QA-CDI-001", scanId, 0, 21);
+        assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, 21));
+        assertThat(page.page().hasMore()).isTrue();
+        var last = scanner.ruleViolations("QA-CDI-001", scanId, 21, 21);
+        assertThat(last.violations()).containsExactlyElementsOf(expected.subList(21, 35));
+        assertThat(last.page().hasMore()).isFalse();
+        assertThat(last.truncated()).isFalse();
+        assertThat(first.violationDetails().total()).isEqualTo(35);
+        assertThat(first.violationDetails().retained()).isEqualTo(35);
+        assertThat(scanner.lastReport()).isSameAs(first);
+        assertThat(scanner.applyDismissals(first, Set.of("QA-CDI-001")).violationDetails())
+                .isEqualTo(first.violationDetails());
+        assertThat(collections).hasValue(1);
+
+        scanner.setViolationRetentionLimit(() -> 7);
+        SpringReport bounded = scanner.scan();
+        assertThat(bounded.results()).isEqualTo(first.results());
+        assertThat(bounded.evidence()).isEqualTo(first.evidence());
+        assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+        var truncated =
+                scanner.ruleViolations("QA-CDI-001", bounded.violationDetails().scanId(), 0, null);
+        assertThat(truncated.violations()).containsExactlyElementsOf(expected.subList(0, 7));
+        assertThat(truncated.truncated()).isTrue();
+        assertThat(truncated.violationCount()).isEqualTo(35);
     }
 
     @Test
@@ -732,11 +774,49 @@ class QuarkusAppScannerTest {
         IntStream.range(0, 30)
                 .forEach(index -> snap.settings.add(
                         new Setting("QA-CFG-002", "unit%02d".formatted(index), "true", "production declaration")));
-        SpringRuleResultDto result = find(scan(snap), "QA-CFG-002");
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(snap::build, CLOCK);
+        SpringReport report = scanner.scan();
+        SpringRuleResultDto result = find(report, "QA-CFG-002");
         Collections.reverse(snap.settings);
         assertThat(find(scan(snap), "QA-CFG-002")).isEqualTo(result);
         assertThat(result.violationCount()).isEqualTo(30);
         assertThat(result.sampleViolations()).hasSize(20).isSorted();
+        List<String> expected = snap.settings.stream()
+                .map(setting -> setting.target() + ": " + setting.value() + " (" + setting.provenance() + ")")
+                .distinct()
+                .sorted()
+                .toList();
+        assertThat(scanner.ruleViolations(
+                                "QA-CFG-002", report.violationDetails().scanId(), 0, null)
+                        .violations())
+                .containsExactlyElementsOf(expected);
+    }
+
+    @Test
+    void sanitizingDistinctDeclarationsDoesNotDiscardTheirMultiplicity() {
+        String prefix = "Service." + "longMethodName".repeat(30);
+        List<String> declarations =
+                IntStream.range(0, 25).mapToObj(index -> prefix + index).toList();
+        List<String> repeated = new ArrayList<>(declarations);
+        repeated.add(declarations.get(0));
+        Snap snap = new Snap().methods(repeated.toArray(String[]::new));
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(snap::build, CLOCK);
+        SpringReport report = scanner.scan();
+        var result = find(report, "QA-PERF-002");
+        assertThat(result.violationCount()).isEqualTo(25);
+        assertThat(result.sampleViolations()).hasSize(20);
+        List<String> expected = declarations.stream()
+                .sorted()
+                .map(io.github.jdubois.bootui.engine.support.DetailText::sanitize)
+                .toList();
+        var page =
+                scanner.ruleViolations("QA-PERF-002", report.violationDetails().scanId(), 0, null);
+        assertThat(page.violations()).containsExactlyElementsOf(expected);
+        assertThat(page.violations())
+                .hasSize(25)
+                .allSatisfy(detail -> assertThat(detail).hasSize(240));
+        assertThat(page.violations().stream().distinct()).hasSize(1);
+        assertThat(page.truncated()).isFalse();
     }
 
     @Test

@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
@@ -15,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -43,6 +47,8 @@ public final class ArchitectureScanner {
     private final Clock clock;
     private final List<ArchitectureRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<ArchitectureReport> violationState =
+            new AdvisorScanState<>(ArchitectureReport::withViolationDetails);
 
     ArchitectureScanner(
             Supplier<List<String>> basePackagesSupplier,
@@ -104,10 +110,25 @@ public final class ArchitectureScanner {
     }
 
     public ArchitectureReport scan() {
-        return singleFlight.run(ActionOperations.ARCHITECTURE_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.ARCHITECTURE_SCAN, () -> {
+            AdvisorViolationCollector collector = violationState.collector();
+            return violationState.publish(doScan(collector), collector);
+        });
     }
 
-    private ArchitectureReport doScan() {
+    public ArchitectureReport lastReport() {
+        return violationState.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return violationState.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        violationState.setRetentionLimit(limit);
+    }
+
+    private ArchitectureReport doScan(AdvisorViolationCollector collector) {
         List<String> basePackages;
         try {
             basePackages = basePackages();
@@ -147,7 +168,8 @@ public final class ArchitectureScanner {
                     new AdvisorEvidenceDto(false, true, List.of()));
         }
 
-        ArchitectureContext context = new ArchitectureContext(classes, basePackages, platform);
+        ArchitectureContext context = new ArchitectureContext(
+                classes, basePackages, platform, new ArchitectureContext.ArchitectureEvaluationEvidence(), collector);
         List<ArchitectureRuleResultDto> results = new java.util.ArrayList<>();
         boolean usable = false;
         List<String> unreported = new java.util.ArrayList<>();
@@ -299,7 +321,8 @@ public final class ArchitectureScanner {
                 updatedScan,
                 marked,
                 report.analysisErrors(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     static List<ArchitectureRuleResultDto> analysisErrors(List<ArchitectureRuleResultDto> results) {

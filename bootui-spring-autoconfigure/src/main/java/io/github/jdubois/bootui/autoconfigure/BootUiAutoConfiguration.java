@@ -130,6 +130,7 @@ import tools.jackson.databind.ObjectMapper;
 @Import({
     OverviewController.class,
     ActionBusyExceptionHandler.class,
+    AdvisorViolationExceptionHandler.class,
     GitHubController.class,
     PanelsController.class,
     BeansController.class,

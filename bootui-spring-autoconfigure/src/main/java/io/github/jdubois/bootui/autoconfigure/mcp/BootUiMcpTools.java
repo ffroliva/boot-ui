@@ -157,6 +157,10 @@ public class BootUiMcpTools {
         // --- Advisor tools (panel actions; refused when the backing panel is read-only) ---
         if (architectureBean != null) {
             registry.add(tool(
+                    "get_architecture_rule_violations",
+                    McpToolDescriptions.spring("get_architecture_rule_violations"),
+                    args -> architectureBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+            registry.add(tool(
                     "architecture_scan",
                     McpToolDescriptions.spring("architecture_scan"),
                     args -> architectureBean.scan()));
@@ -166,11 +170,19 @@ public class BootUiMcpTools {
                     args -> architectureBean.architecture()));
         }
         if (springBean != null) {
+            registry.add(tool(
+                    "get_spring_rule_violations",
+                    McpToolDescriptions.spring("get_spring_rule_violations"),
+                    args -> springBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("spring_scan", McpToolDescriptions.spring("spring_scan"), args -> springBean.scan()));
             registry.add(tool(
                     "get_spring_report", McpToolDescriptions.spring("get_spring_report"), args -> springBean.spring()));
         }
         if (hibernateBean != null) {
+            registry.add(tool(
+                    "get_hibernate_rule_violations",
+                    McpToolDescriptions.spring("get_hibernate_rule_violations"),
+                    args -> hibernateBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("hibernate_scan", McpToolDescriptions.spring("hibernate_scan"), args -> hibernateBean.scan()));
             registry.add(tool(
@@ -179,11 +191,19 @@ public class BootUiMcpTools {
                     args -> hibernateBean.hibernate()));
         }
         if (memoryBean != null) {
+            registry.add(tool(
+                    "get_memory_rule_violations",
+                    McpToolDescriptions.spring("get_memory_rule_violations"),
+                    args -> memoryBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("memory_scan", McpToolDescriptions.spring("memory_scan"), args -> memoryBean.scan()));
             registry.add(tool(
                     "get_memory_report", McpToolDescriptions.spring("get_memory_report"), args -> memoryBean.memory()));
         }
         if (securityBean != null) {
+            registry.add(tool(
+                    "get_security_rule_violations",
+                    McpToolDescriptions.spring("get_security_rule_violations"),
+                    args -> securityBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("security_scan", McpToolDescriptions.spring("security_scan"), args -> securityBean.scan()));
             registry.add(tool(
@@ -200,6 +220,10 @@ public class BootUiMcpTools {
                     args -> pentestingBean.pentesting()));
         }
         if (restApiBean != null) {
+            registry.add(tool(
+                    "get_rest_api_rule_violations",
+                    McpToolDescriptions.spring("get_rest_api_rule_violations"),
+                    args -> restApiBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("rest_api_scan", McpToolDescriptions.spring("rest_api_scan"), args -> restApiBean.scan()));
             registry.add(tool(
@@ -221,6 +245,10 @@ public class BootUiMcpTools {
                     tool("get_crac_report", McpToolDescriptions.spring("get_crac_report"), args -> cracBean.crac()));
         }
         if (databaseAdvisorBean != null) {
+            registry.add(tool(
+                    "get_database_advisor_rule_violations",
+                    McpToolDescriptions.spring("get_database_advisor_rule_violations"),
+                    args -> databaseAdvisorBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool(
                     "database_advisor_scan",
                     McpToolDescriptions.spring("database_advisor_scan"),

@@ -81,12 +81,16 @@ abstract class AbstractSecurityRule implements SecurityRule {
         return SecurityRuleSupport.skipped(definition, reason);
     }
 
-    SecurityRuleResultDto violation(List<String> details) {
-        return details.isEmpty() ? pass() : SecurityRuleSupport.violation(definition, details);
+    SecurityRuleResultDto violation(SecurityContext context, List<String> details) {
+        return details.isEmpty()
+                ? pass()
+                : SecurityRuleSupport.violation(definition, null, details, context.violationCollector());
     }
 
-    SecurityRuleResultDto violation(String severityOverride, List<String> details) {
-        return details.isEmpty() ? pass() : SecurityRuleSupport.violation(definition, severityOverride, details);
+    SecurityRuleResultDto violation(SecurityContext context, String severityOverride, List<String> details) {
+        return details.isEmpty()
+                ? pass()
+                : SecurityRuleSupport.violation(definition, severityOverride, details, context.violationCollector());
     }
 
     SecurityRuleResultDto encoderViolation(SecurityContext context, List<String> details) {
@@ -96,7 +100,7 @@ abstract class AbstractSecurityRule implements SecurityRule {
         if (details.isEmpty() && !known) {
             return skipped("Active provider encoder metadata is unavailable; unrelated beans are not evidence.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -190,6 +194,7 @@ final class MissingPasswordEncoderRule extends AbstractSecurityRule {
             return pass();
         }
         return violation(
+                context,
                 List.of("A form-login or HTTP Basic chain is configured but no PasswordEncoder bean was found."));
     }
 }
@@ -214,6 +219,7 @@ final class DefaultInMemoryUserRule extends AbstractSecurityRule {
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "spring.security.user.* defines a static in-memory account; not suitable for shared or production use."));
     }
@@ -243,7 +249,7 @@ final class DefaultLoginPageProductionRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " serves the auto-generated Spring Security login page in production.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -302,7 +308,7 @@ final class BasicAuthWithoutTlsRule extends AbstractSecurityRule {
                                 + " uses Basic without observed direct TLS/chain-local redirect; verify upstream transport enforcement.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -334,7 +340,7 @@ final class FormLoginWithoutTlsRule extends AbstractSecurityRule {
                                 + " accepts form credentials without observed direct TLS/chain-local redirect; verify upstream enforcement.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -357,6 +363,7 @@ final class UsernameEnumerationRiskRule extends AbstractSecurityRule {
         context.applies(context.hasFormOrBasicChain());
         if (context.hideUserNotFoundExceptionsDisabled()) {
             return violation(
+                    context,
                     List.of(
                             "An active provider sets hideUserNotFoundExceptions=false; review externally visible failure handling."));
         }
@@ -391,9 +398,11 @@ final class GeneratedUserInProductionRule extends AbstractSecurityRule {
             // credentials); avoid double-reporting the same static-account risk under two rule ids.
             return pass();
         }
-        return violation(List.of(
-                "Spring Boot's auto-generated default user/password (InMemoryUserDetailsManager) is active while a"
-                        + " production profile is running, with no explicit spring.security.user.password."));
+        return violation(
+                context,
+                List.of(
+                        "Spring Boot's auto-generated default user/password (InMemoryUserDetailsManager) is active while a"
+                                + " production profile is running, with no explicit spring.security.user.password."));
     }
 }
 
@@ -422,7 +431,7 @@ final class MissingAuthorizationFilterRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " installs no authorization filter.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -452,7 +461,7 @@ final class PermitAllCatchAllRule extends AbstractSecurityRule {
                         + " grants all requests in its scope even though it configures authentication.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -483,8 +492,11 @@ final class EffectivelyDisabledSecurityRule extends AbstractSecurityRule {
         boolean allOpen = chains.stream().allMatch(chain -> Boolean.TRUE.equals(chain.permitsAllAnonymous()));
         boolean anyAuthentication = chains.stream().anyMatch(FilterChainModel::hasRealAuthenticationFilter);
         if (allOpen && !anyAuthentication && chains.stream().anyMatch(FilterChainModel::matchesAnyRequest)) {
-            return violation(List.of("All " + chains.size()
-                    + " security filter chains permit every request anonymously with no authentication mechanism."));
+            return violation(
+                    context,
+                    List.of(
+                            "All " + chains.size()
+                                    + " security filter chains permit every request anonymously with no authentication mechanism."));
         }
         return pass();
     }
@@ -519,7 +531,7 @@ final class CatchAllChainOrderingRule extends AbstractSecurityRule {
                         + " matches any request but is not the last chain; later chains are unreachable.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -567,7 +579,7 @@ final class AuthorizationRuleShadowedRule extends AbstractSecurityRule {
                 && context.chains().stream().noneMatch(chain -> chain.authorizationRuleShadowed() != null)) {
             return skipped("Authorization matcher order could not be inspected for any filter chain.");
         }
-        return violation(permissiveShadow ? SecurityRuleSupport.HIGH : SecurityRuleSupport.INFO, details);
+        return violation(context, permissiveShadow ? SecurityRuleSupport.HIGH : SecurityRuleSupport.INFO, details);
     }
 }
 
@@ -600,7 +612,7 @@ final class CsrfDisabledStatefulRule extends AbstractSecurityRule {
                 }
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -629,7 +641,7 @@ final class CsrfGloballyDisabledRule extends AbstractSecurityRule {
                 }
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -667,7 +679,7 @@ final class SessionFixationRule extends AbstractSecurityRule {
             }
         }
         if (!details.isEmpty()) {
-            return violation(details);
+            return violation(context, details);
         }
         return determinable || !applicable ? pass() : skipped("Session-fixation strategy could not be introspected.");
     }
@@ -691,10 +703,11 @@ final class SessionCookieSecureRule extends AbstractSecurityRule {
         String value = context.firstProperty("server.servlet.session.cookie.secure");
         context.applies(context.hasStatefulChain());
         if ("false".equalsIgnoreCase(String.valueOf(value))) {
-            return violation(List.of("server.servlet.session.cookie.secure is explicitly false."));
+            return violation(context, List.of("server.servlet.session.cookie.secure is explicitly false."));
         }
         if (value == null && context.isProductionProfileActive() && context.hasStatefulChain()) {
             return violation(
+                    context,
                     List.of(
                             "No explicit Secure override is set; verify HTTPS request/container cookie behavior in production."));
         }
@@ -719,7 +732,7 @@ final class SessionCookieHttpOnlyRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         context.applies(context.hasStatefulChain());
         if (context.isPropertyFalse("server.servlet.session.cookie.http-only")) {
-            return violation(List.of("server.servlet.session.cookie.http-only is explicitly false."));
+            return violation(context, List.of("server.servlet.session.cookie.http-only is explicitly false."));
         }
         return pass();
     }
@@ -771,7 +784,8 @@ final class SessionTimeoutRule extends AbstractSecurityRule {
         }
         String value = context.firstProperty("server.servlet.session.timeout", "spring.session.timeout");
         if (value == null) {
-            return violation(List.of("No explicit session timeout is configured for the session-based chains."));
+            return violation(
+                    context, List.of("No explicit session timeout is configured for the session-based chains."));
         }
         return pass();
     }
@@ -806,7 +820,7 @@ final class BearerTokenStatefulRule extends AbstractSecurityRule {
         if (details.isEmpty() && !known) {
             return skipped("Bearer filter save repository is unsupported.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -836,7 +850,7 @@ final class ConcurrentSessionControlRule extends AbstractSecurityRule {
                         + " maintains sessions for an interactive login but configures no concurrent-session control.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -868,7 +882,7 @@ final class WeakRememberMeKeyRule extends AbstractSecurityRule {
                         + " characters.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -899,8 +913,10 @@ final class SessionCookieNamePrefixRule extends AbstractSecurityRule {
         if (name == null || name.startsWith("__Host-") || name.startsWith("__Secure-")) {
             return pass();
         }
-        return violation(List.of("server.servlet.session.cookie.name is set to '" + name
-                + "', which does not use the __Host- or __Secure- cookie-name prefix."));
+        return violation(
+                context,
+                List.of("server.servlet.session.cookie.name is set to '" + name
+                        + "', which does not use the __Host- or __Secure- cookie-name prefix."));
     }
 }
 
@@ -933,7 +949,7 @@ final class HstsHeaderRule extends AbstractSecurityRule {
                                 + " has no standard HSTS writer; actual HTTPS responses and external headers are not observed.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -965,7 +981,7 @@ final class FrameOptionsRule extends AbstractSecurityRule {
                         chain.describe()
                                 + " has no effective recognized framing restriction; enforcing frame-ancestors takes precedence over X-Frame-Options.");
         }
-        if (!details.isEmpty()) return violation(details);
+        if (!details.isEmpty()) return violation(context, details);
         return unknown
                 ? skipped("Enforcing CSP or writer scope is unknown; X-Frame-Options cannot establish safe fallback.")
                 : pass();
@@ -1001,7 +1017,7 @@ final class ContentSecurityPolicyRule extends AbstractSecurityRule {
                 }
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1029,7 +1045,7 @@ final class ContentTypeOptionsRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " has no standard nosniff writer; actual responses are not observed.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1056,7 +1072,7 @@ final class ReferrerPolicyHeaderRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " does not emit a Referrer-Policy header.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1084,7 +1100,7 @@ final class PermissionsPolicyHeaderRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " does not emit a Permissions-Policy header.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1115,7 +1131,7 @@ final class HeaderWritersDisabledRule extends AbstractSecurityRule {
                         + " installs no standard HeaderWriterFilter; delivered security headers are unknown.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1146,7 +1162,7 @@ final class WeakHstsPolicyRule extends AbstractSecurityRule {
                                 : " (below Spring's default; review rollout intent)."));
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1175,7 +1191,7 @@ final class WeakContentSecurityPolicyRule extends AbstractSecurityRule {
                 details.add(chain.describe() + " configures an enforcing CSP with permissive script execution.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1205,7 +1221,7 @@ final class CrossOriginIsolationHeadersRule extends AbstractSecurityRule {
                                 + " lacks a recognized COOP/COEP pair; consider it only for features requiring cross-origin isolation.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1239,7 +1255,7 @@ final class CorsWildcardOriginRule extends AbstractSecurityRule {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1272,7 +1288,7 @@ final class CorsWildcardWithCredentialsRule extends AbstractSecurityRule {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins with credentials.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1336,7 +1352,7 @@ final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard methods/headers with credentials.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1376,7 +1392,7 @@ final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
             return skipped(
                     "A custom CorsConfigurationSource is present and cannot be introspected for broad origin patterns.");
         }
-        return violation(credentialed ? SecurityRuleSupport.HIGH : SecurityRuleSupport.LOW, details);
+        return violation(context, credentialed ? SecurityRuleSupport.HIGH : SecurityRuleSupport.LOW, details);
     }
 }
 
@@ -1407,7 +1423,7 @@ final class MethodSecurityAnnotationsIgnoredRule extends AbstractSecurityRule {
                 .map(family ->
                         "Method annotations in the " + family + " family are present without recognized activation.")
                 .toList();
-        if (!disabled.isEmpty()) return violation(disabled);
+        if (!disabled.isEmpty()) return violation(context, disabled);
         return pass();
     }
 }
@@ -1430,7 +1446,8 @@ final class LegacyGlobalMethodSecurityRule extends AbstractSecurityRule {
         context.applies(context.methodSecurityEnabled() || context.globalMethodSecurityLegacyPresent());
         context.required(context.evidence().methodFamiliesKnown());
         if (context.globalMethodSecurityLegacyPresent()) {
-            return violation(List.of("@EnableGlobalMethodSecurity is in use; migrate to @EnableMethodSecurity."));
+            return violation(
+                    context, List.of("@EnableGlobalMethodSecurity is in use; migrate to @EnableMethodSecurity."));
         }
         return pass();
     }
@@ -1466,6 +1483,7 @@ final class ActuatorWildcardExposureRule extends AbstractSecurityRule {
                     : skipped("Actual management operation inventory is incomplete or in another context.");
         }
         return violation(
+                context,
                 List.of(
                         "Wildcard host web selection includes observed sensitive Actuator operations; authorization is assessed separately."));
     }
@@ -1500,7 +1518,7 @@ final class ActuatorSensitiveExposureRule extends AbstractSecurityRule {
                 .toList();
         if (details.isEmpty() && !context.evidence().operationsKnown())
             return skipped("Actual management operation inventory is unavailable.");
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1557,7 +1575,7 @@ final class ActuatorUnprotectedRule extends AbstractSecurityRule {
             if (!matched) unknown = true;
         }
         context.required(!unknown);
-        if (!details.isEmpty()) return violation(details);
+        if (!details.isEmpty()) return violation(context, details);
         return unknown
                 ? skipped("Exact operation or ordered authorization metadata is incomplete; no callback was executed.")
                 : pass();
@@ -1598,7 +1616,7 @@ final class HealthDetailsExposureRule extends AbstractSecurityRule {
                         ? pass()
                         : skipped("Actual health operation metadata is unavailable.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1622,6 +1640,7 @@ final class ShutdownEndpointEnabledRule extends AbstractSecurityRule {
                     .anyMatch(operation -> operation.endpoint().equals("shutdown")
                             && !operation.method().equals("GET")))) {
                 return violation(
+                        context,
                         List.of(
                                 "Host configuration selects an observed shutdown write operation; verify authorization and network access."));
             }
@@ -1663,6 +1682,7 @@ final class ManagementPortIsolationRule extends AbstractSecurityRule {
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "Selected management endpoints share the application listener; a separate port still requires network and authorization controls."));
     }
@@ -1709,7 +1729,7 @@ final class ActuatorShowValuesRule extends AbstractSecurityRule {
         }
         context.required(!unknown);
         if (details.isEmpty() && unknown) return skipped("Actual value-disclosure operation metadata is unavailable.");
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1776,6 +1796,7 @@ final class JwtAudienceValidationRule extends AbstractSecurityRule {
                         context.environment(), "spring.security.oauth2.resourceserver.jwt.audiences")
                 .isEmpty()) return pass();
         return violation(
+                context,
                 List.of(
                         "Observed Boot-managed JWT decoder has no explicit audiences setting; review token recipient validation for this API."));
     }
@@ -1799,7 +1820,7 @@ final class InsecureJwtMetadataUrlRule extends AbstractSecurityRule {
         List<String> details = new ArrayList<>();
         addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.issuer-uri");
         addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.jwk-set-uri");
-        return violation(details);
+        return violation(context, details);
     }
 
     private static void addIfInsecureUrl(SecurityContext context, List<String> details, String key) {
@@ -1838,6 +1859,7 @@ final class JwtStaticKeyRule extends AbstractSecurityRule {
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "A static public-key location is configured without issuer/JWK metadata; confirm out-of-band rotation. Custom decoder behavior is not inferred."));
     }
@@ -1867,7 +1889,7 @@ final class SecurityDebugRule extends AbstractSecurityRule {
                 || context.chains().stream().anyMatch(chain -> chain.hasFilter("DebugFilter"));
         if (debugFilterPresent) {
             String suffix = context.isProductionProfileActive() ? " while a production profile is active" : "";
-            return violation(List.of("Spring Security debug mode is enabled" + suffix + "."));
+            return violation(context, List.of("Spring Security debug mode is enabled" + suffix + "."));
         }
         return pass();
     }
@@ -1890,7 +1912,7 @@ final class H2ConsoleFrameOptionsRule extends AbstractSecurityRule {
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
         if (context.applies(
                 context.isPropertyTrue("spring.h2.console.enabled") && context.isProductionProfileActive())) {
-            return violation(List.of("spring.h2.console.enabled=true while a production profile is active."));
+            return violation(context, List.of("spring.h2.console.enabled=true while a production profile is active."));
         }
         return pass();
     }
@@ -1921,7 +1943,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
                         key + " permits inclusion of internal error details, unconditionally or by caller request.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1948,6 +1970,7 @@ final class HttpsEnforcementRule extends AbstractSecurityRule {
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "No complete direct TLS/chain-local redirect evidence is observed in production. Forwarded headers do not establish upstream TLS enforcement."));
     }
@@ -1981,7 +2004,7 @@ final class HardcodedSecretPropertyRule extends AbstractSecurityRule {
                 .map(key -> "Property '" + key
                         + "' appears to hold a hardcoded secret value in the application configuration.")
                 .toList();
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -2003,6 +2026,7 @@ final class StrictHttpFirewallWeakenedRule extends AbstractSecurityRule {
         context.applies(!context.chains().isEmpty());
         if (context.strictHttpFirewallWeakened()) {
             return violation(
+                    context,
                     List.of(
                             "A StrictHttpFirewall bean re-allows one or more normally-blocked URL tokens (encoded slash, backslash, semicolon, or double slash)."));
         }
@@ -2033,6 +2057,6 @@ final class SecurityDebugLoggingProductionRule extends AbstractSecurityRule {
                 details.add("Configured verbose override for " + logger + "; actual logged content is not inspected.");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }

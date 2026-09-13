@@ -1,5 +1,12 @@
 # Memory checks
 
+Rule reports keep ten-entry `sampleViolations` previews and the full `violationCount`. **View violations** and
+`GET <api>/memory/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded details already retained
+by that scan: no new histogram, GC, recording, or JVM observation is triggered. Check `truncated` separately from
+measurement coverage. See [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+Rules that already count only a top-five input subset keep that bounded scope; paging retrieves the counted
+sequence, not additional unassessed JVM observations.
+
 The Memory advisor evaluates **36 stable rules** against explicit, on-demand JVM observations. Spring MVC,
 Spring WebFlux, and Quarkus use the same framework-neutral collector, rules, report, and dismissal IDs. MCP and
 the CLI expose that same report. Reading the cached report does not scan, collect a histogram, or start a recording.

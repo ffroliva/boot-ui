@@ -63,6 +63,28 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void advisorDetailReadsUseTheCustomMountAndDoNotTriggerScans() {
+        for (String root : java.util.List.of(
+                "architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            Response before = probe().get(apiPath() + "/" + root);
+            if (before.status() != 200) {
+                assertThat(probe().get(apiPath() + "/" + root + "/rules/RULE/violations?scanId=stale")
+                                .status())
+                        .isIn(403, 404);
+                continue;
+            }
+            String details = apiPath() + "/" + root + "/rules/RULE/violations";
+            assertThat(probe().get(details).status()).as(root).isEqualTo(400);
+            assertThat(probe().get(details + "?scanId=stale").status()).as(root).isEqualTo(409);
+            assertThat(probe().get(details + "?scanId=stale&offset=1.5").status())
+                    .as(root)
+                    .isEqualTo(400);
+            assertThat(probe().get(apiPath() + "/" + root).json().path("violationDetails"))
+                    .isEqualTo(before.json().path("violationDetails"));
+        }
+    }
+
+    @Test
     void shellAndApiComposeWithTheQuarkusRootPath() {
         BootUiHttpProbe probe = probe();
         Response shell = probe.get("/host/dev-console/");

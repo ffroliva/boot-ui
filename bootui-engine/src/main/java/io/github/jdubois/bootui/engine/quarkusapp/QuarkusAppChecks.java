@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.quarkusapp;
 
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.spi.QuarkusAppEvidenceProblem;
 import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
@@ -195,6 +197,10 @@ final class QuarkusAppChecks {
             boolean usable) {}
 
     static Evaluation evaluate(QuarkusAppSnapshot snapshot) {
+        return evaluate(snapshot, null);
+    }
+
+    static Evaluation evaluate(QuarkusAppSnapshot snapshot, AdvisorViolationCollector collector) {
         List<SpringRuleResultDto> findings = new ArrayList<>();
         List<SpringRuleResultDto> errors = new ArrayList<>();
         Map<String, Set<Reason>> failures = new HashMap<>();
@@ -289,6 +295,9 @@ final class QuarkusAppChecks {
             if (!unique.isEmpty()) {
                 usable = true;
                 inspected = true;
+                if (collector != null) {
+                    collector.record(check.id(), unique.size(), unique, DetailText::sanitize);
+                }
                 findings.add(check.result(
                         severity,
                         "VIOLATION",

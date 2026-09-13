@@ -36,8 +36,8 @@ final class MemoryRuleSupport {
         return result(definition, ERROR, 0, List.of(detail(reason)));
     }
 
-    static MemoryRuleResultDto violation(MemoryRuleDefinition definition, List<String> details) {
-        return violation(definition, null, details);
+    static MemoryRuleResultDto violation(MemoryContext context, MemoryRuleDefinition definition, List<String> details) {
+        return violation(context, definition, null, details);
     }
 
     /**
@@ -46,7 +46,10 @@ final class MemoryRuleSupport {
      * falls back to the definition severity.
      */
     static MemoryRuleResultDto violation(
-            MemoryRuleDefinition definition, String severityOverride, List<String> details) {
+            MemoryContext context, MemoryRuleDefinition definition, String severityOverride, List<String> details) {
+        if (context.violationCollector() != null) {
+            context.violationCollector().record(definition.id(), details.size(), details, MemoryRuleSupport::detail);
+        }
         return result(definition, VIOLATION, severityOverride, details.size(), samples(details));
     }
 

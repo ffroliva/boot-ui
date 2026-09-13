@@ -143,6 +143,27 @@ describe('Cli', () => {
     expect(wrapper.text()).toContain('panel disabled')
   })
 
+  it('shows the required scan-id and optional paging flags for rule violation reads', async () => {
+    const status = cliStatus()
+    status.tools[1] = {
+      ...status.tools[1],
+      name: 'get_architecture_rule_violations',
+      command: 'architecture violations',
+      schema: 'RULE_VIOLATIONS',
+      arguments: ['id', 'scanId', 'offset', 'limit'],
+      panelEnabled: true,
+      panelReadOnly: true
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(status)))
+
+    wrapper = mount(Cli, {global})
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('bootui architecture violations')
+    expect(wrapper.text()).toContain('<id> --scan-id <scan-id> [--offset <offset>] [--limit <limit>]')
+    expect(wrapper.text()).not.toContain('--scanId')
+  })
+
   it('derives mean latency from the call counters', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(cliStatus())))
 

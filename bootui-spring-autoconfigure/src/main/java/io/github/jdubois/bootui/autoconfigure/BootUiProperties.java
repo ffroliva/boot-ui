@@ -100,6 +100,8 @@ public class BootUiProperties {
      * Per-panel visibility and action settings keyed by panel id.
      */
     private Map<String, Panel> panels = new LinkedHashMap<>();
+    /** Per-scan bounds for retained advisor finding details. */
+    private Advisors advisors = new Advisors();
     /**
      * Monitoring screen filtering settings.
      */
@@ -338,6 +340,14 @@ public class BootUiProperties {
 
     public void setPanels(Map<String, Panel> panels) {
         this.panels = panels == null ? new LinkedHashMap<>() : new LinkedHashMap<>(panels);
+    }
+
+    public Advisors getAdvisors() {
+        return advisors;
+    }
+
+    public void setAdvisors(Advisors advisors) {
+        this.advisors = java.util.Objects.requireNonNull(advisors);
     }
 
     public Monitoring getMonitoring() {
@@ -1838,6 +1848,21 @@ public class BootUiProperties {
 
         public void setTopClasses(int topClasses) {
             this.topClasses = topClasses;
+        }
+    }
+
+    public static class Advisors {
+        private volatile int maxRetainedViolations = 10_000;
+
+        public int getMaxRetainedViolations() {
+            return maxRetainedViolations;
+        }
+
+        public void setMaxRetainedViolations(int maxRetainedViolations) {
+            if (maxRetainedViolations <= 0) {
+                throw new IllegalArgumentException("bootui.advisors.max-retained-violations must be positive.");
+            }
+            this.maxRetainedViolations = maxRetainedViolations;
         }
     }
 

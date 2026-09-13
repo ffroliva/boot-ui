@@ -49,7 +49,7 @@ class MemoryControllerTests {
         MemoryScanner scanner = mock(MemoryScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         MemoryReport initial = report("NOT_SCANNED", 0);
-        when(scanner.initialReport()).thenReturn(initial);
+        when(scanner.lastReport()).thenReturn(initial);
         when(dismissedRules.load()).thenReturn(Set.of("MEM-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("MEM-IGNORED")))).thenReturn(initial);
 
@@ -66,7 +66,6 @@ class MemoryControllerTests {
     void scanRefreshesCachedReportAndAppliesDismissals() throws Exception {
         MemoryScanner scanner = mock(MemoryScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         MemoryReport scanned = report("SCANNED", 3);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());

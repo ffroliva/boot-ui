@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
+import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpDispatcher;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
@@ -19,6 +21,131 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class QuarkusMcpEnvelopeTest {
+
+    @Test
+    void advisorSchemaAndCodecProjectAllRequiredAndOptionalPageArguments() throws Exception {
+        AtomicReference<McpArguments> received = new AtomicReference<>();
+        QuarkusMcpEnvelope pages = advisorEnvelope(262144, args -> {
+            received.set(args);
+            return java.util.Map.of("scanId", args.scanId(), "offset", args.offset());
+        });
+        JsonNode listed =
+                pages.handle(objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"));
+        JsonNode schema = listed.path("result").path("tools").get(0).path("inputSchema");
+        assertThat(schema.path("required").toString()).isEqualTo("[\"id\",\"scanId\"]");
+        List<String> names = new java.util.ArrayList<>();
+        schema.path("properties").fieldNames().forEachRemaining(names::add);
+        assertThat(names).containsExactly("id", "scanId", "offset", "limit");
+        assertThat(schema.path("properties").path("offset").path("minimum").asInt())
+                .isZero();
+        assertThat(schema.path("properties").path("limit").path("minimum").asInt())
+                .isEqualTo(1);
+        assertThat(schema.path("additionalProperties").asBoolean()).isFalse();
+        pages.handle(advisorRequest("{\"id\":\" RULE-1 \",\"scanId\":\" scan-1 \"}"));
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 100, "RULE-1", "scan-1", 0));
+        pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22,\"limit\":7}"));
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 7, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void advisorCodecRejectsMalformedMissingNullUnknownAndOverflowingPageArguments() throws Exception {
+        AtomicInteger invoked = new AtomicInteger();
+        QuarkusMcpEnvelope pages = advisorEnvelope(262144, args -> invoked.incrementAndGet());
+        for (String arguments : List.of(
+                "null",
+                "[]",
+                "{}",
+                "{\"id\":\"RULE-1\"}",
+                "{\"scanId\":\"scan-1\"}",
+                "{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"extra\":1}",
+                "{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"query\":\"x\"}")) {
+            assertThat(pages.handle(advisorRequest(arguments))
+                            .path("error")
+                            .path("code")
+                            .asInt())
+                    .as(arguments)
+                    .isEqualTo(McpProtocol.INVALID_PARAMS);
+        }
+        for (String field : List.of("id", "scanId", "offset", "limit")) {
+            List<String> invalid = field.equals("id") || field.equals("scanId")
+                    ? List.of("null", "3", "true", "\"\"", "\" \"")
+                    : List.of("null", "\"3\"", "true", "1.5", "2147483648", "-2147483649", "-1");
+            for (String value : invalid) {
+                ObjectNode arguments =
+                        objectMapper.createObjectNode().put("id", "RULE-1").put("scanId", "scan-1");
+                arguments.set(field, objectMapper.readTree(value));
+                assertThat(pages.handle(advisorRequest(arguments.toString()))
+                                .path("error")
+                                .path("code")
+                                .asInt())
+                        .as("%s=%s", field, value)
+                        .isEqualTo(McpProtocol.INVALID_PARAMS);
+            }
+        }
+        assertThat(pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan\",\"limit\":0}"))
+                        .path("error")
+                        .path("message")
+                        .asText())
+                .isEqualTo("Argument 'limit' must be at least 1");
+        assertThat(invoked).hasValue(0);
+    }
+
+    @Test
+    void advisorByteBudgetRefusalAllowsSmallerPageAtTheSameOffsetAndScan() throws Exception {
+        AtomicReference<McpArguments> received = new AtomicReference<>();
+        QuarkusMcpEnvelope pages = advisorEnvelope(2048, args -> {
+            received.set(args);
+            return java.util.Map.of("violations", java.util.Collections.nCopies(args.limit(), "x".repeat(256)));
+        });
+        assertThat(pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22}"))
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
+        JsonNode retry =
+                pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22,\"limit\":1}"));
+        assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
+        assertThat(retry.has("error")).isFalse();
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void advisorStaleSnapshotIsAnInBandClientErrorNotAnInternalFailure() throws Exception {
+        QuarkusMcpEnvelope pages = advisorEnvelope(262144, args -> {
+            throw new AdvisorViolationException(409, "Reread the cached report.");
+        });
+        JsonNode response = pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"old\"}"));
+        assertThat(response.has("error")).isFalse();
+        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(response.path("result").path("content").get(0).path("text").asText())
+                .isEqualTo("Reread the cached report.");
+    }
+
+    private QuarkusMcpEnvelope advisorEnvelope(
+            int maxBytes, java.util.function.Function<McpArguments, Object> handler) {
+        RecordingFailureReporter diagnostics = new RecordingFailureReporter();
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(new McpTool(
+                        "get_architecture_rule_violations",
+                        "Read retained violations.",
+                        McpToolSchema.RULE_VIOLATIONS,
+                        BootUiPanels.ARCHITECTURE,
+                        false,
+                        handler)),
+                List.of(),
+                new AllowAllPolicy(),
+                "1.2.3",
+                "",
+                250,
+                20,
+                diagnostics);
+        return new QuarkusMcpEnvelope(dispatcher, objectMapper, diagnostics, maxBytes);
+    }
+
+    private JsonNode advisorRequest(String arguments) throws Exception {
+        return objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                + "{\"name\":\"get_architecture_rule_violations\",\"arguments\":" + arguments + "}}");
+    }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 

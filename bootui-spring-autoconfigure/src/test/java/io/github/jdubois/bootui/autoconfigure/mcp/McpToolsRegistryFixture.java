@@ -10,6 +10,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
@@ -38,16 +39,24 @@ public final class McpToolsRegistryFixture {
      */
     @SuppressWarnings("unchecked")
     public static List<McpTool> maximalRegistry(Class<?> registryType, String toolsAccessor) {
+        return maximalRegistry(registryType, toolsAccessor, Map.of());
+    }
+
+    /** Builds the maximal registry with selected native controller mocks exposed to a binding test. */
+    @SuppressWarnings("unchecked")
+    public static List<McpTool> maximalRegistry(
+            Class<?> registryType, String toolsAccessor, Map<Class<?>, Object> controllers) {
         try {
             Constructor<?> constructor = widestConstructor(registryType);
             constructor.setAccessible(true);
-            Object registry = constructor.newInstance(providersFor(constructor.getGenericParameterTypes()));
+            Object registry =
+                    constructor.newInstance(providersFor(constructor.getGenericParameterTypes(), controllers));
 
             // Spring injects the remaining panels through setter injection once the constructor has run.
             for (Method method : registryType.getDeclaredMethods()) {
                 if (method.getName().startsWith("add") && method.getParameterCount() > 0) {
                     method.setAccessible(true);
-                    method.invoke(registry, providersFor(method.getGenericParameterTypes()));
+                    method.invoke(registry, providersFor(method.getGenericParameterTypes(), controllers));
                 }
             }
 
@@ -64,10 +73,11 @@ public final class McpToolsRegistryFixture {
                 .orElseThrow();
     }
 
-    private static Object[] providersFor(Type[] parameterTypes) {
+    private static Object[] providersFor(Type[] parameterTypes, Map<Class<?>, Object> controllers) {
         Object[] arguments = new Object[parameterTypes.length];
         for (int i = 0; i < parameterTypes.length; i++) {
-            arguments[i] = provider(controllerType(parameterTypes[i]));
+            Class<?> controller = controllerType(parameterTypes[i]);
+            arguments[i] = provider(controller, controllers.get(controller));
         }
         return arguments;
     }
@@ -81,10 +91,11 @@ public final class McpToolsRegistryFixture {
         throw new IllegalStateException("Expected an ObjectProvider<Controller> parameter but found " + parameterType);
     }
 
-    private static ObjectProvider<?> provider(Class<?> controllerType) {
+    private static ObjectProvider<?> provider(Class<?> controllerType, Object suppliedController) {
         ObjectProvider<?> provider = mock(ObjectProvider.class);
         if (!controllerType.getSimpleName().equals("PanelsController")) {
-            when(provider.getIfAvailable()).thenAnswer(invocation -> mock(controllerType));
+            when(provider.getIfAvailable())
+                    .thenAnswer(invocation -> suppliedController == null ? mock(controllerType) : suppliedController);
         }
         return provider;
     }
