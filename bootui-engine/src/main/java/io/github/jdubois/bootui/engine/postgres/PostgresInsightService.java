@@ -48,6 +48,8 @@ import java.util.function.Supplier;
  */
 public final class PostgresInsightService {
 
+    private static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
+
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
                     + "wall-clock budget. The session list is a live snapshot; every other number is cumulative "
@@ -285,28 +287,57 @@ public final class PostgresInsightService {
         Role role = new Role(null, false);
         try {
             originalAutoCommit = connection.getAutoCommit();
+            if (!originalAutoCommit) {
+                String reason = "The datasource connection is already in a transaction, so BootUI skipped this"
+                        + " PostgreSQL read to avoid touching the application's transaction state.";
+                diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
+                data.markSessionUnpinned(reason);
+                return new PostgresDatabaseDto(
+                        name,
+                        null,
+                        version.describe(),
+                        version.major(),
+                        null,
+                        false,
+                        "ERROR",
+                        reason,
+                        null,
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        null,
+                        List.of(),
+                        List.of(),
+                        false);
+            }
             connection.setAutoCommit(false);
             autoCommitChanged = true;
             originalReadOnly = connection.isReadOnly();
             connection.setReadOnly(true);
             readOnlyChanged = true;
-            data.markSessionUnpinned(pinSession(connection, name, diagnostics));
-            role = readRole(context);
-            data.markStatisticsRestricted(!role.monitoring());
-            for (PostgresCollector collector : COLLECTORS) {
-                if (budget.exhausted()) {
-                    data.addSection(new PostgresSectionDto(
-                            collector.id(),
-                            collector.title(),
-                            "SKIPPED",
-                            "The read budget ran out before this section was read.",
-                            null,
-                            0,
-                            true));
-                    data.markTruncated();
-                    continue;
+            String pinFailure = pinSession(connection, name, diagnostics);
+            data.markSessionUnpinned(pinFailure);
+            if (pinFailure == null || !pinFailure.contains("\"" + READ_ONLY_TRANSACTION_PIN + "\"")) {
+                role = readRole(context);
+                data.markStatisticsRestricted(!role.monitoring());
+                for (PostgresCollector collector : COLLECTORS) {
+                    if (budget.exhausted()) {
+                        data.addSection(new PostgresSectionDto(
+                                collector.id(),
+                                collector.title(),
+                                "SKIPPED",
+                                "The read budget ran out before this section was read.",
+                                null,
+                                0,
+                                true));
+                        data.markTruncated();
+                        continue;
+                    }
+                    data.addSection(collector.collect(context, data));
                 }
-                data.addSection(collector.collect(context, data));
             }
         } catch (SQLException | RuntimeException ex) {
             String reason = CredentialRedaction.redact(
@@ -371,7 +402,7 @@ public final class PostgresInsightService {
 
     private String pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
         List<String> pins = List.of(
-                "set transaction read only",
+                READ_ONLY_TRANSACTION_PIN,
                 "set local statement_timeout = '" + limits.statementTimeout().toMillis() + "ms'",
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
                 "set local idle_in_transaction_session_timeout = '"
@@ -384,6 +415,9 @@ public final class PostgresInsightService {
                 diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
                 if (unpinned == null) {
                     unpinned = message;
+                }
+                if (READ_ONLY_TRANSACTION_PIN.equals(pin)) {
+                    return message;
                 }
             }
         }
@@ -583,7 +617,8 @@ public final class PostgresInsightService {
             if (database.truncated()) {
                 limitations.add(database.name() + ": a row bound truncated the read.");
             }
-            if ("PARTIAL".equals(database.status()) && database.message() != null) {
+            if (("PARTIAL".equals(database.status()) || "ERROR".equals(database.status()))
+                    && database.message() != null) {
                 limitations.add(database.name() + ": " + database.message());
             }
         }

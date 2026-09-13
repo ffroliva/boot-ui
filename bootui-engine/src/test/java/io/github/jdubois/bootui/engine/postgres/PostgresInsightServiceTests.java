@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.core.dto.PostgresInsightReport;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.NamedDataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -71,6 +73,35 @@ class PostgresInsightServiceTests {
             assertThat(diagnostic.level()).isEqualTo("ERROR");
             assertThat(diagnostic.message()).contains("******db/app").doesNotContain("sup3rs3cret");
         });
+        assertThat(report.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("broken").contains("******db/app"));
+    }
+
+    @Test
+    void aDatasourceConnectionAlreadyInManualCommitModeIsSkipped() {
+        var dataSource = PostgresTestDataSources.postgres();
+        DataSource inTransaction = new PostgresTestDataSources.AbstractTestDataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                Connection connection = dataSource.getConnection();
+                connection.setAutoCommit(false);
+                return connection;
+            }
+        };
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", inTransaction)).read();
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.status()).isEqualTo("ERROR");
+            assertThat(database.message()).contains("already in a transaction");
+            assertThat(database.sections()).isEmpty();
+        });
+        assertThat(report.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("already in a transaction"));
+        assertThat(dataSource.executedSql()).isEmpty();
+        assertThat(dataSource.preparedSql()).isEmpty();
     }
 
     @Test
@@ -286,6 +317,26 @@ class PostgresInsightServiceTests {
         // The pins that follow the refused one still run, which is only possible because the failed pin was
         // rolled back to its own savepoint: an aborted PostgreSQL transaction rejects every later statement.
         assertThat(dataSource.executedSql()).contains("set local lock_timeout = '2000ms'");
+    }
+
+    @Test
+    void aRefusedReadOnlyPinStopsTheReadBeforeCollectorsRun() {
+        var dataSource = PostgresTestDataSources.postgres().failPin("set transaction read only", "permission denied");
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.status()).isEqualTo("ERROR");
+            assertThat(database.message()).contains("set transaction read only");
+            assertThat(database.sections()).isEmpty();
+        });
+        assertThat(dataSource.executedSql())
+                .contains("set transaction read only")
+                .doesNotContain("set local statement_timeout = '5000ms'")
+                .doesNotContain("set local lock_timeout = '2000ms'");
+        assertThat(dataSource.preparedSql()).isEmpty();
     }
 
     @Test

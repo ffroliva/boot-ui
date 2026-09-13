@@ -105,6 +105,16 @@ final class PostgresQuery {
      * its own content — the exact failure the per-query savepoints exist to prevent.</p>
      */
     static String pin(Connection connection, String sql) {
+        if (isTransactionReadOnlyPin(sql)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute(sql);
+                return null;
+            } catch (SQLException | RuntimeException ex) {
+                rollback(connection);
+                String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                return CredentialRedaction.redact(message.strip());
+            }
+        }
         Savepoint savepoint = savepoint(connection);
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
@@ -115,6 +125,10 @@ final class PostgresQuery {
         }
         release(connection, savepoint);
         return null;
+    }
+
+    private static boolean isTransactionReadOnlyPin(String sql) {
+        return "set transaction read only".equalsIgnoreCase(sql == null ? null : sql.strip());
     }
 
     /**
@@ -137,6 +151,14 @@ final class PostgresQuery {
         }
         try {
             connection.rollback(savepoint);
+        } catch (SQLException | RuntimeException ex) {
+            // The transaction is already unusable; the next query reports its own failure.
+        }
+    }
+
+    private static void rollback(Connection connection) {
+        try {
+            connection.rollback();
         } catch (SQLException | RuntimeException ex) {
             // The transaction is already unusable; the next query reports its own failure.
         }

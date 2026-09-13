@@ -321,6 +321,12 @@ class PostgresCollectorsTests {
     }
 
     @Test
+    void sessionClientAddressFollowsTheExposurePolicy() throws SQLException {
+        assertThat(sessionAddress(ValueExposure.MASKED)).isEqualTo("127.0.0.1");
+        assertThat(sessionAddress(ValueExposure.METADATA_ONLY)).isEqualTo("******");
+    }
+
+    @Test
     void settingValuesAreWithheldUnderMetadataOnlyButStillDriveTheRules() throws SQLException {
         var dataSource = PostgresTestDataSources.postgres();
         PostgresDatabaseData data = new PostgresDatabaseData("primary");
@@ -361,6 +367,41 @@ class PostgresCollectorsTests {
         new PostgresReplicationCollector()
                 .collect(PostgresTestDataSources.context(dataSource, 15, exposure(valueExposure)), data);
         return data.replication().replicas().get(0).clientAddress();
+    }
+
+    private static String sessionAddress(ValueExposure valueExposure) throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.SESSIONS,
+                        PostgresTestDataSources.row(
+                                "pid",
+                                4242,
+                                "user_name",
+                                "app",
+                                "application_name",
+                                "sample-app",
+                                "client_address",
+                                "127.0.0.1",
+                                "state",
+                                "active",
+                                "wait_event_type",
+                                null,
+                                "wait_event",
+                                null,
+                                "blocked_by",
+                                null,
+                                "state_seconds",
+                                12d,
+                                "transaction_seconds",
+                                30d,
+                                "query_seconds",
+                                12d,
+                                "query",
+                                "select 1"));
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+        new PostgresSessionCollector()
+                .collect(PostgresTestDataSources.context(dataSource, 15, exposure(valueExposure)), data);
+        return data.sessions().get(0).clientAddress();
     }
 
     private static ExposurePolicy exposure(ValueExposure valueExposure) {

@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.postgres;
 
+import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.core.dto.PostgresSessionDto;
 
@@ -78,7 +80,7 @@ final class PostgresSessionCollector implements PostgresCollector {
                                 resultSet.getString("application_name"),
                                 context.exposure(),
                                 context.limits().maxQueryTextLength()),
-                        resultSet.getString("client_address"),
+                        clientAddress(resultSet.getString("client_address"), context),
                         resultSet.getString("state"),
                         resultSet.getString("wait_event_type"),
                         resultSet.getString("wait_event"),
@@ -98,5 +100,15 @@ final class PostgresSessionCollector implements PostgresCollector {
             return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
         }
         return available(rows.rows().size(), rows.truncated());
+    }
+
+    /** A session's client address, masked when the exposure policy allows metadata only. */
+    private static String clientAddress(String address, PostgresReadContext context) {
+        if (address == null) {
+            return null;
+        }
+        ValueExposure valueExposure =
+                context.exposure() == null ? ValueExposure.MASKED : context.exposure().valueExposure();
+        return valueExposure == ValueExposure.METADATA_ONLY ? SecretMasker.MASKED_VALUE : address;
     }
 }

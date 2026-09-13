@@ -4,8 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
+import java.sql.Savepoint;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
@@ -170,6 +177,46 @@ class PostgresHelpersTests {
                                 1, 1, 1, 1, 1, 1, 1, 10, Duration.ofSeconds(1), Duration.ZERO, Duration.ZERO)
                         .statementTimeoutSeconds())
                 .isEqualTo(1);
+    }
+
+    @Test
+    void readOnlyTransactionPinRunsBeforeAnySavepoint() {
+        AtomicBoolean savepointCreated = new AtomicBoolean(false);
+        Connection connection = Connection.class.cast(Proxy.newProxyInstance(
+                Connection.class.getClassLoader(), new Class<?>[] {Connection.class}, (proxy, method, arguments) -> {
+                    return switch (method.getName()) {
+                        case "getAutoCommit" -> false;
+                        case "setSavepoint" -> {
+                            savepointCreated.set(true);
+                            yield Savepoint.class.cast(Proxy.newProxyInstance(
+                                    Savepoint.class.getClassLoader(),
+                                    new Class<?>[] {Savepoint.class},
+                                    (savepointProxy, savepointMethod, savepointArgs) -> null));
+                        }
+                        case "createStatement" -> Statement.class.cast(Proxy.newProxyInstance(
+                                Statement.class.getClassLoader(),
+                                new Class<?>[] {Statement.class},
+                                (statementProxy, statementMethod, statementArgs) -> {
+                                    return switch (statementMethod.getName()) {
+                                        case "execute" -> {
+                                            if (savepointCreated.get()) {
+                                                throw new SQLException(
+                                                        "SET TRANSACTION must be called before any savepoint");
+                                            }
+                                            yield true;
+                                        }
+                                        case "close" -> null;
+                                        default -> throw new SQLFeatureNotSupportedException(
+                                                statementMethod.getName());
+                                    };
+                                }));
+                        case "rollback", "releaseSavepoint" -> null;
+                        default -> throw new SQLFeatureNotSupportedException(method.getName());
+                    };
+                }));
+
+        assertThat(PostgresQuery.pin(connection, "set transaction read only")).isNull();
+        assertThat(savepointCreated).isFalse();
     }
 
     private static ExposurePolicy exposure(ValueExposure valueExposure, boolean maskSecrets) {
