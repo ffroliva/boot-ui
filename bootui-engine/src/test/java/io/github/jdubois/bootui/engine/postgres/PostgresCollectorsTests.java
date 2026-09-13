@@ -7,9 +7,13 @@ import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PostgresCollectorsTests {
 
@@ -342,6 +346,136 @@ class PostgresCollectorsTests {
                 .allSatisfy(setting -> assertThat(setting.value()).isEqualTo("******"));
         assertThat(data.settingValues()).containsKey("autovacuum_vacuum_threshold");
         assertThat(data.setting("autovacuum_vacuum_threshold")).isNotEqualTo("******");
+    }
+
+    @Test
+    void settingsExcludeTheTimeoutsOverriddenByBootui() throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres();
+        new PostgresSettingsCollector()
+                .collect(
+                        PostgresTestDataSources.context(dataSource, 15, exposure()),
+                        new PostgresDatabaseData("primary"));
+
+        assertThat(PostgresSettingsCollector.NOTABLE_SETTINGS)
+                .doesNotContainKeys("statement_timeout", "lock_timeout", "idle_in_transaction_session_timeout");
+        assertThat(dataSource.preparedSql())
+                .singleElement()
+                .satisfies(sql -> assertThat(sql)
+                        .contains("'autovacuum_vacuum_threshold'", "'work_mem'")
+                        .doesNotContain(
+                                "'statement_timeout'", "'lock_timeout'", "'idle_in_transaction_session_timeout'"));
+    }
+
+    @Test
+    void aStandbyDoesNotPresentAnUnreadReplicaListAsAnEmptyObservation() throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.RECOVERY,
+                        PostgresTestDataSources.row("in_recovery", true, "has_checkpointer", false));
+        PostgresDatabaseData data = new PostgresDatabaseData("standby");
+
+        PostgresSectionDto section = new PostgresReplicationCollector()
+                .collect(PostgresTestDataSources.context(dataSource, 15, exposure()), data);
+
+        assertThat(data.replication().replicasAvailable()).isFalse();
+        assertThat(data.replication().replicas()).isEmpty();
+        assertThat(section.reason()).contains("replica list and lag were not read", "cascading replicas");
+        assertThat(dataSource.preparedSql()).noneMatch(sql -> sql.contains("from pg_stat_replication"));
+    }
+
+    @Test
+    void aFailedReplicaQueryIsUnavailableButAnEmptySuccessfulQueryIsAvailable() throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres();
+        PostgresDatabaseData empty = new PostgresDatabaseData("primary");
+        new PostgresReplicationCollector().collect(PostgresTestDataSources.context(dataSource, 15, exposure()), empty);
+        assertThat(empty.replication().replicasAvailable()).isTrue();
+        assertThat(empty.replication().replicas()).isEmpty();
+
+        dataSource.fail(PostgresTestDataSources.QueryKind.REPLICAS, "permission denied");
+        PostgresDatabaseData failed = new PostgresDatabaseData("primary");
+        PostgresSectionDto section = new PostgresReplicationCollector()
+                .collect(PostgresTestDataSources.context(dataSource, 15, exposure()), failed);
+        assertThat(failed.replication().replicasAvailable()).isFalse();
+        assertThat(section.reason()).contains("Replication statistics could not be read", "permission denied");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"settings", "sessions", "statements", "indexes", "tables", "vacuum", "replication"})
+    void everyListCollectorPreservesRowsAndTheBudgetReason(String id) throws SQLException {
+        AtomicLong nanos = new AtomicLong();
+        PostgresCollector collector =
+                switch (id) {
+                    case "settings" -> new PostgresSettingsCollector();
+                    case "sessions" -> new PostgresSessionCollector();
+                    case "statements" -> new PostgresStatementCollector();
+                    case "indexes" -> new PostgresIndexCollector();
+                    case "tables" -> new PostgresTableCollector();
+                    case "vacuum" -> new PostgresVacuumCollector();
+                    default -> new PostgresReplicationCollector();
+                };
+        PostgresTestDataSources.QueryKind kind =
+                switch (id) {
+                    case "settings" -> PostgresTestDataSources.QueryKind.SETTINGS;
+                    case "sessions" -> PostgresTestDataSources.QueryKind.SESSIONS;
+                    case "statements" -> PostgresTestDataSources.QueryKind.STATEMENTS;
+                    case "indexes" -> PostgresTestDataSources.QueryKind.INDEXES;
+                    case "tables" -> PostgresTestDataSources.QueryKind.TABLES;
+                    case "vacuum" -> PostgresTestDataSources.QueryKind.VACUUM;
+                    default -> PostgresTestDataSources.QueryKind.REPLICAS;
+                };
+        var row = PostgresTestDataSources.row("name", "work_mem", "setting", "4096");
+        var dataSource = PostgresTestDataSources.postgres().rows(kind, row, row).onRow(kind, index -> {
+            if (index == 1) {
+                nanos.set(Duration.ofSeconds(15).toNanos());
+            }
+        });
+        var base = PostgresTestDataSources.context(dataSource, 15, exposure());
+        var context = new PostgresReadContext(
+                base.connection(),
+                base.version(),
+                PostgresReadBudget.of(Duration.ofSeconds(15), nanos::get),
+                base.limits(),
+                base.exposure());
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+        data.markStatisticsRestricted(true);
+
+        PostgresSectionDto section = collector.collect(context, data);
+
+        assertThat(section.status()).isEqualTo("AVAILABLE");
+        assertThat(section.rowCount()).isEqualTo(1);
+        assertThat(section.truncated()).isFalse();
+        assertThat(section.reason()).contains("read budget ran out while reading");
+        if ("sessions".equals(id) || "statements".equals(id) || "replication".equals(id)) {
+            assertThat(section.reason()).contains("pg_monitor");
+        }
+        if ("vacuum".equals(id)) {
+            assertThat(section.reason()).contains("settings could not be read");
+        }
+    }
+
+    @Test
+    void aBudgetExhaustedBeforeTheFirstRowDoesNotProduceAnAvailableEmptyList() throws SQLException {
+        AtomicLong nanos = new AtomicLong();
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.TABLES, PostgresTestDataSources.row("table_name", "orders"))
+                .onRow(
+                        PostgresTestDataSources.QueryKind.TABLES,
+                        index -> nanos.set(Duration.ofSeconds(15).toNanos()));
+        var base = PostgresTestDataSources.context(dataSource, 15, exposure());
+        var context = new PostgresReadContext(
+                base.connection(),
+                base.version(),
+                PostgresReadBudget.of(Duration.ofSeconds(15), nanos::get),
+                base.limits(),
+                base.exposure());
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+
+        PostgresSectionDto section = new PostgresTableCollector().collect(context, data);
+
+        assertThat(section.status()).isEqualTo("FAILED");
+        assertThat(section.reason()).contains("read budget ran out while reading Table statistics");
+        assertThat(section.truncated()).isFalse();
+        assertThat(data.tables()).isEmpty();
     }
 
     private static String replicaAddress(ValueExposure valueExposure) throws SQLException {

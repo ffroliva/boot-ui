@@ -97,9 +97,12 @@ final class PostgresSessionCollector implements PostgresCollector {
         }
         data.sessions(rows.rows());
         if (data.statisticsRestricted()) {
-            return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
+            return partial(
+                    rows.rows().size(),
+                    PostgresQuery.appendSentence(rows.reason(), RESTRICTED_LIMITATION),
+                    rows.truncated());
         }
-        return available(rows.rows().size(), rows.truncated());
+        return partial(rows.rows().size(), rows.reason(), rows.truncated());
     }
 
     /** A session's client address: masked under METADATA_ONLY, preserved under MASKED/FULL (and by default). */
@@ -107,8 +110,9 @@ final class PostgresSessionCollector implements PostgresCollector {
         if (address == null) {
             return null;
         }
-        ValueExposure valueExposure =
-                context.exposure() == null ? ValueExposure.MASKED : context.exposure().valueExposure();
+        ValueExposure valueExposure = context.exposure() == null
+                ? ValueExposure.MASKED
+                : context.exposure().valueExposure();
         return valueExposure == ValueExposure.METADATA_ONLY ? SecretMasker.MASKED_VALUE : address;
     }
 }

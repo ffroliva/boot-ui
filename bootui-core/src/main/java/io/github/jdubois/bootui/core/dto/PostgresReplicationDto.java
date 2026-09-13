@@ -6,6 +6,8 @@ import java.util.List;
  * Replication, checkpoint and WAL basics.
  *
  * @param inRecovery whether this server is a standby
+ * @param replicasAvailable whether the replica list was read; false means an empty list is not evidence
+ *     that no replicas are connected
  * @param checkpointsTimed checkpoints triggered by {@code checkpoint_timeout}
  * @param checkpointsRequested checkpoints that were requested rather than triggered by
  *     {@code checkpoint_timeout}: WAL volume reaching {@code max_wal_size}, an explicit {@code CHECKPOINT}, and
@@ -19,7 +21,8 @@ public record PostgresReplicationDto(
         Double checkpointWriteSeconds,
         Long replicationSlots,
         Long inactiveReplicationSlots,
-        String walLevel) {
+        String walLevel,
+        boolean replicasAvailable) {
 
     public PostgresReplicationDto {
         replicas = DtoCollections.immutableCopy(replicas);

@@ -11,10 +11,12 @@ import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -74,7 +76,8 @@ class PostgresInsightServiceTests {
             assertThat(diagnostic.message()).contains("******db/app").doesNotContain("sup3rs3cret");
         });
         assertThat(report.limitations())
-                .anySatisfy(limitation -> assertThat(limitation).contains("broken").contains("******db/app"));
+                .anySatisfy(
+                        limitation -> assertThat(limitation).contains("broken").contains("******db/app"));
     }
 
     @Test
@@ -102,6 +105,20 @@ class PostgresInsightServiceTests {
                 .anySatisfy(limitation -> assertThat(limitation).contains("already in manual-commit mode"));
         assertThat(dataSource.executedSql()).isEmpty();
         assertThat(dataSource.preparedSql()).isEmpty();
+        assertThat(dataSource.connectionCalls()).containsExactly("setAutoCommit", "getAutoCommit", "close");
+        assertThat(report.databases().get(0).message()).contains("spring.datasource.hikari.auto-commit=false");
+    }
+
+    @Test
+    void readOnlyTransactionCharacteristicsArePinnedBeforeAnySavepoint() {
+        var dataSource = PostgresTestDataSources.postgres();
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.status()).isEqualTo("READ");
+        assertThat(dataSource.executedSql()).startsWith("set transaction read only");
+        assertThat(dataSource.connectionCalls()).contains("setSavepoint", "rollback", "close");
     }
 
     @Test
@@ -363,10 +380,69 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("ERROR");
         assertThat(report.message()).contains("read budget ran out");
         assertThat(report.databases()).isEmpty();
+        assertThat(report.truncated()).isFalse();
         assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
             assertThat(diagnostic.source()).isEqualTo("primary");
             assertThat(diagnostic.level()).isEqualTo("WARNING");
         });
+    }
+
+    @Test
+    void aBudgetCutPreservesRowsAndTheComparisonBaselineWithoutClaimingARowCap() {
+        AtomicLong nanos = new AtomicLong();
+        var dataSource =
+                PostgresTestDataSources.postgres().rows(PostgresTestDataSources.QueryKind.TABLES, table(1L), table(2L));
+        PostgresInsightService service = PostgresInsightService.using(
+                () -> discovery("primary", dataSource),
+                exposure(ValueExposure.MASKED, true),
+                FIXED_CLOCK,
+                PostgresTestDataSources.limits(),
+                nanos::get);
+        service.read();
+        dataSource
+                .rows(PostgresTestDataSources.QueryKind.TABLES, table(100L), table(200L))
+                .onRow(PostgresTestDataSources.QueryKind.TABLES, index -> {
+                    if (index == 1) {
+                        nanos.set(Duration.ofSeconds(15).toNanos());
+                    }
+                });
+
+        PostgresInsightReport partial = service.read();
+
+        assertThat(partial.status()).isEqualTo("PARTIAL");
+        assertThat(partial.truncated()).isFalse();
+        assertThat(partial.limitations()).noneMatch(reason -> reason.contains("row bound"));
+        assertThat(partial.limitations()).anyMatch(reason -> reason.contains("read budget ran out"));
+        assertThat(partial.databases()).singleElement().satisfies(database -> {
+            assertThat(database.tables()).hasSize(1);
+            assertThat(database.truncated()).isFalse();
+            assertThat(database.sections())
+                    .filteredOn(section -> "tables".equals(section.id()))
+                    .singleElement()
+                    .satisfies(section -> {
+                        assertThat(section.status()).isEqualTo("AVAILABLE");
+                        assertThat(section.reason()).contains("read budget");
+                    });
+            assertThat(database.sections())
+                    .filteredOn(section -> "vacuum".equals(section.id()))
+                    .singleElement()
+                    .satisfies(section -> {
+                        assertThat(section.status()).isEqualTo("SKIPPED");
+                        assertThat(section.truncated()).isFalse();
+                    });
+            assertThat(database.changes()).noneMatch(change -> change.metric().contains("Dead tuples"));
+        });
+
+        dataSource.onRow(PostgresTestDataSources.QueryKind.TABLES, index -> {});
+        dataSource.rows(PostgresTestDataSources.QueryKind.TABLES, table(2L), table(3L));
+        PostgresInsightReport recovered = service.read();
+        assertThat(recovered.databases().get(0).changes())
+                .filteredOn(change -> change.metric().equals("Dead tuples in the largest relations"))
+                .singleElement()
+                .satisfies(change -> {
+                    assertThat(change.previous()).isEqualTo("3");
+                    assertThat(change.current()).isEqualTo("5");
+                });
     }
 
     @Test

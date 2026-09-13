@@ -193,23 +193,24 @@ class PostgresHelpersTests {
                                     new Class<?>[] {Savepoint.class},
                                     (savepointProxy, savepointMethod, savepointArgs) -> null));
                         }
-                        case "createStatement" -> Statement.class.cast(Proxy.newProxyInstance(
-                                Statement.class.getClassLoader(),
-                                new Class<?>[] {Statement.class},
-                                (statementProxy, statementMethod, statementArgs) -> {
-                                    return switch (statementMethod.getName()) {
-                                        case "execute" -> {
-                                            if (savepointCreated.get()) {
-                                                throw new SQLException(
-                                                        "SET TRANSACTION must be called before any savepoint");
+                        case "createStatement" ->
+                            Statement.class.cast(Proxy.newProxyInstance(
+                                    Statement.class.getClassLoader(),
+                                    new Class<?>[] {Statement.class},
+                                    (statementProxy, statementMethod, statementArgs) -> {
+                                        return switch (statementMethod.getName()) {
+                                            case "execute" -> {
+                                                if (savepointCreated.get()) {
+                                                    throw new SQLException(
+                                                            "SET TRANSACTION must be called before any savepoint");
+                                                }
+                                                yield true;
                                             }
-                                            yield true;
-                                        }
-                                        case "close" -> null;
-                                        default -> throw new SQLFeatureNotSupportedException(
-                                                statementMethod.getName());
-                                    };
-                                }));
+                                            case "close" -> null;
+                                            default ->
+                                                throw new SQLFeatureNotSupportedException(statementMethod.getName());
+                                        };
+                                    }));
                         case "rollback", "releaseSavepoint" -> null;
                         default -> throw new SQLFeatureNotSupportedException(method.getName());
                     };
@@ -225,17 +226,18 @@ class PostgresHelpersTests {
         Connection connection = Connection.class.cast(Proxy.newProxyInstance(
                 Connection.class.getClassLoader(), new Class<?>[] {Connection.class}, (proxy, method, arguments) -> {
                     return switch (method.getName()) {
-                        case "createStatement" -> Statement.class.cast(Proxy.newProxyInstance(
-                                Statement.class.getClassLoader(),
-                                new Class<?>[] {Statement.class},
-                                (statementProxy, statementMethod, statementArgs) -> {
-                                    return switch (statementMethod.getName()) {
-                                        case "execute" -> throw new SQLException("pin failed");
-                                        case "close" -> null;
-                                        default -> throw new SQLFeatureNotSupportedException(
-                                                statementMethod.getName());
-                                    };
-                                }));
+                        case "createStatement" ->
+                            Statement.class.cast(Proxy.newProxyInstance(
+                                    Statement.class.getClassLoader(),
+                                    new Class<?>[] {Statement.class},
+                                    (statementProxy, statementMethod, statementArgs) -> {
+                                        return switch (statementMethod.getName()) {
+                                            case "execute" -> throw new SQLException("pin failed");
+                                            case "close" -> null;
+                                            default ->
+                                                throw new SQLFeatureNotSupportedException(statementMethod.getName());
+                                        };
+                                    }));
                         case "rollback" -> throw new SQLException("rollback failed");
                         default -> throw new SQLFeatureNotSupportedException(method.getName());
                     };

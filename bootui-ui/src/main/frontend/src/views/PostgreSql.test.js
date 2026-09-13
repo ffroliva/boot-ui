@@ -185,6 +185,7 @@ describe('PostgreSql', () => {
             sessions: [session({querySeconds: 12.5, clientAddress: '10.1.2.3'})],
             replication: {
               inRecovery: false,
+              replicasAvailable: true,
               replicas: [],
               checkpointsTimed: 4,
               checkpointsRequested: 1,
@@ -323,6 +324,66 @@ describe('PostgreSql', () => {
 
     await openTab(wrapper, 'Table access')
     expect(wrapper.text()).toContain('A row bound was reached')
+  })
+
+  it.each([
+    {inRecovery: true, replicasAvailable: false},
+    {inRecovery: false, replicasAvailable: false},
+    {inRecovery: false}
+  ])('does not infer replica absence from an unread or older report: %j', async (replication) => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [section('replication', 'Replication', 'AVAILABLE', {reason: 'Replica list unavailable.'})],
+            replication: {...replication, replicas: []}
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('The replica list was not read')
+    expect(wrapper.text()).not.toContain('No streaming replica is connected')
+  })
+
+  it('reports a successfully observed empty replica list even if another replication sub-read failed', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [section('replication', 'Replication', 'AVAILABLE', {reason: 'Slots could not be read.'})],
+            replication: {inRecovery: false, replicasAvailable: true, replicas: []}
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('No streaming replica is connected')
+    expect(wrapper.text()).not.toContain('The replica list was not read')
+    expect(wrapper.text()).toContain('Slots could not be read')
+  })
+
+  it('keeps budget-limited rows visible without claiming a row cap', async () => {
+    const reason = 'The read budget ran out while reading Session activity.'
+    const {wrapper} = await mountWith(
+      report({
+        status: 'PARTIAL',
+        limitations: [`default/sessions: ${reason}`],
+        databases: [
+          database({
+            status: 'PARTIAL',
+            sections: [section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 1, reason})],
+            sessions: [session()]
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('PARTIAL')
+    expect(wrapper.text()).toContain(reason)
+    expect(wrapper.text()).toContain('sample-app')
+    expect(wrapper.text()).not.toContain('A row bound')
+    expect(wrapper.text()).not.toContain('Truncated')
   })
 
   it('shows one section at a time, keeping the vital signs and the other tabs in view', async () => {

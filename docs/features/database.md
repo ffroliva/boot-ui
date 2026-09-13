@@ -60,12 +60,24 @@ This is not the Database advisor and not SQL Trace:
 
 The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
 2 seconds, and the read budget to 15 seconds. List sections are capped (50 sessions, 25 statements, 50 indexes,
-25 tables, 25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather
-than hidden. Every statistics query runs inside its own savepoint, because one error would otherwise abort the shared
-read-only transaction and make every later section report "current transaction is aborted" instead of its own content.
+25 tables, 25 autovacuum rows, 10 replicas, and 40 settings). `truncated` means a row cap was reached; exhausting the
+time budget instead produces an explicit section reason and preserves rows already read. A budget-limited section
+with no retained rows is failed rather than shown as an empty successful read. Every statistics query runs inside its
+own savepoint, because one error would otherwise abort the shared read-only transaction and make every later section
+report "current transaction is aborted" instead of its own content.
 No baseline is written to disk; only the last value seen for each metric is kept in memory so the panel can show simple
 deltas. That baseline is merged rather than replaced, so a read that could not reach a section keeps the earlier value
 of that section instead of erasing it and reporting "no change" next time.
+
+The **Notable settings** list excludes `statement_timeout`, `lock_timeout`, and
+`idle_in_transaction_session_timeout`: BootUI overrides these for its own read, so showing their current session
+values would misrepresent the application's settings. These safety pins remain in effect.
+
+BootUI refuses a connection already in manual-commit mode before reading metadata or issuing SQL, and does not commit
+or roll back that connection. This includes pools configured to return connections with auto-commit disabled, such as
+`spring.datasource.hikari.auto-commit=false`, even when the borrowed connection has no active transaction. The read
+reports an error explaining this restriction; BootUI cannot safely distinguish a pool default from an
+application-owned transaction and does not change the application's transaction configuration.
 
 The autovacuum section's "due" column is computed from the settings the server would actually use for each relation:
 the cluster's `autovacuum_vacuum_threshold`, `autovacuum_vacuum_scale_factor` and — on PostgreSQL 18 and later —
@@ -79,7 +91,7 @@ Values are gated by the global exposure policy. Session statement text is the ve
 redacted, masked and truncated exactly like the normalized text from `pg_stat_statements`. Under `MASKED` or
 `METADATA_ONLY`, statement text has string literals
 and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
-`pg_stat_statements`) replaced before it leaves the engine, and replica `client_addr` is masked under
+`pg_stat_statements`) replaced before it leaves the engine, and both session and replica client addresses are masked under
 `METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
 
 :::
@@ -103,6 +115,11 @@ again: every connected replica is still listed, so the replica count is trustwor
 and lag come back empty, and that degrades the replication section too. The connection total is taken
 from `pg_stat_database`, which every role reads in full, so it stays correct either way. The statement ranking section
 additionally requires `pg_stat_statements`.
+
+On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.
+The report sets `replication.replicasAvailable=false` for this case and for a failed replica-list query.
+An empty list means no connected replicas only when `replicasAvailable=true`; failures in checkpoint or slot reads
+do not invalidate a successfully read replica list.
 
 :::
 

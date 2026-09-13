@@ -801,7 +801,12 @@ onMounted(async () => {
                     </tbody>
                   </table>
                 </div>
-                <div v-else class="small text-muted">No streaming replica is connected to this server.</div>
+                <div v-else-if="database.replication.replicasAvailable === true" class="small text-muted">
+                  No streaming replica is connected to this server.
+                </div>
+                <div v-else class="small text-muted">
+                  The replica list was not read. Connected replicas may be present; see the section limitation.
+                </div>
               </div>
 
               <div v-else-if="part.id === 'settings' && sectionReadable(part)" class="table-responsive">

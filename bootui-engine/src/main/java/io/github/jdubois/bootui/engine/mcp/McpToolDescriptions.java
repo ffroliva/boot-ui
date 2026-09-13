@@ -140,14 +140,17 @@ public final class McpToolDescriptions {
                             + "missing evidence. `truncated` means the row cap was reached, and any of these degrades "
                             + "the database and report `status` to `PARTIAL`. The usual cause is a role without "
                             + "pg_monitor membership, which hides other backends from the session list and the "
-                            + "statement text and replica details from their sections."),
+                            + "statement text and replica details from their sections. Budget exhaustion is reported "
+                            + "in `reason`, not as row-cap truncation. An empty replica list proves absence only when "
+                            + "`replication.replicasAvailable` is true; otherwise the list was not read."),
             Map.entry(
                     "get_postgresql_report",
                     "Return the last completed PostgreSQL runtime view without querying the server again. Before any "
                             + "read has run its `status` is `NOT_READ` and it carries no rows, which means nothing has "
                             + "been looked at rather than that nothing is wrong. Its session snapshot is only as "
                             + "current as that read, so prefer an active postgresql_read when the question is about "
-                            + "what the database is doing right now."),
+                            + "what the database is doing right now. Check each section's `reason` for missing coverage; "
+                            + "an empty replica list proves absence only when `replication.replicasAvailable` is true."),
             Map.entry(
                     "get_database_advisor_report",
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "

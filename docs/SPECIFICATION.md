@@ -2091,6 +2091,12 @@ Features:
   and access shape; autovacuum state; replication and WAL; and the curated settings.
 - Carry a report-level list of what the read does not cover, assembled from every degraded section, truncation and
   unread datasource.
+- Reserve `truncated` for row caps. Budget exhaustion carries a section `reason`, retaining any rows already read;
+  no retained rows means a failed section, not an empty successful one. Incomplete relation lists do not replace
+  the comparison baseline.
+- Exclude the timeout settings BootUI overrides for its own read from the notable application settings.
+- Expose `replication.replicasAvailable` so an empty replica list is only evidence of absence when it was read.
+  On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.
 - Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
 
 Availability:
@@ -2107,6 +2113,9 @@ Availability:
   statement ranking is degraded on the placeholder appearing as well as on the probe. `pg_stat_replication` restricts a
   third way: every replica is still listed, but its state, sync state and lag are hidden, which degrades that section.
 - The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
+- Connections borrowed with auto-commit disabled are refused before metadata or SQL, without commit or rollback.
+  This includes pool defaults such as `spring.datasource.hikari.auto-commit=false`; the read reports an explicit
+  error rather than risking an application-owned transaction.
 
 Out of scope for the current release surface:
 

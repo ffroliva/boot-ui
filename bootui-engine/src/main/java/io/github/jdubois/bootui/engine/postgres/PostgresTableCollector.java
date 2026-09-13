@@ -56,7 +56,7 @@ final class PostgresTableCollector implements PostgresCollector {
             return failed(rows.reason());
         }
         data.tables(rows.rows());
-        return available(rows.rows().size(), rows.truncated());
+        return partial(rows.rows().size(), rows.reason(), rows.truncated());
     }
 
     static Double sequentialScanRatio(Long sequentialScans, Long indexScans) {

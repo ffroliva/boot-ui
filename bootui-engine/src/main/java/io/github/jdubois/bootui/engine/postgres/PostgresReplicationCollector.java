@@ -83,6 +83,7 @@ final class PostgresReplicationCollector implements PostgresCollector {
         boolean inRecovery = shape.inRecovery();
 
         List<PostgresReplicaDto> replicas = List.of();
+        boolean replicasAvailable = false;
         // Every sub-read's limitation is kept: on a standby the expected "lag is not measurable" note would
         // otherwise mask a genuine checkpoint or replication-slot failure read straight after it.
         List<String> limitations = new ArrayList<>();
@@ -103,7 +104,11 @@ final class PostgresReplicationCollector implements PostgresCollector {
                             PostgresQuery.longOrNull(resultSet, "replay_lag")));
             if (rows.available()) {
                 replicas = rows.rows();
+                replicasAvailable = true;
                 truncated = rows.truncated();
+                if (rows.reason() != null) {
+                    limitations.add(rows.reason());
+                }
                 if (!replicas.isEmpty() && data.statisticsRestricted()) {
                     limitations.add(RESTRICTED_REPLICA_LIMITATION);
                 }
@@ -111,7 +116,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 limitations.add(rows.reason());
             }
         } else {
-            limitations.add("This server is a standby, so replica lag is not measurable from here.");
+            limitations.add("This server is a standby, so the replica list and lag were not read; "
+                    + "downstream cascading replicas may still be connected.");
         }
 
         PostgresRows<Checkpoints> checkpointRows = readCheckpoints(context, shape.hasCheckpointer());
@@ -142,7 +148,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 checkpoints.writeSeconds(),
                 slotCounts.slots(),
                 slotCounts.inactiveSlots(),
-                data.setting("wal_level")));
+                data.setting("wal_level"),
+                replicasAvailable));
         int rowCount = replicas.size();
         if (truncated) {
             limitations.add("More replicas are connected than the read's replica bound allows.");

@@ -17,7 +17,8 @@ import java.util.Map;
  * <p>The allow-list is the privacy control: BootUI never reads {@code pg_settings} wholesale, so no
  * command-bearing or path-bearing setting (and no setting a future PostgreSQL release adds) can reach the
  * browser by accident. It runs first because the autovacuum collector computes its "due?" verdict against
- * these real values rather than assumed defaults.</p>
+ * these real values rather than assumed defaults. Timeouts pinned by BootUI are deliberately excluded:
+ * their current session values would describe this read, not the application's configuration.</p>
  */
 final class PostgresSettingsCollector implements PostgresCollector {
 
@@ -63,7 +64,7 @@ final class PostgresSettingsCollector implements PostgresCollector {
         List<PostgresSettingDto> settings = new ArrayList<>(rows.rows());
         data.settings(settings);
         data.settingValues().putAll(rawValues);
-        return available(settings.size(), rows.truncated());
+        return partial(settings.size(), rows.reason(), rows.truncated());
     }
 
     private static Map<String, String> notableSettings() {
@@ -83,14 +84,12 @@ final class PostgresSettingsCollector implements PostgresCollector {
         settings.put("effective_cache_size", "The planner's estimate of the cache available to one query.");
         settings.put("fsync", "Turning fsync off trades crash safety for speed.");
         settings.put("full_page_writes", "Protects against torn pages after a crash.");
-        settings.put("idle_in_transaction_session_timeout", "Bounds how long an idle transaction can hold locks.");
         settings.put("log_min_duration_statement", "The slow-query log threshold.");
         settings.put("maintenance_work_mem", "Memory available to VACUUM, ANALYZE and index builds.");
         settings.put("max_connections", "The hard ceiling on concurrent backends.");
         settings.put("max_wal_size", "WAL volume that forces a checkpoint before the timeout.");
         settings.put("random_page_cost", "The planner's index-versus-sequential-scan trade-off.");
         settings.put("shared_buffers", "PostgreSQL's own buffer cache size.");
-        settings.put("statement_timeout", "The server-side ceiling on one statement.");
         settings.put("synchronous_commit", "Whether COMMIT waits for WAL to reach durable storage.");
         settings.put("track_io_timing", "Off means per-statement I/O time is not measured at all.");
         settings.put("wal_level", "Determines what replication and recovery the WAL can support.");

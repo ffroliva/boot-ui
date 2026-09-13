@@ -10,7 +10,8 @@ import java.util.function.LongSupplier;
  * <p>It is checked between units of work (per datasource, before each collector) rather than interrupting a
  * running JDBC call: the panel never spawns a thread, so the only honest ways to bound it are stopping
  * between steps and pinning {@code statement_timeout}/{@code lock_timeout} on the session it owns. Whatever
- * was read before the budget ran out is kept, and the read reports the truncation.</p>
+ * was read before the budget ran out is kept, and the read reports the missing coverage separately from
+ * row-cap truncation.</p>
  */
 final class PostgresReadBudget {
 

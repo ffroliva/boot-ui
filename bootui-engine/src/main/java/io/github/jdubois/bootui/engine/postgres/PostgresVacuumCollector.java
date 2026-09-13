@@ -100,11 +100,13 @@ final class PostgresVacuumCollector implements PostgresCollector {
         if (data.setting("autovacuum_vacuum_threshold") == null) {
             return partial(
                     retained.size(),
-                    "The autovacuum settings could not be read, so \"due\" is computed from PostgreSQL's defaults.",
+                    PostgresQuery.appendSentence(
+                            rows.reason(),
+                            "The autovacuum settings could not be read, so \"due\" is computed from PostgreSQL's defaults."),
                     rows.truncated());
         }
         return new PostgresSectionDto(
-                id(), title(), "AVAILABLE", null, ESTIMATE_LIMITATION, retained.size(), rows.truncated());
+                id(), title(), "AVAILABLE", rows.reason(), ESTIMATE_LIMITATION, retained.size(), rows.truncated());
     }
 
     /**

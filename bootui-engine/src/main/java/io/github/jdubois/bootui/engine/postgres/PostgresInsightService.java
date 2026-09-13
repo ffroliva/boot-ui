@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -50,8 +51,10 @@ public final class PostgresInsightService {
 
     private static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
     private static final String MANUAL_COMMIT_REASON =
-            "The datasource connection is already in manual-commit mode, so BootUI skipped this PostgreSQL"
-                    + " read to avoid touching the application's transaction state.";
+            "The datasource connection is already in manual-commit mode, so BootUI skipped this read"
+                    + " to avoid touching the application's transaction state. This also happens when the"
+                    + " pool hands out connections with auto-commit disabled (for example,"
+                    + " spring.datasource.hikari.auto-commit=false).";
 
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
@@ -73,6 +76,7 @@ public final class PostgresInsightService {
     private final ExposurePolicy exposure;
     private final Clock clock;
     private final PostgresInsightLimits limits;
+    private final LongSupplier nanoTime;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     /**
@@ -85,7 +89,8 @@ public final class PostgresInsightService {
 
     public static PostgresInsightService using(
             Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier, ExposurePolicy exposure, Clock clock) {
-        return new PostgresInsightService(dataSourceSupplier, exposure, clock, PostgresInsightLimits.DEFAULTS);
+        return new PostgresInsightService(
+                dataSourceSupplier, exposure, clock, PostgresInsightLimits.DEFAULTS, System::nanoTime);
     }
 
     /** Test seam: the same service running under explicit bounds. */
@@ -94,18 +99,29 @@ public final class PostgresInsightService {
             ExposurePolicy exposure,
             Clock clock,
             PostgresInsightLimits limits) {
-        return new PostgresInsightService(dataSourceSupplier, exposure, clock, limits);
+        return using(dataSourceSupplier, exposure, clock, limits, System::nanoTime);
+    }
+
+    static PostgresInsightService using(
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
+            ExposurePolicy exposure,
+            Clock clock,
+            PostgresInsightLimits limits,
+            LongSupplier nanoTime) {
+        return new PostgresInsightService(dataSourceSupplier, exposure, clock, limits, nanoTime);
     }
 
     private PostgresInsightService(
             Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
             ExposurePolicy exposure,
             Clock clock,
-            PostgresInsightLimits limits) {
+            PostgresInsightLimits limits,
+            LongSupplier nanoTime) {
         this.dataSourceSupplier = dataSourceSupplier;
         this.exposure = exposure;
         this.clock = clock;
         this.limits = limits;
+        this.nanoTime = nanoTime;
     }
 
     /** The report served before the user has asked for anything; nothing has touched the database yet. */
@@ -141,7 +157,7 @@ public final class PostgresInsightService {
                     false);
         }
 
-        PostgresReadBudget budget = PostgresReadBudget.of(limits.readBudget());
+        PostgresReadBudget budget = PostgresReadBudget.of(limits.readBudget(), nanoTime);
         List<PostgresDatabaseDto> databases = new ArrayList<>();
         // Datasources the read never reached. They are neither successes nor failures, but leaving them out
         // of the status would let an exhausted budget produce a clean-looking report over a partial read.
@@ -294,8 +310,7 @@ public final class PostgresInsightService {
                                 "The read budget ran out before this section was read.",
                                 null,
                                 0,
-                                true));
-                        data.markTruncated();
+                                false));
                         continue;
                     }
                     data.addSection(collector.collect(context, data));
@@ -512,7 +527,8 @@ public final class PostgresInsightService {
         // database-wide one. A truncated read is skipped outright: the membership of the list would differ
         // between reads, and comparing two different sets of tables would manufacture a movement.
         PostgresSectionDto tables = data.section(PostgresSectionIds.TABLES);
-        boolean comparable = tables != null && "AVAILABLE".equals(tables.status()) && !tables.truncated();
+        boolean comparable =
+                tables != null && "AVAILABLE".equals(tables.status()) && tables.reason() == null && !tables.truncated();
         long deadTuples = 0;
         boolean anyTable = false;
         for (PostgresTableDto table : data.tables()) {
@@ -620,25 +636,8 @@ public final class PostgresInsightService {
 
     private static PostgresDatabaseDto errorDatabase(String name, String version, int major, String reason) {
         return new PostgresDatabaseDto(
-                name,
-                null,
-                version,
-                major,
-                null,
-                false,
-                "ERROR",
-                reason,
-                null,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                null,
-                List.of(),
-                List.of(),
-                false);
+                name, null, version, major, null, false, "ERROR", reason, null, List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), null, List.of(), List.of(), false);
     }
 
     private record PinningResult(String reason, boolean readOnlyPinFailed) {}

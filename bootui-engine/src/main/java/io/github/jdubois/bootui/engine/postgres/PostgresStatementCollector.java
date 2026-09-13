@@ -90,9 +90,12 @@ final class PostgresStatementCollector implements PostgresCollector {
         boolean placeholders =
                 rows.rows().stream().anyMatch(statement -> INSUFFICIENT_PRIVILEGE.equals(statement.query()));
         if (data.statisticsRestricted() || placeholders) {
-            return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
+            return partial(
+                    rows.rows().size(),
+                    PostgresQuery.appendSentence(rows.reason(), RESTRICTED_LIMITATION),
+                    rows.truncated());
         }
-        return available(rows.rows().size(), rows.truncated());
+        return partial(rows.rows().size(), rows.reason(), rows.truncated());
     }
 
     /**

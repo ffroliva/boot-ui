@@ -44,6 +44,7 @@ final class PostgresQuery {
         Savepoint savepoint = savepoint(context.connection());
         List<T> rows = new ArrayList<>();
         boolean truncated = false;
+        String reason = null;
         try (PreparedStatement statement = context.connection().prepareStatement(sql)) {
             statement.setQueryTimeout(context.timeoutSeconds());
             statement.setMaxRows(max + 1);
@@ -51,8 +52,12 @@ final class PostgresQuery {
             try (ResultSet resultSet = statement.executeQuery()) {
                 int read = 0;
                 while (resultSet.next()) {
-                    if (++read > max || context.budget().exhausted()) {
+                    if (++read > max) {
                         truncated = true;
+                        break;
+                    }
+                    if (context.budget().exhausted()) {
+                        reason = "The read budget ran out while reading " + label + ".";
                         break;
                     }
                     T row = mapper.map(resultSet);
@@ -66,7 +71,7 @@ final class PostgresQuery {
             return PostgresRows.failed(describe(label, ex));
         }
         release(context.connection(), savepoint);
-        return PostgresRows.available(rows, truncated);
+        return reason == null ? PostgresRows.available(rows, truncated) : PostgresRows.partial(rows, reason);
     }
 
     /** Reads a single-row statistics query; an empty result set yields an available, empty outcome. */
@@ -177,12 +182,11 @@ final class PostgresQuery {
         }
     }
 
-    private static String appendSentence(String reason, String sentence) {
+    static String appendSentence(String reason, String sentence) {
         if (reason == null || reason.isBlank()) {
             return sentence;
         }
-        String separator =
-                reason.endsWith(".") || reason.endsWith("!") || reason.endsWith("?") ? " " : ". ";
+        String separator = reason.endsWith(".") || reason.endsWith("!") || reason.endsWith("?") ? " " : ". ";
         return reason + separator + sentence;
     }
 

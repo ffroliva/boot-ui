@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
 
@@ -87,10 +88,12 @@ final class PostgresTestDataSources {
         private final Map<QueryKind, List<Map<String, Object>>> rows = new HashMap<>();
         private final Map<QueryKind, SQLException> failures = new HashMap<>();
         private final Map<String, SQLException> pinFailures = new HashMap<>();
+        private final Map<QueryKind, IntConsumer> rowCallbacks = new HashMap<>();
         private SQLException rollbackFailure;
         private int connections;
         private final List<String> preparedSql = new ArrayList<>();
         private final List<String> executedSql = new ArrayList<>();
+        private final List<String> connectionCalls = new ArrayList<>();
 
         private ScriptedDataSource(
                 boolean postgresDefaults, String productName, String productVersion, int major, int minor) {
@@ -111,6 +114,15 @@ final class PostgresTestDataSources {
 
         List<String> preparedSql() {
             return List.copyOf(preparedSql);
+        }
+
+        List<String> connectionCalls() {
+            return List.copyOf(connectionCalls);
+        }
+
+        ScriptedDataSource onRow(QueryKind kind, IntConsumer callback) {
+            rowCallbacks.put(kind, callback);
+            return this;
         }
 
         @SafeVarargs
@@ -148,6 +160,7 @@ final class PostgresTestDataSources {
         private Connection connection() {
             AtomicBoolean autoCommit = new AtomicBoolean(true);
             AtomicBoolean readOnly = new AtomicBoolean(false);
+            AtomicInteger savepoints = new AtomicInteger();
             // PostgreSQL aborts the whole transaction on any statement error and rejects every later
             // statement with SQLSTATE 25P02 until it is rolled back, so the fixture models that too:
             // without it, per-query savepoints would look unnecessary.
@@ -156,6 +169,7 @@ final class PostgresTestDataSources {
                     Connection.class.getClassLoader(),
                     new Class<?>[] {Connection.class},
                     (proxy, method, arguments) -> {
+                        connectionCalls.add(method.getName());
                         return switch (method.getName()) {
                             case "getMetaData" -> metaData();
                             case "getAutoCommit" -> autoCommit.get();
@@ -168,7 +182,7 @@ final class PostgresTestDataSources {
                                 readOnly.set((Boolean) arguments[0]);
                                 yield null;
                             }
-                            case "createStatement" -> statement(aborted);
+                            case "createStatement" -> statement(aborted, savepoints);
                             case "prepareStatement" -> preparedStatement(String.valueOf(arguments[0]), aborted);
                             case "setSavepoint" -> {
                                 if (aborted.get()) {
@@ -177,14 +191,21 @@ final class PostgresTestDataSources {
                                                     + " transaction block",
                                             "25P02");
                                 }
+                                savepoints.incrementAndGet();
                                 yield savepoint();
                             }
-                            case "releaseSavepoint" -> null;
+                            case "releaseSavepoint" -> {
+                                savepoints.decrementAndGet();
+                                yield null;
+                            }
                             case "rollback" -> {
                                 if (rollbackFailure != null && arguments == null) {
                                     throw rollbackFailure;
                                 }
                                 aborted.set(false);
+                                if (arguments == null) {
+                                    savepoints.set(0);
+                                }
                                 yield null;
                             }
                             case "close" -> null;
@@ -221,7 +242,7 @@ final class PostgresTestDataSources {
                     }));
         }
 
-        private Statement statement(AtomicBoolean aborted) {
+        private Statement statement(AtomicBoolean aborted, AtomicInteger savepoints) {
             return Statement.class.cast(Proxy.newProxyInstance(
                     Statement.class.getClassLoader(), new Class<?>[] {Statement.class}, (proxy, method, arguments) -> {
                         return switch (method.getName()) {
@@ -233,6 +254,10 @@ final class PostgresTestDataSources {
                                             "current transaction is aborted, commands ignored until end of"
                                                     + " transaction block",
                                             "25P02");
+                                }
+                                if (sql.equals("set transaction read only") && savepoints.get() > 0) {
+                                    aborted.set(true);
+                                    throw new SQLException("cannot set transaction read only inside a subtransaction");
                                 }
                                 for (Map.Entry<String, SQLException> failure : pinFailures.entrySet()) {
                                     if (sql.contains(failure.getKey())) {
@@ -268,7 +293,7 @@ final class PostgresTestDataSources {
                                     aborted.set(true);
                                     throw failures.get(kind);
                                 }
-                                yield resultSet(rows.getOrDefault(kind, defaultRows(kind)));
+                                yield resultSet(rows.getOrDefault(kind, defaultRows(kind)), rowCallbacks.get(kind));
                             }
                             default -> throw new SQLFeatureNotSupportedException(method.getName());
                         };
@@ -443,13 +468,19 @@ final class PostgresTestDataSources {
         }
     }
 
-    private static ResultSet resultSet(List<Map<String, Object>> rows) {
+    private static ResultSet resultSet(List<Map<String, Object>> rows, IntConsumer onRow) {
         AtomicInteger position = new AtomicInteger(-1);
         AtomicBoolean wasNull = new AtomicBoolean();
         return ResultSet.class.cast(Proxy.newProxyInstance(
                 ResultSet.class.getClassLoader(), new Class<?>[] {ResultSet.class}, (proxy, method, arguments) -> {
                     return switch (method.getName()) {
-                        case "next" -> position.incrementAndGet() < rows.size();
+                        case "next" -> {
+                            boolean hasRow = position.incrementAndGet() < rows.size();
+                            if (hasRow && onRow != null) {
+                                onRow.accept(position.get());
+                            }
+                            yield hasRow;
+                        }
                         case "close" -> null;
                         case "wasNull" -> wasNull.get();
                         case "getString" -> {

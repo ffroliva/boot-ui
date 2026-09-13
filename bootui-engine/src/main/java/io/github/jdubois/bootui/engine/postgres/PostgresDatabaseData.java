@@ -173,10 +173,6 @@ final class PostgresDatabaseData {
         return truncated;
     }
 
-    void markTruncated() {
-        truncated = true;
-    }
-
     /**
      * Why the session could not be pinned, or {@code null} when every pin was accepted.
      *

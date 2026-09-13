@@ -65,13 +65,17 @@ class McpToolDescriptionsTests {
                         .contains("`SKIPPED` and `FAILED`")
                         .contains("`hint` is a methodology caveat")
                         .contains("`truncated`")
+                        .contains("Budget exhaustion is reported in `reason`, not as row-cap truncation")
+                        .contains("`replication.replicasAvailable` is true")
                         .contains("`PARTIAL`")
                         .doesNotContain("reported as skipped with its reason"));
         assertThat(List.of(
                         McpToolDescriptions.spring("get_postgresql_report"),
                         McpToolDescriptions.quarkus("get_postgresql_report")))
-                .allSatisfy(description ->
-                        assertThat(description).contains("`NOT_READ`").contains("rather than that nothing is wrong"));
+                .allSatisfy(description -> assertThat(description)
+                        .contains("`NOT_READ`")
+                        .contains("rather than that nothing is wrong")
+                        .contains("`replication.replicasAvailable` is true"));
     }
 
     /**
