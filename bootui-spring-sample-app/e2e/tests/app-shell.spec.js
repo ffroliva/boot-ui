@@ -23,6 +23,7 @@ const allPanelLinks = [
   {id: 'conditions', title: 'Conditions', heading: /Auto-configuration conditions/},
   {id: 'mappings', title: 'Mappings', heading: /HTTP mappings/},
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
+  {id: 'postgresql', title: 'PostgreSQL', heading: /^PostgreSQL/},
   {id: 'transactions', title: 'Transactions', heading: /^Transactions/},
   {id: 'sql-trace', title: 'SQL Trace', heading: /SQL Trace/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
@@ -418,7 +419,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Advisors', count: 9},
       {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 7},
+      {title: 'Database', count: 8},
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
@@ -443,9 +444,10 @@ test.describe('BootUI app shell', () => {
       'Vulnerabilities'
     ])
 
-    await page.getByRole('button', {name: /Database\s+7/}).click()
+    await page.getByRole('button', {name: /Database\s+8/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
+      'PostgreSQL',
       'Transactions',
       'SQL Trace',
       'Hibernate Statistics',

@@ -114,6 +114,8 @@ public final class BootUiApiContractCatalog {
             inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
             advisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
+            // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
+            // read's own outcome plus the evidence it did and did not gather.
             read(
                     "postgresql",
                     "/postgresql",
@@ -124,13 +126,15 @@ public final class BootUiApiContractCatalog {
                             JsonType.STRING,
                             "status",
                             JsonType.STRING,
-                            "severityCounts",
-                            JsonType.ARRAY,
+                            "databasesRead",
+                            JsonType.INTEGER,
+                            "truncated",
+                            JsonType.BOOLEAN,
                             "databases",
                             JsonType.ARRAY,
-                            "findings",
-                            JsonType.ARRAY,
                             "diagnostics",
+                            JsonType.ARRAY,
+                            "limitations",
                             JsonType.ARRAY)),
             read(
                     "hibernate-statistics",
