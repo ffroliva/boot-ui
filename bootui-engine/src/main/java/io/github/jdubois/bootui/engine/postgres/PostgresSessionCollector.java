@@ -102,7 +102,7 @@ final class PostgresSessionCollector implements PostgresCollector {
         return available(rows.rows().size(), rows.truncated());
     }
 
-    /** A session's client address: masked under METADATA_ONLY, preserved under MASKED/FULL. */
+    /** A session's client address: masked under METADATA_ONLY, preserved under MASKED/FULL (and by default). */
     private static String clientAddress(String address, PostgresReadContext context) {
         if (address == null) {
             return null;

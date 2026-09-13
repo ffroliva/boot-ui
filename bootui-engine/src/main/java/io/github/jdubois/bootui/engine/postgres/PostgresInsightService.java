@@ -375,7 +375,8 @@ public final class PostgresInsightService {
                     : PostgresQuery.pin(connection, pin);
             if (reason != null) {
                 String message = "The session could not be pinned with \"" + pin + "\": " + reason;
-                diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
+                String level = READ_ONLY_TRANSACTION_PIN.equals(pin) ? "ERROR" : "WARNING";
+                diagnostics.add(new PostgresDiagnosticDto(name, level, message));
                 if (unpinned == null) {
                     unpinned = message;
                 }
