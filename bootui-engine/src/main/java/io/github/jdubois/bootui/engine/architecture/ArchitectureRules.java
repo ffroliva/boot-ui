@@ -1208,7 +1208,9 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
 
 /**
  * Flags transaction annotations on interfaces, which Spring recommends avoiding because behaviour
- * differs between proxy modes and can be silently ignored with AspectJ weaving.
+ * differs between proxy modes and can be silently ignored with AspectJ weaving. Spring Data repository
+ * interfaces and their inherited fragments are exempt on Spring because repository proxies read their
+ * transaction declarations.
  */
 final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends AbstractArchitectureRule {
 
@@ -1219,19 +1221,23 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                         "Transactional annotations should not be declared on interfaces",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Transactional on interfaces or interface methods.",
+                        "Detects @Transactional on interfaces or interface methods, excluding Spring Data repositories"
+                                + " and their inherited fragments on Spring.",
                         "Declare transaction semantics on concrete implementation classes or methods so proxy and"
-                                + " weaving modes behave consistently.",
+                                + " weaving modes behave consistently. Spring Data repository interfaces and their"
+                                + " inherited fragments are supported transaction declaration sites; see"
+                                + " https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html#transactional-query-methods",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        Set<JavaClass> repositoryInterfaces = springDataRepositoryInterfaces(context);
         return classes()
                 .should(new ArchCondition<JavaClass>("not declare @Transactional on interfaces") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (!javaClass.isInterface()) {
+                        if (!javaClass.isInterface() || repositoryInterfaces.contains(javaClass)) {
                             return;
                         }
                         context.evidence().observed();
@@ -1251,6 +1257,31 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                     }
                 })
                 .as("Transactional annotations should not be declared on interfaces");
+    }
+
+    private static Set<JavaClass> springDataRepositoryInterfaces(ArchitectureContext context) {
+        if (context.platform() != ArchitecturePlatform.SPRING) {
+            return Set.of();
+        }
+        Set<JavaClass> repositoryInterfaces = new HashSet<>();
+        for (JavaClass javaClass : context.classes()) {
+            if (javaClass.isInterface() && isSpringDataRepository(javaClass)) {
+                repositoryInterfaces.add(javaClass);
+                repositoryInterfaces.addAll(javaClass.getAllRawInterfaces());
+            }
+        }
+        return repositoryInterfaces;
+    }
+
+    private static boolean isSpringDataRepository(JavaClass javaClass) {
+        return javaClass.isAssignableTo("org.springframework.data.repository.Repository")
+                || hasRepositoryDefinition(javaClass)
+                || javaClass.getAllRawInterfaces().stream()
+                        .anyMatch(TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule::hasRepositoryDefinition);
+    }
+
+    private static boolean hasRepositoryDefinition(JavaClass javaClass) {
+        return javaClass.isMetaAnnotatedWith("org.springframework.data.repository.RepositoryDefinition");
     }
 
     private static boolean hasTransactionalAnnotation(CanBeAnnotated annotated) {

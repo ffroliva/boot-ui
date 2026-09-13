@@ -60,6 +60,20 @@ class KotlinArchitectureRulesTests {
     }
 
     @Test
+    void transactionAnnotationsOnKotlinSpringDataRepositoriesAreSupportedButOrdinaryInterfacesStayReported() {
+        ArchitectureRuleResultDto result = evaluate(new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule());
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("KotlinCartOperations.expireIfDueInOwnTransaction(java.util.UUID, java.time.Instant)")
+                .doesNotContain("KotlinCartRepository");
+    }
+
+    @Test
     void suspendingScheduledMethodsAreJudgedOnTheirDeclaredSignature() {
         ArchitectureRuleResultDto result = evaluate(new ScheduledMethodsShouldHaveSupportedSignaturesRule());
 

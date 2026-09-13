@@ -8,8 +8,14 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.repository.NoRepositoryBean;
+import org.springframework.data.repository.RepositoryDefinition;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.annotation.Schedules;
+import org.springframework.transaction.annotation.Transactional;
 
 class ArchitectureEvaluationEvidenceTests {
     @Test
@@ -36,6 +42,31 @@ class ArchitectureEvaluationEvidenceTests {
         assertThat(result.status()).isEqualTo("VIOLATION");
         assertThat(context.evidence().usable()).isTrue();
         assertThat(result.violationCount()).isPositive();
+    }
+
+    @ParameterizedTest
+    @ValueSource(classes = {RepositoryOnly.class, DefinedRepositoryOnly.class, NoFields.class})
+    void exemptRepositoriesAndNonInterfacesDoNotEstablishTransactionalInterfaceEvidence(Class<?> type) {
+        ArchitectureContext context = context(type);
+        var result = new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("PASS");
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).isEmpty();
+        assertThat(context.evidence().evaluated()).isTrue();
+        assertThat(context.evidence().usable()).isFalse();
+        assertThat(context.evidence().requiredUnknown()).isFalse();
+    }
+
+    @Test
+    void ordinaryTransactionalInterfaceFindingsStillEstablishUsableEvidence() {
+        ArchitectureContext context = context(OrdinaryTransactionalInterface.class);
+        var result = new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(context.evidence().usable()).isTrue();
+        assertThat(context.evidence().requiredUnknown()).isFalse();
     }
 
     @Test
@@ -102,6 +133,21 @@ class ArchitectureEvaluationEvidenceTests {
 
     static class OneField {
         String value;
+    }
+
+    @NoRepositoryBean
+    interface BaseRepository<T, ID> extends CrudRepository<T, ID> {}
+
+    @Transactional
+    interface RepositoryOnly extends BaseRepository<Object, Long> {}
+
+    @RepositoryDefinition(domainClass = Object.class, idClass = Long.class)
+    @Transactional
+    interface DefinedRepositoryOnly {}
+
+    interface OrdinaryTransactionalInterface {
+        @Transactional
+        void save();
     }
 
     static class LegacyDate {
