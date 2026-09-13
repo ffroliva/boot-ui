@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +48,7 @@ public abstract class AbstractCliConformanceTest {
         PentestingDismissalContract.verify(
                 probe(),
                 "/bootui/api",
+                Path.of("target/cli-conformance/boot-ui.yml"),
                 () -> PentestingDismissalContract.response(invoke("pentest_scan", "{}")),
                 () -> PentestingDismissalContract.response(invoke("get_pentest_report", "{}")));
     }

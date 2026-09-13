@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -76,6 +77,11 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
     @Override
     protected String apiPath() {
         return API_PATH;
+    }
+
+    @Override
+    protected Path dismissalFile() {
+        return Path.of("target/custom-path-conformance/boot-ui.yml");
     }
 
     @Override

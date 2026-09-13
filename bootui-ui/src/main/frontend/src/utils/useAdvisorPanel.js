@@ -52,7 +52,7 @@ export function useAdvisorPanel(props, options) {
   const dismissedRules = useDismissedRules(loadReport)
   const {dismissLoading} = dismissedRules
   const actionsDisabled = computed(
-    () => loading.value || dismissLoading.value || readOnly.value || !manifestAvailable.value
+    () => initialLoading.value || loading.value || dismissLoading.value || readOnly.value || !manifestAvailable.value
   )
 
   const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
@@ -134,7 +134,7 @@ export function useAdvisorPanel(props, options) {
   }
 
   async function runScan() {
-    if (loading.value || dismissLoading.value) return
+    if (initialLoading.value || loading.value || dismissLoading.value) return
     if (readOnly.value) {
       showReadOnlyMessage()
       return
@@ -161,7 +161,7 @@ export function useAdvisorPanel(props, options) {
   }
 
   async function mutateRule(ruleId, restore = false) {
-    if (loading.value || dismissLoading.value) return
+    if (initialLoading.value || loading.value || dismissLoading.value) return
     if (readOnly.value) {
       showReadOnlyMessage()
       return
