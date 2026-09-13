@@ -390,6 +390,9 @@ Hibernate metamodel is unavailable.
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
 - An explicit declared table or column name not observed in complete scoped metadata.
 - Supported nondefault nullability declaration mismatches, not guessed Java-to-JDBC type mappings.
+  JDBC-reported views and materialized views (including secondary views) are excluded from this constraint
+  comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
+  columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
 - A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
 

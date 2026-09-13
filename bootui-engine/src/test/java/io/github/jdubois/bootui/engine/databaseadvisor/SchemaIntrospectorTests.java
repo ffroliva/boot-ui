@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -25,6 +26,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SchemaIntrospectorTests {
 
@@ -538,6 +541,36 @@ class SchemaIntrospectorTests {
         when(connection.getMetaData().getTables(any(), any(), any(), any())).thenReturn(rows());
         snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
         assertThat(snapshot.relationInventoryComplete()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW"})
+    void introspectionPreservesViewTypesAndNullableColumns(String type) throws Exception {
+        Connection connection = connection();
+        DatabaseMetaData metadata = connection.getMetaData();
+        when(metadata.getTableTypes())
+                .thenReturn(rows(
+                        Map.of("TABLE_TYPE", "TABLE"),
+                        Map.of("TABLE_TYPE", "VIEW"),
+                        Map.of("TABLE_TYPE", "MATERIALIZED VIEW")));
+        when(metadata.getTables(any(), any(), any(), any()))
+                .thenReturn(rows(
+                        Map.of("TABLE_CAT", "app", "TABLE_SCHEM", "public", "TABLE_NAME", "t", "TABLE_TYPE", type)));
+
+        SchemaSnapshot snapshot = SchemaIntrospector.introspect("ds", () -> connection, budget(), limits());
+
+        assertThat(snapshot.relationInventoryComplete()).isTrue();
+        assertThat(snapshot.tables()).singleElement().satisfies(view -> {
+            assertThat(view.type()).isEqualTo(type);
+            assertThat(view.metadata().columnsRead()).isTrue();
+            assertThat(view.columns()).singleElement().satisfies(column -> {
+                assertThat(column.name()).isEqualTo("a");
+                assertThat(column.nullability()).isEqualTo(ColumnModel.Nullability.NULLABLE);
+            });
+        });
+        assertThat(DatabaseAdvisorContext.physicalTables(snapshot)).isEmpty();
+        verify(metadata)
+                .getTables(any(), any(), any(), argThat(types -> List.of(types).contains(type)));
     }
 
     private static DatabaseAdvisorLimits smallLimits() {
