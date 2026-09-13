@@ -48,8 +48,6 @@ import java.util.function.Supplier;
  */
 public final class PostgresInsightService {
 
-    private static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
-
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
                     + "wall-clock budget. The session list is a live snapshot; every other number is cumulative "
@@ -248,7 +246,7 @@ public final class PostgresInsightService {
             String reason = CredentialRedaction.redact(
                     ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
             diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "ERROR", reason));
-            return errorDatabase(dataSource.name(), null, reason);
+            return errorDatabase(dataSource.name(), null, -1, reason);
         }
     }
 
@@ -273,7 +271,7 @@ public final class PostgresInsightService {
                         + " PostgreSQL read to avoid touching the application's transaction state.";
                 diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
                 data.markSessionUnpinned(reason);
-                return errorDatabase(name, version, reason);
+                return errorDatabase(name, version.describe(), version.major(), reason);
             }
             connection.setAutoCommit(false);
             autoCommitChanged = true;
@@ -364,7 +362,7 @@ public final class PostgresInsightService {
 
     private PinningResult pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
         List<String> pins = List.of(
-                READ_ONLY_TRANSACTION_PIN,
+                PostgresQuery.READ_ONLY_TRANSACTION_PIN,
                 "set local statement_timeout = '" + limits.statementTimeout().toMillis() + "ms'",
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
                 "set local idle_in_transaction_session_timeout = '"
@@ -378,7 +376,7 @@ public final class PostgresInsightService {
                 if (unpinned == null) {
                     unpinned = message;
                 }
-                if (READ_ONLY_TRANSACTION_PIN.equals(pin)) {
+                if (PostgresQuery.READ_ONLY_TRANSACTION_PIN.equals(pin)) {
                     return new PinningResult(message, true);
                 }
             }
@@ -614,12 +612,12 @@ public final class PostgresInsightService {
         }
     }
 
-    private static PostgresDatabaseDto errorDatabase(String name, DatabaseVersion version, String reason) {
+    private static PostgresDatabaseDto errorDatabase(String name, String version, int major, String reason) {
         return new PostgresDatabaseDto(
                 name,
                 null,
-                version == null ? null : version.describe(),
-                version == null ? -1 : version.major(),
+                version,
+                major,
                 null,
                 false,
                 "ERROR",

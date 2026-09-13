@@ -27,6 +27,8 @@ import java.util.List;
  */
 final class PostgresQuery {
 
+    static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
+
     @FunctionalInterface
     interface RowMapper<T> {
         /** Maps the current row, or returns {@code null} to skip it. */
@@ -114,6 +116,8 @@ final class PostgresQuery {
                 statement.execute(sql);
                 return null;
             } catch (SQLException | RuntimeException ex) {
+                // A caller that cannot pin read-only must stop the read: this rollback clears any aborted
+                // state but does not re-pin a replacement transaction.
                 rollback(connection);
                 String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
                 return CredentialRedaction.redact(message.strip());
@@ -132,7 +136,7 @@ final class PostgresQuery {
     }
 
     private static boolean isTransactionReadOnlyPin(String sql) {
-        return "set transaction read only".equalsIgnoreCase(sql == null ? null : sql.strip());
+        return READ_ONLY_TRANSACTION_PIN.equalsIgnoreCase(sql == null ? null : sql.strip());
     }
 
     /**

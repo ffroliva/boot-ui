@@ -216,7 +216,7 @@ class PostgresHelpersTests {
                 }));
 
         assertThat(PostgresQuery.pin(connection, "set transaction read only")).isNull();
-        assertThat(savepointCreated).isFalse();
+        assertThat(savepointCreated.get()).isFalse();
     }
 
     private static ExposurePolicy exposure(ValueExposure valueExposure, boolean maskSecrets) {
