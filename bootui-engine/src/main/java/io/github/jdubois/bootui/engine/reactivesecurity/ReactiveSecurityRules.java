@@ -65,7 +65,7 @@ final class ReactiveCatchAllOrderRule extends AbstractReactiveSecurityRule {
         if (details.isEmpty() && !complete) {
             return skipped("Chain matcher structure or order is not fully known.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -240,7 +240,7 @@ final class ReactiveBroadCorsOriginPatternRule extends AbstractReactiveSecurityR
         if (details.isEmpty()) {
             return corsViolation(context, details);
         }
-        return violation(credentialed ? "HIGH" : "LOW", details);
+        return violation(context, credentialed ? "HIGH" : "LOW", details);
     }
 }
 
@@ -463,9 +463,11 @@ final class ReactiveActuatorWildcardExposureRule extends AbstractReactiveSecurit
         String include = context.environment().managementExposureInclude();
         context.applies(context.environment().actuatorObservationComplete());
         if ("*".equals(include) && !context.effectiveSensitiveActuatorExposure().isEmpty()) {
-            return violation(List.of("Wildcard Actuator web selection permits sensitive endpoint configuration: "
-                    + String.join(", ", context.effectiveSensitiveActuatorExposure())
-                    + ". Actual endpoint availability and management authorization require separate review."));
+            return violation(
+                    context,
+                    List.of("Wildcard Actuator web selection permits sensitive endpoint configuration: "
+                            + String.join(", ", context.effectiveSensitiveActuatorExposure())
+                            + ". Actual endpoint availability and management authorization require separate review."));
         }
         return context.environment().actuatorObservationComplete()
                 ? pass()
@@ -498,8 +500,10 @@ final class ReactiveActuatorSensitiveExposureRule extends AbstractReactiveSecuri
                     : skipped("Effective Actuator configuration could not be fully observed.");
         }
         context.applies(true);
-        return violation(List.of(
-                "Sensitive Actuator endpoint configuration selected for web exposure: " + String.join(", ", exposed)
+        return violation(
+                context,
+                List.of("Sensitive Actuator endpoint configuration selected for web exposure: "
+                        + String.join(", ", exposed)
                         + ". Verify actual endpoint availability, authentication and restricted network access."));
     }
 }
@@ -535,6 +539,7 @@ final class ReactiveActuatorAuthorizationReviewRule extends AbstractReactiveSecu
                         .allMatch(chain -> Boolean.FALSE.equals(chain.authorizationFilterPresent()));
         if (allChainsObservedWithoutAuthorization) {
             return violation(
+                    context,
                     List.of(
                             "Actuator endpoints beyond health/info are configured for web exposure, and no observed application chain installs AuthorizationWebFilter. Verify management-path authorization separately."));
         }
@@ -567,6 +572,7 @@ final class ReactiveManagementPortIsolationRule extends AbstractReactiveSecurity
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "Sensitive Actuator endpoints are exposed on the application's main port. "
                                 + "Consider a separate listener and explicit network restrictions; a different port alone is not protection."));
@@ -603,7 +609,7 @@ final class ReactiveActuatorShowValuesRule extends AbstractReactiveSecurityRule 
         if (details.isEmpty() && !context.environment().actuatorObservationComplete()) {
             return skipped("Effective Actuator configuration could not be fully observed.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -628,6 +634,7 @@ final class ReactiveJwtStaticKeyRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         if (context.applies(context.environment().oauth2JwtStaticPublicKeyConfigured())) {
             return violation(
+                    context,
                     List.of(
                             "spring.security.oauth2.resourceserver.jwt.public-key-location declares a supported static verification key; review its out-of-band rotation process. Custom decoder settings are not inferred."));
         }
@@ -660,7 +667,7 @@ final class ReactiveInsecureJwtMetadataUrlRule extends AbstractReactiveSecurityR
         if (context.environment().oauth2JwtJwkSetUsesPlainHttp()) {
             details.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri uses plain HTTP; switch to HTTPS.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -684,6 +691,7 @@ final class ReactiveInsecureOpaqueTokenIntrospectionUrlRule extends AbstractReac
             return pass();
         }
         return violation(
+                context,
                 List.of(
                         "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri uses plain HTTP; RFC 7662 requires TLS."));
     }
@@ -758,7 +766,7 @@ final class ReactiveHardcodedSecretPropertyRule extends AbstractReactiveSecurity
         for (String key : suspected) {
             details.add("Property key '" + key + "' appears to hold a literal credential (value not shown).");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -782,9 +790,11 @@ final class ReactiveSecurityDebugLoggingProductionRule extends AbstractReactiveS
         }
         String level = context.environment().securityLoggingLevel();
         if (level != null && ("DEBUG".equalsIgnoreCase(level.trim()) || "TRACE".equalsIgnoreCase(level.trim()))) {
-            return violation(List.of("Spring Security logging is set to "
-                    + level.trim().toUpperCase(java.util.Locale.ROOT)
-                    + " while a production profile is active."));
+            return violation(
+                    context,
+                    List.of("Spring Security logging is set to "
+                            + level.trim().toUpperCase(java.util.Locale.ROOT)
+                            + " while a production profile is active."));
         }
         return pass();
     }

@@ -78,7 +78,8 @@ public final class ToolManifest {
      *
      * @param name the MCP tool name it invokes
      * @param command the space-separated command path, e.g. {@code memory heap analyze}
-     * @param schema the argument schema: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, or {@code ID}
+     * @param schema the argument schema: {@code NONE}, {@code LIMIT}, {@code QUERY_LIMIT}, {@code ID},
+     *     or {@code RULE_VIOLATIONS}
      * @param panel the panel backing it
      * @param action whether it changes state, and is therefore refused on a read-only panel
      * @param stacks the stacks that advertise it, so help can say when a command is stack-specific
@@ -111,12 +112,22 @@ public final class ToolManifest {
 
         /** Whether this tool takes a {@code limit}. */
         public boolean takesLimit() {
-            return "LIMIT".equals(schema) || "QUERY_LIMIT".equals(schema);
+            return "LIMIT".equals(schema) || "QUERY_LIMIT".equals(schema) || takesScanId();
         }
 
         /** Whether this tool requires an {@code id} positional. */
         public boolean takesId() {
-            return "ID".equals(schema);
+            return "ID".equals(schema) || takesScanId();
+        }
+
+        /** Whether this tool requires a completed advisor snapshot identifier. */
+        public boolean takesScanId() {
+            return "RULE_VIOLATIONS".equals(schema);
+        }
+
+        /** Whether this tool accepts an offset into retained advisor details. */
+        public boolean takesOffset() {
+            return "RULE_VIOLATIONS".equals(schema);
         }
 
         /** Whether every stack advertises this tool. */

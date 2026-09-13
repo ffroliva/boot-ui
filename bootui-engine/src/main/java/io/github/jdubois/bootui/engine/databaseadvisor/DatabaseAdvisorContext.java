@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,8 @@ record DatabaseAdvisorContext(
         boolean hibernateAvailable,
         List<MappedEntityFacts> hibernateEntities,
         List<SqlTraceEntryDto> observedStatements,
-        List<SchemaDiagnostic> evaluationDiagnostics) {
+        List<SchemaDiagnostic> evaluationDiagnostics,
+        AdvisorViolationCollector violationCollector) {
 
     private static final int MAX_EVALUATION_DIAGNOSTICS = 100;
 
@@ -39,7 +41,7 @@ record DatabaseAdvisorContext(
             boolean hibernateAvailable,
             List<MappedEntityFacts> hibernateEntities,
             List<SqlTraceEntryDto> observedStatements) {
-        this(schemas, hibernateAvailable, hibernateEntities, observedStatements, List.of());
+        this(schemas, hibernateAvailable, hibernateEntities, observedStatements, List.of(), null);
     }
 
     DatabaseAdvisorContext(

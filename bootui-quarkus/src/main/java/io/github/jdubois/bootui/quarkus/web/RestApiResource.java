@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ErrorContractReport;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -26,12 +27,11 @@ import jakarta.ws.rs.core.MediaType;
  * {@code POST /scan} runs the rules and caches the result. Dismissed rule IDs from the shared
  * {@link DismissedRulesStore} are applied on read, exactly as on Spring.</p>
  *
- * <p>{@code @ApplicationScoped} (not request scope) because it caches the last report in a {@code volatile}
- * field across requests — the CDI analogue of the Spring controller singleton.</p>
+ * <p>The scanner atomically owns the last report and its retained detail index.</p>
  */
 @ApplicationScoped
 @Path("/bootui/api/rest-api")
-public class RestApiResource {
+public class RestApiResource implements AdvisorViolationsEndpoint {
 
     private final RestApiScanner scanner;
 
@@ -39,21 +39,18 @@ public class RestApiResource {
 
     private final ErrorContractService errorContract;
 
-    private volatile RestApiReport lastReport;
-
     @Inject
     public RestApiResource(
             RestApiScanner scanner, DismissedRulesStore dismissedRules, ErrorContractService errorContract) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
         this.errorContract = errorContract;
-        this.lastReport = scanner.initialReport();
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public RestApiReport restApi() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     /**
@@ -75,7 +72,11 @@ public class RestApiResource {
     @Produces(MediaType.APPLICATION_JSON)
     public RestApiReport scan() {
         RestApiReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.equalTo;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,17 +16,24 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
+import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
 import io.github.jdubois.bootui.core.dto.DependencyVulnerabilityDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
+import io.github.jdubois.bootui.engine.vulnerabilities.VulnerabilityScanner;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -105,6 +114,64 @@ class VulnerabilitiesControllerTests {
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
                 .andExpect(jsonPath("$.scan.message").value("done"))
                 .andExpect(jsonPath("$.scan.packagesScanned").value(1));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void preservesArchiveCoverageAcrossInventoryScanAndCachedReads(boolean scanningEnabled) throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getVulnerabilities().setOsvEnabled(scanningEnabled);
+        DependencyInventory inventory = new DependencyInventory(
+                List.of(
+                        dependency("com.example", "resolved", "1.0"),
+                        dependency("com.example", "sbom-only", "1.0"),
+                        dependency("com.example", "another-sbom-component", "1.0")),
+                DependencyCoverageDto.of(2, 1, List.of("mystery-1.0.jar")));
+        Map<String, Object> coverage = Map.of(
+                "status",
+                "INCOMPLETE",
+                "archivesFound",
+                2,
+                "archivesIdentified",
+                1,
+                "archivesUnidentified",
+                1,
+                "unidentifiedArchives",
+                List.of("mystery-1.0.jar"),
+                "unidentifiedArchivesTruncated",
+                false);
+        DependencyProvider provider = mock(DependencyProvider.class);
+        when(provider.inventory()).thenReturn(inventory);
+        VulnerabilityScanner scanner = mock(VulnerabilityScanner.class);
+        when(scanner.scan(inventory))
+                .thenReturn(DependencyReports.report(
+                        true, "SCANNED", "done", 1L, 3, 0, inventory.dependencies(), inventory.coverage()));
+        MockMvc mvc = standaloneSetup(
+                        new VulnerabilitiesController(properties, provider, scanner, emptyDismissedRulesStore()))
+                .build();
+
+        mvc.perform(get("/bootui/api/vulnerabilities"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.scan.status").value("NOT_SCANNED"))
+                .andExpect(jsonPath("$.coverage").value(equalTo(coverage)));
+        verifyNoInteractions(scanner);
+
+        mvc.perform(post("/bootui/api/vulnerabilities/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.scan.status").value(scanningEnabled ? "SCANNED" : "DISABLED"))
+                .andExpect(jsonPath("$.coverage").value(equalTo(coverage)));
+        mvc.perform(get("/bootui/api/vulnerabilities"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.scan.status").value(scanningEnabled ? "SCANNED" : "NOT_SCANNED"))
+                .andExpect(jsonPath("$.coverage").value(equalTo(coverage)));
+        if (scanningEnabled) {
+            verify(scanner).scan(inventory);
+        } else {
+            verifyNoInteractions(scanner);
+        }
     }
 
     @Test

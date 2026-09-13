@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.security;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import java.time.Clock;
@@ -24,38 +27,41 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @ConditionalOnClass(FilterChainProxy.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security")
-public class SecurityController {
+public class SecurityController implements AdvisorViolationsEndpoint {
 
     private final SecurityScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
-
-    private volatile SecurityReport lastReport;
 
     @Autowired
     public SecurityController(
             ObjectProvider<FilterChainProxy> filterChainProxies,
             ObjectProvider<ListableBeanFactory> beanFactories,
             Environment environment,
-            DismissedRulesStore dismissedRules) {
+            DismissedRulesStore dismissedRules,
+            BootUiProperties properties) {
         this(new SecurityScanner(filterChainProxies, beanFactories, environment, Clock.systemUTC()), dismissedRules);
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
     }
 
     SecurityController(SecurityScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public SecurityReport security() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public SecurityReport scan() {
         SecurityReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

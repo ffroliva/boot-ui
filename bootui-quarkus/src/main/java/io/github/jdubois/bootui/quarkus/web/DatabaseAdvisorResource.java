@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
@@ -27,33 +28,29 @@ import jakarta.ws.rs.core.MediaType;
  * wired (it holds no {@code io.agroal}/{@code jakarta.persistence} types): when no {@code DataSource} bean is
  * present the scan renders a DISABLED report rather than failing.</p>
  *
- * <p>It is {@code @ApplicationScoped} (not the default per-request scope) because it caches the last report
- * in a {@code volatile} field across requests — the CDI analogue of the Spring controller's singleton with a
- * {@code volatile lastReport}. {@code POST /scan} is {@code @Blocking}: it opens JDBC connections and runs
+ * <p>The scanner atomically owns the last report and its retained detail index.
+ * {@code POST /scan} is {@code @Blocking}: it opens JDBC connections and runs
  * several {@code DatabaseMetaData}/catalog queries per datasource, which must not run on the Vert.x event
  * loop.</p>
  */
 @ApplicationScoped
 @Path("/bootui/api/database-advisor")
-public class DatabaseAdvisorResource {
+public class DatabaseAdvisorResource implements AdvisorViolationsEndpoint {
 
     private final DatabaseAdvisorScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
 
-    private volatile DatabaseAdvisorReport lastReport;
-
     @Inject
     public DatabaseAdvisorResource(DatabaseAdvisorScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public DatabaseAdvisorReport databaseAdvisor() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @POST
@@ -62,7 +59,11 @@ public class DatabaseAdvisorResource {
     @Produces(MediaType.APPLICATION_JSON)
     public DatabaseAdvisorReport scan() {
         DatabaseAdvisorReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

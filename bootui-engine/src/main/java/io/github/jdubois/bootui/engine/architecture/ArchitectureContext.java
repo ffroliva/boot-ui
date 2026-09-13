@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.util.List;
 
 /**
@@ -11,10 +12,19 @@ record ArchitectureContext(
         JavaClasses classes,
         List<String> basePackages,
         ArchitecturePlatform platform,
-        ArchitectureEvaluationEvidence evidence) {
+        ArchitectureEvaluationEvidence evidence,
+        AdvisorViolationCollector violationCollector) {
 
     ArchitectureContext(JavaClasses classes, List<String> basePackages, ArchitecturePlatform platform) {
         this(classes, basePackages, platform, new ArchitectureEvaluationEvidence());
+    }
+
+    ArchitectureContext(
+            JavaClasses classes,
+            List<String> basePackages,
+            ArchitecturePlatform platform,
+            ArchitectureEvaluationEvidence evidence) {
+        this(classes, basePackages, platform, evidence, new AdvisorViolationCollector(10000));
     }
 
     ArchitectureContext {

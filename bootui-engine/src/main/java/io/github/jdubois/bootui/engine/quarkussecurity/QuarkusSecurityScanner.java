@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.engine.quarkussecurity;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -15,6 +18,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -38,6 +42,7 @@ public final class QuarkusSecurityScanner {
     private final Supplier<QuarkusSecuritySnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
 
     private QuarkusSecurityScanner(Supplier<QuarkusSecuritySnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;
@@ -58,10 +63,25 @@ public final class QuarkusSecurityScanner {
     }
 
     public SecurityReport scan() {
-        return singleFlight.run(ActionOperations.SECURITY_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.SECURITY_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private SecurityReport doScan() {
+    public SecurityReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private SecurityReport doScan(AdvisorViolationCollector collector) {
         QuarkusSecuritySnapshot snap;
         try {
             snap = snapshotSupplier.get();
@@ -77,7 +97,7 @@ public final class QuarkusSecurityScanner {
                     List.of(),
                     List.of(error("Quarkus security configuration could not be read.")));
         }
-        QuarkusSecurityChecks.Evaluation evaluation = QuarkusSecurityChecks.evaluateObserved(snap);
+        QuarkusSecurityChecks.Evaluation evaluation = QuarkusSecurityChecks.evaluateObserved(snap, collector);
         List<SecurityRuleResultDto> violations = evaluation.findings();
         List<String> policyLabels = snap.permissions().stream()
                 .map(QuarkusSecurityScanner::policyLabel)
@@ -191,7 +211,8 @@ public final class QuarkusSecurityScanner {
                 scan,
                 marked,
                 report.analysisErrors(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     private List<SecuritySeverityCountDto> severityCounts(List<SecurityRuleResultDto> results) {

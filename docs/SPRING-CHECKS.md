@@ -1,5 +1,10 @@
 # Spring checks
 
+Rule reports keep ten-entry `sampleViolations` previews and their full `violationCount`. **View violations** and
+`GET <api>/spring/rules/{id}/violations?scanId=...&offset=0&limit=100` read additional retained details without
+inspecting the context again. Check retention truncation separately from coverage and score eligibility. See
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `Executor`s/`TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
 
 Because the advisor runs inside the *started* application, its evidence is deliberately limited. A configured default is not proof of effective execution, a bean definition is not proof that the bean is used, and a production-like profile name does not establish deployment topology. Concrete configuration concerns and optional INFO opportunities are both useful; an optimization suggestion does not promise a measured benefit or require a change.

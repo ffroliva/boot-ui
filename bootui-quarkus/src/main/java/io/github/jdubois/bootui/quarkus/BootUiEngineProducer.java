@@ -128,6 +128,11 @@ import org.eclipse.microprofile.config.Config;
 @ApplicationScoped
 public class BootUiEngineProducer {
 
+    void validateAdvisorRetention(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        advisorRetentionLimit(config);
+    }
+
     @Produces
     @Singleton
     ApiTokenAuthenticator apiTokenAuthenticator(Config config) {
@@ -177,8 +182,10 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public MemoryScanner memoryScanner(ThreadDumpService threadDumpService) {
-        return MemoryScanner.create(threadDumpService, Clock.systemUTC());
+    public MemoryScanner memoryScanner(ThreadDumpService threadDumpService, Config config) {
+        MemoryScanner scanner = MemoryScanner.create(threadDumpService, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -567,8 +574,10 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public QuarkusSecurityScanner quarkusSecurityScanner(Config config) {
-        return QuarkusSecurityScanner.usingSnapshot(
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
                 new QuarkusSecuritySnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -578,7 +587,10 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public QuarkusAppScanner quarkusAppScanner(Config config) {
-        return QuarkusAppScanner.usingSnapshot(new QuarkusAppSnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+        QuarkusAppScanner scanner = QuarkusAppScanner.usingSnapshot(
+                new QuarkusAppSnapshotProviderImpl(config)::snapshot, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -592,9 +604,11 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages) {
-        return ArchitectureScanner.usingClasspath(
+    public ArchitectureScanner architectureScanner(QuarkusBasePackageProvider basePackages, Config config) {
+        ArchitectureScanner scanner = ArchitectureScanner.usingClasspath(
                 basePackages::basePackages, ArchitecturePlatform.QUARKUS, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -608,8 +622,11 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public RestApiScanner restApiScanner(QuarkusBasePackageProvider basePackages) {
-        return RestApiScanner.usingClasspath(basePackages::basePackages, () -> MP_OPENAPI_PRESENT, Clock.systemUTC());
+    public RestApiScanner restApiScanner(QuarkusBasePackageProvider basePackages, Config config) {
+        RestApiScanner scanner =
+                RestApiScanner.usingClasspath(basePackages::basePackages, () -> MP_OPENAPI_PRESENT, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -765,12 +782,14 @@ public class BootUiEngineProducer {
     public HibernateScanner hibernateScanner(
             Instance<io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource> sources,
             Config config) {
-        return HibernateScanner.observing(
+        HibernateScanner scanner = HibernateScanner.observing(
                 sources.isUnsatisfied()
                         ? () -> new io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation(
                                 List.of(), null, List.of())
                         : sources.get(),
                 Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
     }
 
     /**
@@ -803,7 +822,8 @@ public class BootUiEngineProducer {
     public DatabaseAdvisorScanner databaseAdvisorScanner(
             @Any Instance<DataSource> dataSources,
             Instance<EntityDiscoverySource> entityDiscoverySources,
-            Instance<SqlTraceRecorder> sqlTraceRecorders) {
+            Instance<SqlTraceRecorder> sqlTraceRecorders,
+            Config config) {
         QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new QuarkusDatabaseAdvisorDataSourceProvider(dataSources);
         Supplier<EntityDiscovery> discovery;
@@ -818,8 +838,19 @@ public class BootUiEngineProducer {
         // skip rather than report a clean result they have no basis for.
         Supplier<List<SqlTraceEntryDto>> observedStatements =
                 () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
-        return DatabaseAdvisorScanner.usingDiscovery(
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.usingDiscovery(
                 dataSourceProvider::discover, discovery, observedStatements, Clock.systemUTC());
+        scanner.setViolationRetentionLimit(() -> advisorRetentionLimit(config));
+        return scanner;
+    }
+
+    static int advisorRetentionLimit(Config config) {
+        int limit = config.getOptionalValue("bootui.advisors.max-retained-violations", Integer.class)
+                .orElse(10_000);
+        if (limit <= 0) {
+            throw new IllegalArgumentException("bootui.advisors.max-retained-violations must be positive.");
+        }
+        return limit;
     }
 
     /**

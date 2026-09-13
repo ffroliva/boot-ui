@@ -76,11 +76,14 @@ public class BootUiReactiveSpringSecurityAutoConfiguration {
             ObjectProvider<SecurityWebFilterChain> filterChains,
             ObjectProvider<ListableBeanFactory> beanFactories,
             org.springframework.core.env.Environment environment,
-            DismissedRulesStore dismissedRules) {
+            DismissedRulesStore dismissedRules,
+            BootUiProperties properties) {
         SpringReactiveSecurityObservationCollector collector =
                 new SpringReactiveSecurityObservationCollector(filterChains, beanFactories, environment);
-        return new ReactiveSecurityAdvisorService(
+        ReactiveSecurityAdvisorService advisor = new ReactiveSecurityAdvisorService(
                 ReactiveSecurityScanner.using(collector::collect, Clock.systemUTC()), dismissedRules);
+        advisor.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        return advisor;
     }
 
     @Bean

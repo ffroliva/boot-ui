@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
@@ -23,32 +24,26 @@ import jakarta.ws.rs.core.MediaType;
  * caches the result. Dismissed rule IDs from the shared {@link DismissedRulesStore} are applied on read,
  * exactly as on Spring.</p>
  *
- * <p>The resource is {@code @ApplicationScoped} (not the default per-request scope) because it caches the
- * last report in a {@code volatile} field across requests — the CDI analogue of the Spring controller's
- * singleton with a {@code volatile lastReport}. A single contextual instance serves both {@code GET} and
- * {@code POST}, and the atomic reference swap publishes the new report safely.</p>
+ * <p>The scanner atomically owns the last report and its retained detail index.</p>
  */
 @ApplicationScoped
 @Path("/bootui/api/architecture")
-public class ArchitectureResource {
+public class ArchitectureResource implements AdvisorViolationsEndpoint {
 
     private final ArchitectureScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
 
-    private volatile ArchitectureReport lastReport;
-
     @Inject
     public ArchitectureResource(ArchitectureScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public ArchitectureReport architecture() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @POST
@@ -56,7 +51,11 @@ public class ArchitectureResource {
     @Produces(MediaType.APPLICATION_JSON)
     public ArchitectureReport scan() {
         ArchitectureReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

@@ -286,6 +286,10 @@ public final class McpToolDescriptions {
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
+        return springDescription(name) + advisorGuidance(name, false);
+    }
+
+    private static String springDescription(String name) {
         return switch (name) {
             case "spring_scan" ->
                 "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. "
@@ -357,6 +361,10 @@ public final class McpToolDescriptions {
     }
 
     public static String quarkus(String name) {
+        return quarkusDescription(name) + advisorGuidance(name, true);
+    }
+
+    private static String quarkusDescription(String name) {
         return switch (name) {
             case "spring_scan" ->
                 "Actively inspect Quarkus configuration and idioms for correctness and maintainability risks. Verify "
@@ -382,10 +390,43 @@ public final class McpToolDescriptions {
     }
 
     private static String common(String name) {
+        if (McpToolCatalog.byName(name)
+                .map(entry -> entry.schema() == McpToolSchema.RULE_VIOLATIONS)
+                .orElse(false)) {
+            return "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. "
+                    + "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). "
+                    + "Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, "
+                    + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "
+                    + "before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the "
+                    + "cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset "
+                    + "with a smaller limit; a refusal is not an empty or completed page.";
+        }
         String description = COMMON.get(name);
         if (description == null) {
             throw new IllegalArgumentException("Missing MCP tool description: " + name);
         }
         return description;
+    }
+
+    private static String advisorGuidance(String name, boolean quarkus) {
+        String advisor =
+                switch (name) {
+                    case "architecture_scan", "get_architecture_report" -> "architecture";
+                    case "hibernate_scan", "get_hibernate_report" -> "hibernate";
+                    case "spring_scan", "get_spring_report" -> "spring";
+                    case "rest_api_scan", "get_rest_api_report" -> "rest_api";
+                    case "memory_scan", "get_memory_report" -> "memory";
+                    case "security_scan", "get_security_report" -> "security";
+                    case "database_advisor_scan", "get_database_advisor_report" -> "database_advisor";
+                    default -> null;
+                };
+        if (advisor == null) {
+            return "";
+        }
+        int sampleLimit = quarkus && (advisor.equals("spring") || advisor.equals("security")) ? 20 : 10;
+        return " sampleViolations are bounded previews (up to " + sampleLimit + "), not the full violationCount. "
+                + "Use violationDetails.scanId with get_" + advisor + "_rule_violations to page cached retained "
+                + "details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not "
+                + "guarantee completeness when truncated. Verify each finding before changing code.";
     }
 }

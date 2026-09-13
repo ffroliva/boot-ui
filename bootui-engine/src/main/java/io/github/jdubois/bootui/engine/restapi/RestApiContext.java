@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.restapi;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.HandlerMethodModel;
@@ -21,7 +22,8 @@ record RestApiContext(
         List<String> responseStatusExceptionClasses,
         List<ThrownExceptionModel> thrownExceptions,
         RestApiModel.Framework framework,
-        RestApiEvaluationEvidence evidence) {
+        RestApiEvaluationEvidence evidence,
+        AdvisorViolationCollector violationCollector) {
 
     RestApiContext(
             List<String> basePackages,
@@ -45,7 +47,8 @@ record RestApiContext(
                 responseStatusExceptionClasses,
                 thrownExceptions,
                 framework,
-                new RestApiEvaluationEvidence());
+                new RestApiEvaluationEvidence(),
+                null);
     }
 
     RestApiContext {

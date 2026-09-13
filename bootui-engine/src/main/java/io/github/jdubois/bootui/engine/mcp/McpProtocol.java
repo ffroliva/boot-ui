@@ -73,6 +73,8 @@ public final class McpProtocol {
     public static final String MISSING_PROMPT_NAME_MESSAGE = "Missing prompt name";
     /** Reported in-band when a {@link McpToolSchema#ID} tool is called without a (non-blank) {@code id}. */
     public static final String MISSING_ID_ARGUMENT_MESSAGE = "Missing required argument: id";
+    /** Returned when advisor detail retrieval is not tied to a completed snapshot. */
+    public static final String MISSING_SCAN_ID_ARGUMENT_MESSAGE = "Missing required argument: scanId";
     /** Returned when {@code tools/call.params.arguments} is present but is not a JSON object. */
     public static final String ARGUMENTS_OBJECT_MESSAGE = "Tool arguments must be an object";
     /** Returned when a JSON-RPC id is not a string, number, or null. */

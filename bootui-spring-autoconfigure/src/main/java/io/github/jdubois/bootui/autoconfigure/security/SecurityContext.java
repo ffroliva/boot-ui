@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiContributedProperties
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.security.SecurityEvaluation;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -40,7 +41,69 @@ record SecurityContext(
         boolean generatedUserDetailsManagerPresent,
         boolean securityDebugFilterPresent,
         Environment environment,
-        Evidence evidence) {
+        Evidence evidence,
+        AdvisorViolationCollector violationCollector) {
+    SecurityContext(
+            List<FilterChainModel> chains,
+            List<PasswordEncoderModel> passwordEncoders,
+            List<CorsConfigModel> corsConfigs,
+            boolean corsSourcePresent,
+            List<String> jwtDecoderTypes,
+            boolean methodSecurityEnabled,
+            boolean globalMethodSecurityLegacyPresent,
+            boolean methodSecurityAnnotationsPresent,
+            boolean customCorsSourcePresent,
+            List<String> oauth2TokenValidatorTypes,
+            boolean strictHttpFirewallWeakened,
+            boolean hideUserNotFoundExceptionsDisabled,
+            List<String> opaqueTokenIntrospectorTypes,
+            boolean generatedUserDetailsManagerPresent,
+            boolean securityDebugFilterPresent,
+            Environment environment,
+            Evidence evidence) {
+        this(
+                chains,
+                passwordEncoders,
+                corsConfigs,
+                corsSourcePresent,
+                jwtDecoderTypes,
+                methodSecurityEnabled,
+                globalMethodSecurityLegacyPresent,
+                methodSecurityAnnotationsPresent,
+                customCorsSourcePresent,
+                oauth2TokenValidatorTypes,
+                strictHttpFirewallWeakened,
+                hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
+                securityDebugFilterPresent,
+                environment,
+                evidence,
+                null);
+    }
+
+    SecurityContext withViolationCollector(AdvisorViolationCollector collector) {
+        return new SecurityContext(
+                chains,
+                passwordEncoders,
+                corsConfigs,
+                corsSourcePresent,
+                jwtDecoderTypes,
+                methodSecurityEnabled,
+                globalMethodSecurityLegacyPresent,
+                methodSecurityAnnotationsPresent,
+                customCorsSourcePresent,
+                oauth2TokenValidatorTypes,
+                strictHttpFirewallWeakened,
+                hideUserNotFoundExceptionsDisabled,
+                opaqueTokenIntrospectorTypes,
+                generatedUserDetailsManagerPresent,
+                securityDebugFilterPresent,
+                environment,
+                evidence,
+                collector);
+    }
+
     record Operation(String endpoint, String method, String path, String defaultAccess) {
         Operation(String endpoint, String method, String path) {
             this(

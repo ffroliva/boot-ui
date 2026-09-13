@@ -8,6 +8,8 @@ import static org.mockito.Mockito.mockStatic;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
+import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.io.PrintWriter;
@@ -15,6 +17,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -26,6 +29,8 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * End-to-end scanner behavior against a live in-memory H2 database, plus the failure paths that must never be
@@ -60,6 +65,64 @@ class DatabaseAdvisorScannerTests {
 
     private DatabaseAdvisorScanner scannerFor(List<NamedDataSource> dataSources) {
         return DatabaseAdvisorScanner.using(() -> dataSources, () -> EntityDiscovery.empty(null), FIXED_CLOCK);
+    }
+
+    @Test
+    void retainsEveryCountedTableBeforeSamplingWithoutQueryingAgain() {
+        var tables = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(index ->
+                        DatabaseAdvisorFixtures.table("events_" + index, List.of(), List.of(), List.of(), List.of()))
+                .toList();
+        var schema = DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, tables);
+        var expected = tables.stream()
+                .map(table -> DatabaseAdvisorRuleSupport.detail("primary: table " + table.qualifiedName()
+                        + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration."))
+                .toList();
+        java.util.concurrent.atomic.AtomicInteger discoveries = new java.util.concurrent.atomic.AtomicInteger();
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
+                () -> {
+                    discoveries.incrementAndGet();
+                    return List.of(new NamedDataSource("primary", dataSource));
+                },
+                () -> EntityDiscovery.empty(null),
+                FIXED_CLOCK);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .thenReturn(schema);
+            DatabaseAdvisorReport report = scanner.scan();
+            String scanId = report.violationDetails().scanId();
+            String id = "DB-SCHEMA-001";
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals(id))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isEqualTo(16);
+                        assertThat(result.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+                    });
+            assertThat(scanner.ruleViolations(id, scanId, 0, 11).violations())
+                    .containsExactlyElementsOf(expected.subList(0, 11));
+            var last = scanner.ruleViolations(id, scanId, 11, 11);
+            assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+            assertThat(last.page().hasMore()).isFalse();
+            assertThat(last.truncated()).isFalse();
+            assertThat(scanner.applyDismissals(report, Set.of(id)).violationDetails())
+                    .isEqualTo(report.violationDetails());
+            assertThat(scanner.lastReport()).isSameAs(report);
+            assertThat(discoveries).hasValue(1);
+            introspector.verify(
+                    () -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()));
+
+            scanner.setViolationRetentionLimit(() -> 7);
+            DatabaseAdvisorReport bounded = scanner.scan();
+            assertThat(bounded.results()).isEqualTo(report.results());
+            assertThat(bounded.evidence()).isEqualTo(report.evidence());
+            assertThat(bounded.truncated()).isEqualTo(report.truncated());
+            assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+            assertThat(scanner.ruleViolations(id, bounded.violationDetails().scanId(), 0, null)
+                            .truncated())
+                    .isTrue();
+        }
     }
 
     @Test
@@ -174,6 +237,109 @@ class DatabaseAdvisorScannerTests {
             assertThat(result.status()).isEqualTo("VIOLATION");
             assertThat(result.sampleViolations().get(0)).containsIgnoringCase("audit_log");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"VIEW", "MATERIALIZED VIEW"})
+    void viewNullabilityIsAnInformationalSkipWhileRealTableDriftRemainsAFinding(String type) throws Exception {
+        List<ColumnModel> columns = List.of(DatabaseAdvisorFixtures.column("file_url", "varchar", Types.VARCHAR));
+        TableModel physical = DatabaseAdvisorFixtures.table("stored_files", columns, List.of(), List.of(), List.of());
+        TableModel viewTable = new TableModel(
+                "app",
+                "public",
+                "stored_file_references",
+                type,
+                columns,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                false,
+                false,
+                TableMetadata.COMPLETE);
+        SchemaSnapshot snapshot =
+                DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, List.of(physical, viewTable));
+        HibernateEntityModel view = fileEntity(StoredFileReference.class);
+        DatabaseAdvisorReport viewOnly = scanWithEntities(snapshot, List.of(view));
+
+        assertThat(viewOnly.results()).noneMatch(result -> result.id().equals("DB-HIB-003"));
+        assertThat(viewOnly.diagnostics())
+                .filteredOn(diagnostic -> diagnostic.source().equals("DB-HIB-003"))
+                .singleElement()
+                .satisfies(diagnostic -> {
+                    assertThat(diagnostic.level()).isEqualTo("INFO");
+                    assertThat(diagnostic.message()).contains("No applicable targets");
+                });
+        assertThat(viewOnly.evidence().limitations()).noneMatch(limitation -> limitation.contains("DB-HIB-003"));
+        assertThat(viewOnly.rulesErrored()).isZero();
+        assertThat(viewOnly.tablesAnalyzed()).isEqualTo(1);
+
+        DatabaseAdvisorReport mixed = scanWithEntities(snapshot, List.of(view, fileEntity(StoredFile.class)));
+
+        assertThat(mixed.results())
+                .filteredOn(result -> result.id().equals("DB-HIB-003"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.severity()).isEqualTo("MEDIUM");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .containsIgnoringCase("stored_files.file_url")
+                            .doesNotContain("StoredFileReference", "stored_file_references");
+                });
+        assertThat(mixed.diagnostics())
+                .noneMatch(diagnostic -> diagnostic.source().equals("DB-HIB-003"));
+        assertThat(mixed.rulesSkipped()).isEqualTo(viewOnly.rulesSkipped() - 1);
+        assertThat(mixed.violationsFound()).isEqualTo(viewOnly.violationsFound() + 1);
+        assertThat(mixed.rulesErrored()).isZero();
+    }
+
+    private DatabaseAdvisorReport scanWithEntities(SchemaSnapshot snapshot, List<HibernateEntityModel> entities) {
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .thenReturn(snapshot);
+            return DatabaseAdvisorScanner.using(
+                            () -> List.of(new NamedDataSource("primary", dataSource)),
+                            () -> new EntityDiscovery(entities, List.of(), List.of()),
+                            FIXED_CLOCK)
+                    .scan();
+        }
+    }
+
+    private static HibernateEntityModel fileEntity(Class<?> type) throws NoSuchFieldException {
+        var field = type.getDeclaredField("fileUrl");
+        return new HibernateEntityModel(
+                type.getName(),
+                type,
+                List.of(new HibernateAttributeModel(
+                        type.getName(),
+                        field.getName(),
+                        field.getType(),
+                        field.getGenericType(),
+                        "BASIC",
+                        false,
+                        true,
+                        List.of(field.getAnnotations()))));
+    }
+
+    @jakarta.persistence.Entity
+    @jakarta.persistence.Table(name = "stored_file_references")
+    private static class StoredFileReference {
+        @jakarta.persistence.Id
+        @jakarta.persistence.Column(name = "file_url", nullable = false)
+        private String fileUrl;
+    }
+
+    @jakarta.persistence.Entity
+    @jakarta.persistence.Table(name = "stored_files")
+    private static class StoredFile {
+        @jakarta.persistence.Id
+        @jakarta.persistence.Column(name = "file_url", nullable = false)
+        private String fileUrl;
     }
 
     @Test

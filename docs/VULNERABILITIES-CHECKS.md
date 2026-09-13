@@ -184,6 +184,13 @@ Spring merges SBOM, Maven descriptors, and adjacent-POM/classpath evidence by co
 for identical coordinates. That source is discovery provenance, not a dependency path. Quarkus uses a build-time
 runtime dependency model rather than an SBOM requirement.
 
+Spring MVC and WebFlux enumerate archive candidates from both `java.class.path` and local file URLs in the
+application classloader hierarchy. This covers merged, extracted `jarmode=tools --layers --launcher` applications
+started through `JarLauncher`, whose library JARs may be absent from the classpath property. The census does not
+depend on each JAR having a manifest or Maven descriptor, search arbitrary directories, or open remote URLs.
+Archive identification counts remain distinct from SBOM package totals and OSV query completion; an SBOM with no
+enumerable archives still has `UNAVAILABLE` coverage.
+
 Neither provider supplies a verified runtime graph. Spring's filename census de-duplicates bare filenames and uses
 case-insensitive matching without group identity, so ambiguous classifiers/same-basename archives can overstate
 identified coverage. PURL form decoding can turn literal `+` into a space; malformed escapes and namespace rewriting

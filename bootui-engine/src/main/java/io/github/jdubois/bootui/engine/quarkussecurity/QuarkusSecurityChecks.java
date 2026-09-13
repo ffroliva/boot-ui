@@ -2,7 +2,10 @@ package io.github.jdubois.bootui.engine.quarkussecurity;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.security.CspPolicy;
+import io.github.jdubois.bootui.engine.support.CredentialRedaction;
+import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.spi.QuarkusSecurityEndpoint;
 import io.github.jdubois.bootui.spi.QuarkusSecurityPermission;
 import io.github.jdubois.bootui.spi.QuarkusSecuritySnapshot;
@@ -26,7 +29,13 @@ final class QuarkusSecurityChecks {
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+|\"\\d+\")");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
 
-    private QuarkusSecurityChecks() {}
+    private final AdvisorViolationCollector collector;
+    private final Set<String> unknownRules;
+
+    private QuarkusSecurityChecks(AdvisorViolationCollector collector, Set<String> unknownRules) {
+        this.collector = collector;
+        this.unknownRules = unknownRules;
+    }
 
     static int ruleCount() {
         return RULE_COUNT;
@@ -78,6 +87,14 @@ final class QuarkusSecurityChecks {
     }
 
     static Evaluation evaluateObserved(QuarkusSecuritySnapshot s) {
+        return evaluateObserved(s, null);
+    }
+
+    static Evaluation evaluateObserved(QuarkusSecuritySnapshot s, AdvisorViolationCollector collector) {
+        return new QuarkusSecurityChecks(collector, s.evidence().unknownRules()).evaluateRules(s);
+    }
+
+    private Evaluation evaluateRules(QuarkusSecuritySnapshot s) {
         List<SecurityRuleResultDto> v = new ArrayList<>();
         Observations observations = new Observations(s);
 
@@ -257,20 +274,21 @@ final class QuarkusSecurityChecks {
         }
         if (observations.endpoints("QS-AUTHZ-004", s.anyAuthMechanism(), s)
                 && !s.denyUnannotatedEndpoints()
-                && !s.defaultRolesAllowed()
-                && uncoveredEndpoints(s, observations) > 0) {
-            v.add(
-                    rule(
-                            "QS-AUTHZ-004",
-                            "No deny-by-default for unannotated endpoints",
-                            "Authorization",
-                            "MEDIUM",
-                            "Declared REST endpoints lack a restrictive annotation or supported matching path policy."
-                                    + " Review their public intent; this is not an executed authorization decision.",
-                            uncoveredEndpoints(s, observations),
-                            List.of(uncoveredEndpoints(s, observations)
-                                    + " declared endpoint(s) without a supported restriction"),
-                            "Set quarkus.security.jaxrs.deny-unannotated-endpoints=true and mark public endpoints @PermitAll."));
+                && !s.defaultRolesAllowed()) {
+            UncoveredEndpoints uncovered = uncoveredEndpoints(s, observations);
+            if (uncovered.count() > 0) {
+                v.add(rule(
+                        "QS-AUTHZ-004",
+                        "No deny-by-default for unannotated endpoints",
+                        "Authorization",
+                        "MEDIUM",
+                        "Declared REST endpoints lack a restrictive annotation or supported matching path policy."
+                                + " Review their public intent; this is not an executed authorization decision.",
+                        uncovered.count(),
+                        List.of(uncovered.count() + " declared endpoint(s) without a supported restriction"),
+                        "Set quarkus.security.jaxrs.deny-unannotated-endpoints=true and mark public endpoints @PermitAll.",
+                        uncovered.details()));
+            }
         }
         if (observations.check("QS-TLS-001", true, s.insecureRequests() != null)
                 && "enabled".equals(s.insecureRequests())) {
@@ -673,9 +691,8 @@ final class QuarkusSecurityChecks {
                     "Set security.protocol=SASL_SSL (or SSL) for each affected channel (or globally via"
                             + " kafka.security.protocol)."));
         }
-        List<SecurityRuleResultDto> findings = v.stream()
-                .filter(result -> !s.evidence().unknownRules().contains(result.id()))
-                .toList();
+        List<SecurityRuleResultDto> findings =
+                v.stream().filter(result -> !unknownRules.contains(result.id())).toList();
         return new Evaluation(findings, observations.evidence(!findings.isEmpty()));
     }
 
@@ -765,23 +782,29 @@ final class QuarkusSecurityChecks {
                 && (policy.unsafeInlineScript() || policy.unsafeEvalScript() || policy.unrestrictedScript());
     }
 
-    private static int uncoveredEndpoints(QuarkusSecuritySnapshot snapshot, Observations observations) {
+    private record UncoveredEndpoints(int count, List<String> details) {}
+
+    private static UncoveredEndpoints uncoveredEndpoints(QuarkusSecuritySnapshot snapshot, Observations observations) {
         for (QuarkusSecurityPermission permission : snapshot.permissions()) {
             observations.check("QS-AUTHZ-004", false, permission.knownPolicy());
         }
         if (!snapshot.evidence().endpointMetadata()) {
-            return hasBroadProtectivePolicy(snapshot.permissions())
+            int count = hasBroadProtectivePolicy(snapshot.permissions())
                     ? 0
                     : Math.max(0, snapshot.endpointCount() - snapshot.securedEndpointCount());
+            return new UncoveredEndpoints(count, List.of());
         }
-        return (int) snapshot.evidence().endpoints().stream()
+        List<String> details = snapshot.evidence().endpoints().stream()
                 .filter(endpoint -> endpoint.access() == QuarkusSecurityEndpoint.Access.UNANNOTATED)
                 .filter(endpoint -> QuarkusPermissionEvidence.decision(snapshot.permissions(), endpoint)
                         == QuarkusPermissionEvidence.Decision.PUBLIC)
-                .count();
+                .map(endpoint -> endpoint.method() + " " + endpoint.path()
+                        + " — declared endpoint without a supported restriction")
+                .toList();
+        return new UncoveredEndpoints(details.size(), details);
     }
 
-    private static SecurityRuleResultDto rule(
+    private SecurityRuleResultDto rule(
             String id,
             String name,
             String category,
@@ -790,6 +813,23 @@ final class QuarkusSecurityChecks {
             int count,
             List<String> samples,
             String recommendation) {
+        return rule(id, name, category, severity, description, count, samples, recommendation, samples);
+    }
+
+    private SecurityRuleResultDto rule(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            int count,
+            List<String> samples,
+            String recommendation,
+            List<String> details) {
+        // Unknown-evidence results are removed from the report and must not consume the detail budget.
+        if (collector != null && !unknownRules.contains(id)) {
+            collector.record(id, count, details, value -> DetailText.sanitize(CredentialRedaction.redact(value)));
+        }
         return new SecurityRuleResultDto(
                 id,
                 name,

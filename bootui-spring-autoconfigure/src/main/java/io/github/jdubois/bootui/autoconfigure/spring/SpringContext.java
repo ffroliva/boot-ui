@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -40,7 +41,102 @@ record SpringContext(
         int reactiveHandlerMethodCount,
         List<String> defaultPackageBeans,
         List<String> mutableSingletonFields,
-        SpringObservations observations) {
+        SpringObservations observations,
+        AdvisorViolationCollector violationCollector) {
+
+    SpringContext(
+            Environment environment,
+            boolean virtualThreadsSupported,
+            int beanDefinitionCount,
+            List<BeanRef> objectMappers,
+            List<BeanRef> taskExecutors,
+            boolean bootApplicationTaskExecutorPresent,
+            List<BeanRef> executors,
+            List<BeanRef> dataSources,
+            boolean pooledTaskExecutorPresent,
+            boolean asyncEnabled,
+            boolean devToolsPresent,
+            boolean customAsyncConfigurerPresent,
+            List<BeanRef> transactionManagers,
+            boolean transactionManagementConfigurerPresent,
+            List<BeanRef> restTemplates,
+            boolean restClientBeanPresent,
+            boolean cachingEnabled,
+            List<CacheManagerRef> cacheManagers,
+            boolean schedulingEnabled,
+            boolean entityManagerFactoryPresent,
+            boolean dispatcherServletPresent,
+            boolean reactive,
+            boolean tomcatWebServerPresent,
+            boolean webClientBeanPresent,
+            int reactiveHandlerMethodCount,
+            List<String> defaultPackageBeans,
+            List<String> mutableSingletonFields,
+            SpringObservations observations) {
+        this(
+                environment,
+                virtualThreadsSupported,
+                beanDefinitionCount,
+                objectMappers,
+                taskExecutors,
+                bootApplicationTaskExecutorPresent,
+                executors,
+                dataSources,
+                pooledTaskExecutorPresent,
+                asyncEnabled,
+                devToolsPresent,
+                customAsyncConfigurerPresent,
+                transactionManagers,
+                transactionManagementConfigurerPresent,
+                restTemplates,
+                restClientBeanPresent,
+                cachingEnabled,
+                cacheManagers,
+                schedulingEnabled,
+                entityManagerFactoryPresent,
+                dispatcherServletPresent,
+                reactive,
+                tomcatWebServerPresent,
+                webClientBeanPresent,
+                reactiveHandlerMethodCount,
+                defaultPackageBeans,
+                mutableSingletonFields,
+                observations,
+                null);
+    }
+
+    SpringContext withViolationCollector(AdvisorViolationCollector collector) {
+        return new SpringContext(
+                environment,
+                virtualThreadsSupported,
+                beanDefinitionCount,
+                objectMappers,
+                taskExecutors,
+                bootApplicationTaskExecutorPresent,
+                executors,
+                dataSources,
+                pooledTaskExecutorPresent,
+                asyncEnabled,
+                devToolsPresent,
+                customAsyncConfigurerPresent,
+                transactionManagers,
+                transactionManagementConfigurerPresent,
+                restTemplates,
+                restClientBeanPresent,
+                cachingEnabled,
+                cacheManagers,
+                schedulingEnabled,
+                entityManagerFactoryPresent,
+                dispatcherServletPresent,
+                reactive,
+                tomcatWebServerPresent,
+                webClientBeanPresent,
+                reactiveHandlerMethodCount,
+                defaultPackageBeans,
+                mutableSingletonFields,
+                observations,
+                collector);
+    }
 
     SpringContext {
         objectMappers = List.copyOf(objectMappers);

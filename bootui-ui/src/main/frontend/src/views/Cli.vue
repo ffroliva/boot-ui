@@ -73,7 +73,13 @@ const callCount = computed(() => status.value?.callCount ?? 0)
 
 // The CLI's own projection rule: an `id` is a required positional, everything else is a flag.
 function argumentHint(tool) {
-  return (tool.arguments ?? []).map((name) => (name === 'id' ? '<' + name + '>' : '--' + name)).join(' ')
+  return (tool.arguments ?? [])
+    .map((name) => {
+      if (name === 'id') return '<id>'
+      if (name === 'scanId') return '--scan-id <scan-id>'
+      return tool.schema === 'RULE_VIOLATIONS' ? `[--${name} <${name}>]` : `--${name}`
+    })
+    .join(' ')
 }
 
 const meanLatency = computed(() => {

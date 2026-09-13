@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
@@ -23,25 +24,22 @@ import jakarta.ws.rs.core.MediaType;
  */
 @ApplicationScoped
 @Path("/bootui/api/spring")
-public class SpringResource {
+public class SpringResource implements AdvisorViolationsEndpoint {
 
     private final QuarkusAppScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
 
-    private volatile SpringReport lastReport;
-
     @Inject
     public SpringResource(QuarkusAppScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public SpringReport spring() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @POST
@@ -49,7 +47,11 @@ public class SpringResource {
     @Produces(MediaType.APPLICATION_JSON)
     public SpringReport scan() {
         SpringReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

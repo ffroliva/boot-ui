@@ -219,6 +219,8 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
             if (context != null) context.evidence().reset();
             int totalViolations = 0;
             List<String> samples = new ArrayList<>();
+            List<String> retained = new ArrayList<>();
+            int retentionLimit = context.violationCollector().remainingCapacity();
             for (String basePackage : context.basePackages()) {
                 Set<String> slices = new HashSet<>();
                 for (JavaClass type : context.classes()) {
@@ -243,16 +245,17 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                 context.evidence().markUsableIf(!details.isEmpty());
                 totalViolations += details.size();
                 for (String detail : details) {
-                    if (samples.size() >= MAX_SAMPLES) {
-                        break;
-                    }
-                    samples.add(ArchitectureRuleSupport.detail(detail));
+                    if (samples.size() < MAX_SAMPLES) samples.add(ArchitectureRuleSupport.detail(detail));
+                    if (retained.size() < retentionLimit) retained.add(ArchitectureRuleSupport.detail(detail));
+                    if (samples.size() >= MAX_SAMPLES && retained.size() >= retentionLimit) break;
                 }
             }
             context.evidence().complete(totalViolations > 0);
             if (totalViolations == 0) {
                 return ArchitectureRuleSupport.pass(definition());
             }
+            context.violationCollector()
+                    .record(definition().id(), totalViolations, retained, java.util.function.UnaryOperator.identity());
             return ArchitectureRuleSupport.result(
                     definition(), ArchitectureRuleSupport.VIOLATION, totalViolations, samples);
             // See AbstractArchitectureRule#evaluate: LinkageError is caught to degrade to an ERROR result rather

@@ -70,7 +70,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                 violations.add(violation);
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     /** A type is mapped when it, or any of its ancestors, is declared as handled. */

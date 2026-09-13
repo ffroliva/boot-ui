@@ -38,6 +38,23 @@ class ToolManifestGeneratorTests {
     }
 
     @Test
+    void advisorDetailsProjectRequiredIdSnapshotAndPagingFlags() {
+        ToolManifest manifest = ToolManifest.parse(ToolManifestGenerator.generate());
+        List<ToolManifest.Tool> tools = manifest.tools().stream()
+                .filter(tool -> tool.schema().equals("RULE_VIOLATIONS"))
+                .toList();
+        assertThat(tools).hasSize(7).allSatisfy(tool -> {
+            assertThat(tool.takesId()).isTrue();
+            assertThat(tool.takesScanId()).isTrue();
+            assertThat(tool.takesOffset()).isTrue();
+            assertThat(tool.takesLimit()).isTrue();
+            assertThat(tool.takesQuery()).isFalse();
+            assertThat(tool.command()).endsWith(" violations");
+            assertThat(tool.action()).isFalse();
+        });
+    }
+
+    @Test
     void noTwoToolsShareACommandPath() {
         Set<String> paths = new HashSet<>(CliCommandPaths.BY_TOOL.values());
 

@@ -6,6 +6,114 @@ architecture, the REST layer, the live Spring context, persistence, JVM memory, 
 assessment shows the same 0–100 **Known-findings score** in its panel and Overview (100 minus the weighted finding
 penalty). This summarizes retained penalties, not application health or safety.
 
+### Reading every retained violation
+
+Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and Database
+keep their reports compact: `violationCount` is the real count, while `sampleViolations` is a preview, normally at most
+ten entries per rule. Quarkus application and Quarkus Security keep their existing twenty-entry previews. Samples,
+counts, ordering, severities, recommendations, and dismissals do not change when you read more details.
+
+When a rule has more findings than samples, choose **View violations** to read its first bounded page inline. The
+default page of 100 covers findings such as 29 Architecture or 22 Hibernate violations in one request. Larger sets use
+**Previous** and **Next**, replacing the page rather than accumulating an unbounded list. **Back to samples** restores
+the compact preview. Opening the panel, receiving a report, and dismissing a rule never request detail pages. Detail
+reads remain available in read-only mode. Older reports without retrieval metadata still display their samples.
+
+#### Snapshot and retention
+
+Each report has additive `violationDetails` metadata:
+
+| Field | Meaning |
+| --- | --- |
+| `scanId` | Opaque identity of the latest published scan; `null` before a completed scan. |
+| `total` | Concrete violations counted across all rules, before dismissal. |
+| `retained` | Number of sanitized detail entries retained across those rules. |
+| `retentionLimit` | Effective per-advisor limit frozen for this scan. |
+| `truncated` | Some counted details are missing from the retained index. |
+
+Only the latest snapshot is retained. While another scan is running, detail reads still refer to the previous
+completed snapshot; publishing its replacement changes the ID. Dismiss/restore changes neither the ID nor retained
+details. Detail reads never evaluate rules, inspect the application again, or query the database.
+
+`bootui.advisors.max-retained-violations` defaults to **10000**, is positive, and applies across all rules in each
+advisor's scan, including Hibernate persistence units. Summary samples remain independent of this budget. Raising
+the limit cannot recover missing details from an existing snapshot; an explicit new scan is needed. See the
+[property reference](../PROPERTIES.md#advisor-violation-retention).
+
+Retention completeness is **not evidence coverage or score eligibility**. `evidence`, scan notes, counts, and scores
+keep their existing meaning. A terminal detail page can still be truncated. The panel explicitly shows the retained
+count and missing-detail warning, never a false claim that every counted violation is visible. Existing upstream
+observation limits remain in effect.
+
+`truncated` can also describe counted findings whose source exposed only aggregate detail, not exhaustion of the
+configured budget. For example, Quarkus Security's `QS-AUTHZ-004` keeps its aggregate preview but retains endpoint
+identities only when available; legacy count-only observations have zero retained identities and explicit
+truncation. BootUI never fabricates endpoint identities to fill that gap. Memory rules that evaluate only a top-five
+input subset keep those existing count/observation bounds; detail paging does not broaden their scan scope.
+
+#### REST, MCP, and CLI retrieval
+
+Read the cached report first, then pass its `violationDetails.scanId` with every page request:
+
+```text
+GET <api>/<advisor>/rules/<encoded-rule-id>/violations?scanId=<encoded-scan-id>&offset=0&limit=100
+```
+
+The same read route is available on each advisor's supported MVC, WebFlux, and Quarkus stacks. These names identify
+the corresponding MCP read tool and generated CLI path:
+
+| Advisor / REST root | MCP tool | CLI command |
+| --- | --- | --- |
+| `architecture` | `get_architecture_rule_violations` | `architecture violations` |
+| `hibernate` | `get_hibernate_rule_violations` | `hibernate violations` |
+| `spring` | `get_spring_rule_violations` | `spring violations` |
+| `rest-api` | `get_rest_api_rule_violations` | `rest-api violations` |
+| `memory` | `get_memory_rule_violations` | `memory violations` |
+| `security` | `get_security_rule_violations` | `security violations` |
+| `database-advisor` | `get_database_advisor_rule_violations` | `db violations` |
+
+For example, after an explicitly requested Architecture scan:
+
+```bash
+# Read only the cached report; this does not run a scan.
+curl -s http://localhost:8080/bootui/api/architecture | jq '.violationDetails'
+# Substitute the returned scanId, retaining the same value for every page.
+curl -sG http://localhost:8080/bootui/api/architecture/rules/ARCH-SPRING-004/violations \
+  --data-urlencode 'scanId=<returned-scan-id>' --data-urlencode 'offset=0' --data-urlencode 'limit=100'
+
+bootui architecture violations ARCH-SPRING-004 --scan-id '<returned-scan-id>' --offset 0 --limit 100
+```
+
+The equivalent MCP `tools/call` arguments are:
+
+```json
+{
+  "name": "get_architecture_rule_violations",
+  "arguments": {"id": "ARCH-SPRING-004", "scanId": "<returned-scan-id>", "offset": 0, "limit": 100}
+}
+```
+
+The page DTO contains `scanId`, `ruleId`, the full `violationCount`, `retainedCount`, `truncated`, sanitized
+`violations`, and `page: {total, matched, offset, limit, returned, hasMore}`. `page.total` and `page.matched` count
+**retained** entries, not the full rule count. Check the identity on every response. To continue, set the next offset
+to `page.offset + page.returned` while `page.hasMore` is true, keeping the same scan ID; after the terminal page,
+still inspect `truncated`. Reaching the retained end yields an empty terminal page. A violating rule may have zero
+retained entries when earlier rules consumed the budget.
+
+`scanId` and rule ID are required. Offset defaults to zero and limit to 100; requested sizes are capped at 1000.
+Invalid, blank, negative, fractional, or overflowing arguments are rejected; limit must be positive. MCP and CLI
+also respect their configured result budgets. An MCP `-32003` response-byte refusal is an error, not an empty page:
+retry the **same scan ID and offset with a smaller limit**. See [MCP](../AI-AGENTS.md) and [CLI](../CLI.md) for setup.
+
+A missing/replaced snapshot returns **409**. Samples or the last accepted page remain visible; choose **Refresh cached
+report**, then **View violations** again. Refresh only reads the cached report; it never starts a scan. Other failures
+offer a local **Retry** without discarding the current view. Unknown/non-finding rules return REST **404**, an MCP
+in-band client error, or CLI-facade **400** (CLI 404 is reserved for an unadvertised tool). Stale snapshots remain
+**409** through the CLI facade. Dismissed findings remain retrievable by ID, while the panel keeps its compact
+dismissed-rule summary.
+
+This contract does not apply to GraalVM/CRaC occurrences or Pentesting/Vulnerabilities, whose report models differ.
+
 ### Score eligibility
 
 A diagnostic report is not necessarily eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid
@@ -390,6 +498,9 @@ Hibernate metamodel is unavailable.
 - An explicit association without a matching physical foreign-key constraint, excluding `NO_CONSTRAINT`.
 - An explicit declared table or column name not observed in complete scoped metadata.
 - Supported nondefault nullability declaration mismatches, not guessed Java-to-JDBC type mappings.
+  JDBC-reported views and materialized views (including secondary views) are excluded from this constraint
+  comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
+  columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
 - A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
 
@@ -734,14 +845,23 @@ and skipped instead of failing the whole inventory.
 
 A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the
 inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
-repackaged JAR or WAR, or the classpath JARs when running exploded — and attributes each to a resolved coordinate. The
-provider reports one of three states, subject to the discovery limitations below:
+repackaged JAR or WAR, or JARs exposed through `java.class.path` and local application-classloader URLs when running
+exploded — and attributes each to a resolved coordinate. Both Spring MVC and WebFlux support the container layout
+produced by `java -Djarmode=tools -jar app.jar extract --layers --launcher`: after the extracted layers are merged,
+`java org.springframework.boot.loader.launch.JarLauncher` exposes `BOOT-INF/lib` JARs through its classloader even
+when `java.class.path` contains only the launch directory. The census does not recursively search directories or
+contact remote URLs.
+
+Archive counts and package counts answer different questions. An SBOM with 520 resolved packages can identify all
+325 runtime JARs: coverage reports 325 identified archives, while the scan reports how many of the 520 packages were
+queried. The SBOM alone does not establish complete archive coverage. The provider reports one of three states,
+subject to the discovery limitations below:
 
 | `coverage.status` | Meaning |
 | --- | --- |
 | `COMPLETE` | The provider reports all enumerated archives identified; this is not independent verification of the runtime inventory. |
 | `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
-| `UNAVAILABLE` | The census itself could not run (a blank or synthetic classpath, for example under a native image), so coverage is unknown rather than claimed. |
+| `UNAVAILABLE` | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a

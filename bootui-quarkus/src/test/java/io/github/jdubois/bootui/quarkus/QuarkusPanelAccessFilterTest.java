@@ -84,6 +84,24 @@ class QuarkusPanelAccessFilterTest {
     }
 
     @Test
+    void advisorDetailsStayReadableButNeverBypassDisabledPanels() {
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            String path = "/bootui/api/" + panel + "/rules/RULE/violations";
+            RoutingContext read = mockRequest("GET", path);
+            newFilter(Map.of("bootui.read-only", "true", "bootui.panels." + panel + ".read-only", "true"))
+                    .handle(read);
+            verify(read).next();
+            verify(read.response(), never()).setStatusCode(anyInt());
+            RoutingContext disabled = mockRequest("GET", path);
+            newFilter(Map.of("bootui.panels." + panel + ".enabled", "false")).handle(disabled);
+            assertBlocked(
+                    disabled.response(), panel, "Panel is disabled via bootui.panels." + panel + ".enabled=false");
+            verify(disabled, never()).next();
+        }
+    }
+
+    @Test
     void blocksReadOnlyPanelActionRequest() {
         RoutingContext rc = mockRequest("POST", "/bootui/api/memory/scan");
         HttpServerResponse resp = rc.response();

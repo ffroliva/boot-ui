@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.engine.quarkusapp;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SpringScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SpringSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.QuarkusAppMetadata;
 import io.github.jdubois.bootui.spi.QuarkusAppSnapshot;
@@ -16,6 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -39,6 +43,7 @@ public final class QuarkusAppScanner {
     private final Supplier<QuarkusAppSnapshot> snapshotSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<SpringReport> state = new AdvisorScanState<>(SpringReport::withViolationDetails);
 
     private QuarkusAppScanner(Supplier<QuarkusAppSnapshot> snapshotSupplier, Clock clock) {
         this.snapshotSupplier = snapshotSupplier;
@@ -63,17 +68,32 @@ public final class QuarkusAppScanner {
     }
 
     public SpringReport scan() {
-        return singleFlight.run(ActionOperations.SPRING_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.SPRING_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private SpringReport doScan() {
+    public SpringReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private SpringReport doScan(AdvisorViolationCollector collector) {
         QuarkusAppSnapshot snap;
         try {
             snap = snapshotSupplier.get();
         } catch (RuntimeException | LinkageError ex) {
             snap = null;
         }
-        QuarkusAppChecks.Evaluation evaluation = QuarkusAppChecks.evaluate(snap);
+        QuarkusAppChecks.Evaluation evaluation = QuarkusAppChecks.evaluate(snap, collector);
         String status =
                 evaluation.errors().isEmpty() ? "SCANNED" : evaluation.evidenceInspected() ? "PARTIAL" : "ERROR";
         String message =
@@ -182,7 +202,8 @@ public final class QuarkusAppScanner {
                 scan,
                 marked,
                 report.analysisErrors(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     private List<SpringSeverityCountDto> severityCounts(List<SpringRuleResultDto> results) {

@@ -1,5 +1,10 @@
 # Architecture checks
 
+`sampleViolations` remains a ten-entry preview, not the full `violationCount`. **View violations** and
+`GET <api>/architecture/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details from
+the same completed scan without rerunning ArchUnit. Check retained counts and `truncated`, independently of evidence
+coverage. See [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Architecture panel runs a fixed, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
 application's own classes. This page lists every rule that ships with BootUI today, what it inspects, when it fires, and
 what to do about it.

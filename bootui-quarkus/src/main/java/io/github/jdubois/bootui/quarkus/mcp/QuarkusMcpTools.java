@@ -140,6 +140,55 @@ public class QuarkusMcpTools {
                 registry,
                 availability,
                 tool(
+                        "get_architecture_rule_violations",
+                        McpToolDescriptions.quarkus("get_architecture_rule_violations"),
+                        args -> architecture.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_spring_rule_violations",
+                        McpToolDescriptions.quarkus("get_spring_rule_violations"),
+                        args -> spring.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_hibernate_rule_violations",
+                        McpToolDescriptions.quarkus("get_hibernate_rule_violations"),
+                        args -> hibernate.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_database_advisor_rule_violations",
+                        McpToolDescriptions.quarkus("get_database_advisor_rule_violations"),
+                        args -> databaseAdvisor.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_memory_rule_violations",
+                        McpToolDescriptions.quarkus("get_memory_rule_violations"),
+                        args -> memory.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_security_rule_violations",
+                        McpToolDescriptions.quarkus("get_security_rule_violations"),
+                        args -> security.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_rest_api_rule_violations",
+                        McpToolDescriptions.quarkus("get_rest_api_rule_violations"),
+                        args -> restApi.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
                         "architecture_scan",
                         McpToolDescriptions.quarkus("architecture_scan"),
                         args -> architecture.scan()));

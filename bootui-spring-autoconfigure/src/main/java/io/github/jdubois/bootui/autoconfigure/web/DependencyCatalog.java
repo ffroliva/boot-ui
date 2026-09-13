@@ -11,6 +11,9 @@ import io.github.jdubois.bootui.engine.vulnerabilities.PackageUrls;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -56,10 +59,11 @@ import tools.jackson.databind.ObjectMapper;
  * without an SBOM genuinely cannot resolve those artifacts locally.</p>
  *
  * <p>That is why the catalogue also takes a census of the application's real archives ({@code BOOT-INF/lib/}
- * entries inside a repackaged JAR or WAR, classpath JARs otherwise) and reports every archive it could not
- * attribute to a resolved coordinate as {@link DependencyCoverageDto#INCOMPLETE} coverage. A scan covering
- * part of the classpath is then visibly partial instead of rendering as a green, full-coverage result. When
- * the census itself cannot run &mdash; a blank or synthetic {@code java.class.path}, as under a native image
+ * entries inside a repackaged JAR or WAR, classpath and application-classloader JARs otherwise) and reports
+ * every archive it could not attribute to a resolved coordinate as {@link DependencyCoverageDto#INCOMPLETE}
+ * coverage. A scan covering part of the classpath is then visibly partial instead of rendering as a green,
+ * full-coverage result. When
+ * the census itself cannot run &mdash; no enumerable classpath or classloader archives, as under a native image
  * &mdash; coverage is reported {@link DependencyCoverageDto#UNAVAILABLE} rather than assumed complete.</p>
  *
  * <p>Every source fails soft: an unreadable descriptor, a malformed SBOM, or an unreadable archive is logged
@@ -175,21 +179,16 @@ final class DependencyCatalog implements DependencyProvider {
 
     /**
      * The distinct JAR archives the application actually runs with, or an empty list when they cannot be
-     * enumerated (a blank {@code java.class.path}, as under a native image or a non-standard launcher),
+     * enumerated from either {@code java.class.path} or the application's classloader,
      * which is reported as unknown coverage rather than as a clean bill of health.
      */
     private List<String> archiveCensus() {
-        String classPath = System.getProperty("java.class.path", "");
-        if (classPath.isBlank()) {
-            return List.of();
-        }
         Set<String> archives = new LinkedHashSet<>();
-        for (String entry : classPath.split(Pattern.quote(File.pathSeparator))) {
-            String trimmed = entry.trim();
-            if (trimmed.isEmpty()) {
+        for (Path entry : archiveEntries()) {
+            if (Files.isDirectory(entry)) {
                 continue;
             }
-            List<String> nested = nestedLibraries(trimmed);
+            List<String> nested = nestedLibraries(entry.toString());
             if (nested != null) {
                 // A repackaged archive is the application's own, not a third-party dependency: its nested
                 // libraries are the real dependency set, and the outer archive is deliberately not counted.
@@ -198,12 +197,60 @@ final class DependencyCatalog implements DependencyProvider {
                 archives.addAll(nested);
                 continue;
             }
-            String archive = ArchiveNames.jarFileName(trimmed);
+            String archive = ArchiveNames.jarFileName(entry.toString());
             if (archive != null) {
                 archives.add(archive);
             }
         }
         return List.copyOf(archives);
+    }
+
+    private Set<Path> archiveEntries() {
+        Set<Path> entries = new LinkedHashSet<>();
+        String classPath = System.getProperty("java.class.path", "");
+        for (String entry : classPath.split(Pattern.quote(File.pathSeparator))) {
+            if (!entry.isBlank()) {
+                try {
+                    entries.add(Path.of(entry.trim()).toAbsolutePath().normalize());
+                } catch (IllegalArgumentException | SecurityException ex) {
+                    LOGGER.log(
+                            System.Logger.Level.DEBUG,
+                            "Could not resolve classpath archive {0}: {1}",
+                            entry,
+                            ex.getMessage());
+                }
+            }
+        }
+        // An exploded JarLauncher adds library URLs to its loader, not to java.class.path.
+        try {
+            for (ClassLoader loader = resolver.getClassLoader(); loader != null; loader = loader.getParent()) {
+                if (!(loader instanceof URLClassLoader urlLoader)) {
+                    continue;
+                }
+                for (URL url : urlLoader.getURLs()) {
+                    if (!"file".equals(url.getProtocol())
+                            || (url.getAuthority() != null
+                                    && !url.getAuthority().isEmpty())) {
+                        continue;
+                    }
+                    try {
+                        entries.add(Path.of(url.toURI()).toAbsolutePath().normalize());
+                    } catch (URISyntaxException | IllegalArgumentException | SecurityException ex) {
+                        LOGGER.log(
+                                System.Logger.Level.DEBUG,
+                                "Could not resolve classloader archive {0}: {1}",
+                                url,
+                                ex.getMessage());
+                    }
+                }
+            }
+        } catch (SecurityException ex) {
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Could not enumerate application classloader archives: {0}",
+                    ex.getMessage());
+        }
+        return entries;
     }
 
     /**

@@ -216,6 +216,24 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 ## Per-panel action details
 
+### Advisor violation retention
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.advisors.max-retained-violations` | `10000` | Positive maximum sanitized violation details retained across all rules in each advisor's latest scan. |
+
+Shared by Architecture, Hibernate, Spring/Quarkus application, REST API, Memory, Security, and Database Advisor on
+their supported stacks. The limit is captured when a scan starts, including across Hibernate persistence units;
+zero, negative, and invalid values are not an unlimited mode. Only the latest snapshot is retained. Counts and
+existing ten-/twenty-entry summary samples remain unchanged when retention is exhausted; report
+`violationDetails.truncated` and each detail page's `truncated` explicitly disclose missing entries.
+
+Raising this setting requires a new explicit scan to retain previously omitted details; it cannot fill an existing
+snapshot. Detail pages default to 100 entries, at most 1000, and MCP/CLI also enforce their transport budgets.
+Reads remain available with `bootui.read-only=true` or a panel's read-only setting; disabled/unavailable panels
+remain gated. Retrieval completeness does not affect evidence coverage or scores. See
+[reading every retained violation](features/advisors.md#reading-every-retained-violation).
+
 ### Startup Timeline
 
 | Property                        | Default | Description                                                                   |

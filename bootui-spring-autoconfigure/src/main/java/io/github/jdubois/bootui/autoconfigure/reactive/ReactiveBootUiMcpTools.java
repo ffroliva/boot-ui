@@ -137,6 +137,10 @@ public class ReactiveBootUiMcpTools {
 
         if (architectureBean != null) {
             registry.add(tool(
+                    "get_architecture_rule_violations",
+                    McpToolDescriptions.spring("get_architecture_rule_violations"),
+                    args -> architectureBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+            registry.add(tool(
                     "architecture_scan",
                     McpToolDescriptions.spring("architecture_scan"),
                     args -> architectureBean.scan()));
@@ -146,11 +150,19 @@ public class ReactiveBootUiMcpTools {
                     args -> architectureBean.architecture()));
         }
         if (springBean != null) {
+            registry.add(tool(
+                    "get_spring_rule_violations",
+                    McpToolDescriptions.spring("get_spring_rule_violations"),
+                    args -> springBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("spring_scan", McpToolDescriptions.spring("spring_scan"), args -> springBean.scan()));
             registry.add(tool(
                     "get_spring_report", McpToolDescriptions.spring("get_spring_report"), args -> springBean.spring()));
         }
         if (hibernateBean != null) {
+            registry.add(tool(
+                    "get_hibernate_rule_violations",
+                    McpToolDescriptions.spring("get_hibernate_rule_violations"),
+                    args -> hibernateBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("hibernate_scan", McpToolDescriptions.spring("hibernate_scan"), args -> hibernateBean.scan()));
             registry.add(tool(
@@ -159,6 +171,10 @@ public class ReactiveBootUiMcpTools {
                     args -> hibernateBean.hibernate()));
         }
         if (memoryBean != null) {
+            registry.add(tool(
+                    "get_memory_rule_violations",
+                    McpToolDescriptions.spring("get_memory_rule_violations"),
+                    args -> memoryBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("memory_scan", McpToolDescriptions.spring("memory_scan"), args -> memoryBean.scan()));
             registry.add(tool(
                     "get_memory_report", McpToolDescriptions.spring("get_memory_report"), args -> memoryBean.memory()));
@@ -180,6 +196,10 @@ public class ReactiveBootUiMcpTools {
                     args -> pentestingBean.pentesting()));
         }
         if (restApiBean != null) {
+            registry.add(tool(
+                    "get_rest_api_rule_violations",
+                    McpToolDescriptions.spring("get_rest_api_rule_violations"),
+                    args -> restApiBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("rest_api_scan", McpToolDescriptions.spring("rest_api_scan"), args -> restApiBean.scan()));
             registry.add(tool(
@@ -201,6 +221,10 @@ public class ReactiveBootUiMcpTools {
                     tool("get_crac_report", McpToolDescriptions.spring("get_crac_report"), args -> cracBean.crac()));
         }
         if (databaseAdvisorBean != null) {
+            registry.add(tool(
+                    "get_database_advisor_rule_violations",
+                    McpToolDescriptions.spring("get_database_advisor_rule_violations"),
+                    args -> databaseAdvisorBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool(
                     "database_advisor_scan",
                     McpToolDescriptions.spring("database_advisor_scan"),
@@ -390,6 +414,7 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<DataController> data,
             ObjectProvider<FlywayController> flyway,
             ObjectProvider<LiquibaseController> liquibase,
+            ObjectProvider<ReactiveSecurityController> security,
             ObjectProvider<ReactiveSpringSecurityController> springSecurity,
             ObjectProvider<ReactiveRestClientTraceController> restClientTrace,
             ObjectProvider<AiController> ai,
@@ -404,6 +429,13 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<ReactiveClaudeCodeController> claudeCode) {
         List<McpTool> registry = new ArrayList<>(tools);
 
+        ReactiveSecurityController securityBean = security.getIfAvailable();
+        if (securityBean != null) {
+            registry.add(tool(
+                    "get_security_rule_violations",
+                    McpToolDescriptions.spring("get_security_rule_violations"),
+                    args -> securityBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        }
         MetricsController metricsBean = metrics.getIfAvailable();
         if (metricsBean != null) {
             registry.add(tool(

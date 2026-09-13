@@ -3,7 +3,9 @@ package io.github.jdubois.bootui.conformance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -187,6 +189,98 @@ public abstract class AbstractMcpConformanceTest {
         } finally {
             disableMcp();
         }
+    }
+
+    @Test
+    void testMcpAdvisorDetailToolsMatchReportAvailabilityAndDeclarePaging() {
+        assertThat(enableMcp()).isTrue();
+        try {
+            JsonNode tools = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")
+                    .json()
+                    .path("result")
+                    .path("tools");
+            Map<String, JsonNode> byName = new java.util.LinkedHashMap<>();
+            for (JsonNode tool : tools) byName.put(tool.path("name").asText(), tool);
+            for (String advisor : List.of(
+                    "architecture", "hibernate", "spring", "rest_api", "memory", "security", "database_advisor")) {
+                String name = "get_" + advisor + "_rule_violations";
+                assertThat(byName.containsKey(name))
+                        .as(name)
+                        .isEqualTo(byName.containsKey("get_" + advisor + "_report"));
+                if (!byName.containsKey(name)) continue;
+                JsonNode schema = byName.get(name).path("inputSchema");
+                assertThat(schema.path("properties").has("offset")).isTrue();
+                assertThat(schema.path("properties").has("limit")).isTrue();
+                assertThat(schema.path("properties").has("scanId")).isTrue();
+                assertThat(schema.path("required").toString()).contains("\"id\"", "\"scanId\"");
+                assertThat(schema.path("additionalProperties").asBoolean(true)).isFalse();
+            }
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
+    void testMcpArchitectureDetailsReturnTheSameSnapshotAsThePanel() throws Exception {
+        assertThat(enableMcp()).isTrue();
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode scanEnvelope = callAdvisorTool("architecture_scan", Map.of());
+            assertThat(scanEnvelope.path("isError").asBoolean()).isFalse();
+            JsonNode report = mapper.readTree(
+                    scanEnvelope.path("content").get(0).path("text").asText());
+            String scanId = report.path("violationDetails").path("scanId").asText();
+            assertThat(scanId).isNotBlank();
+            assertThat(probe().get("/bootui/api/architecture").json().path("violationDetails"))
+                    .isEqualTo(report.path("violationDetails"));
+            if (!report.path("results").isEmpty()) {
+                JsonNode rule = report.path("results").get(0);
+                JsonNode detailEnvelope = callAdvisorTool(
+                        "get_architecture_rule_violations",
+                        Map.of("id", rule.path("id").asText(), "scanId", scanId, "offset", 0, "limit", 1));
+                assertThat(detailEnvelope.path("isError").asBoolean()).isFalse();
+                JsonNode detail = mapper.readTree(
+                        detailEnvelope.path("content").get(0).path("text").asText());
+                assertThat(detail.path("scanId").asText()).isEqualTo(scanId);
+                assertThat(detail.path("violationCount").asInt())
+                        .isEqualTo(rule.path("violationCount").asInt());
+                assertThat(detail.path("page").path("limit").asInt()).isEqualTo(1);
+            }
+            JsonNode stale = callAdvisorTool(
+                    "get_architecture_rule_violations", Map.of("id", "ARCH-CODE-002", "scanId", "stale-snapshot"));
+            assertThat(stale.path("isError").asBoolean()).isTrue();
+            assertThat(stale.path("content").get(0).path("text").asText()).doesNotContain("Internal error");
+            assertThat(probe().get("/bootui/api/architecture")
+                            .json()
+                            .path("violationDetails")
+                            .path("scanId")
+                            .asText())
+                    .isEqualTo(scanId);
+        } finally {
+            disableMcp();
+        }
+    }
+
+    private JsonNode callAdvisorTool(String tool, Map<String, Object> arguments) throws Exception {
+        String body = new ObjectMapper()
+                .writeValueAsString(Map.of(
+                        "jsonrpc",
+                        "2.0",
+                        "id",
+                        1,
+                        "method",
+                        "tools/call",
+                        "params",
+                        Map.of("name", tool, "arguments", arguments)));
+        Response response =
+                probe().request("POST", "/bootui/api/mcp", Map.of("Content-Type", "application/json"), body);
+        assertThat(response.status()).isEqualTo(200);
+        assertThat(response.json().has("error")).isFalse();
+        return response.json().path("result");
     }
 
     @Test

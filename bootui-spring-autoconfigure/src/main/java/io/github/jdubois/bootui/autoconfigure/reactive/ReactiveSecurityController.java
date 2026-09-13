@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
+import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
@@ -29,8 +31,8 @@ import reactor.core.scheduler.Schedulers;
  */
 @RestController
 @Lazy
-@RequestMapping("${bootui.api-path:/bootui/api}/security")
-public class ReactiveSecurityController {
+@RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security")
+public class ReactiveSecurityController implements AdvisorViolationsEndpoint {
 
     private final ReactiveSecurityAdvisorService advisor;
 
@@ -40,7 +42,12 @@ public class ReactiveSecurityController {
 
     @GetMapping
     public SecurityReport security() {
-        return advisor.report();
+        return advisor.lastReport();
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return advisor.ruleViolations(ruleId, scanId, offset, limit);
     }
 
     /**

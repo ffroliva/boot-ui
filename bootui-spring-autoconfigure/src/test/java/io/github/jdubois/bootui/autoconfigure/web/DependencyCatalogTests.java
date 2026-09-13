@@ -12,19 +12,26 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
 
 class DependencyCatalogTests {
@@ -247,6 +254,167 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void countsExplodedLauncherArchivesSeparatelyFromTheCompleteSbomInventory() throws Exception {
+        List<String> archives = IntStream.range(0, 325)
+                .mapToObj(i -> "library-" + i + "-1.0.jar")
+                .toList();
+        String components = IntStream.range(0, 520)
+                .mapToObj(i -> "{\"purl\":\"pkg:maven/com.example/library-" + i + "@1.0\"}")
+                .collect(Collectors.joining(","));
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try (URLClassLoader loader = explodedLoader("{\"components\":[" + components + "]}", archives)) {
+            Thread.currentThread().setContextClassLoader(loader);
+
+            DependencyInventory inventory = withClassPathInventory(new DependencyCatalog(), ".");
+
+            assertThat(inventory.dependencies())
+                    .hasSize(520)
+                    .allMatch(d -> d.source().equals("CycloneDX SBOM"));
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(325, 0, List.of()));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void reportsUnidentifiedExplodedLibrariesEvenWhenTheSbomWasRead() throws Exception {
+        try (URLClassLoader loader = explodedLoader(
+                "{\"components\":[{\"purl\":\"pkg:maven/com.example/resolved@1.0\"}]}",
+                List.of("resolved-1.0.jar", "mystery-2.0.jar"))) {
+            DependencyInventory inventory =
+                    withClassPathInventory(new PathMatchingResourcePatternResolver(loader), ".");
+
+            assertThat(inventory.dependencies())
+                    .extracting(DependencyDto::packageName)
+                    .containsExactly("com.example:resolved");
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 1, List.of("mystery-2.0.jar")));
+        }
+    }
+
+    @Test
+    void identifiesExplodedLibrariesFromMavenDescriptorsWithoutAnSbom() throws Exception {
+        Path described = tempDir.resolve("BOOT-INF/lib/renamed-bundle.jar");
+        Files.createDirectories(described.getParent());
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(described))) {
+            for (String directory : List.of(
+                    "META-INF/", "META-INF/maven/", "META-INF/maven/com.acme/", "META-INF/maven/com.acme/widget/")) {
+                jar.putNextEntry(new ZipEntry(directory));
+                jar.closeEntry();
+            }
+            jar.putNextEntry(new ZipEntry("META-INF/maven/com.acme/widget/pom.properties"));
+            jar.write(WIDGET_DESCRIPTOR);
+            jar.closeEntry();
+        }
+        Path mystery = plainJar("BOOT-INF/lib/mystery-1.0.jar");
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {described.toUri().toURL(), mystery.toUri().toURL()}, null)) {
+            DependencyInventory inventory =
+                    withClassPathInventory(new PathMatchingResourcePatternResolver(loader), ".");
+
+            assertThat(inventory.dependencies())
+                    .extracting(DependencyDto::packageName)
+                    .containsExactly("com.acme:widget");
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 1, List.of("mystery-1.0.jar")));
+        }
+    }
+
+    @Test
+    void traversesNonUrlWrappersAndParentLoadersEvenWithABlankClassPath() throws Exception {
+        Path parentJar = plainJar("parent-1.0.jar");
+        Path childJar = plainJar("child-1.0.jar");
+        try (URLClassLoader parent =
+                        new URLClassLoader(new URL[] {parentJar.toUri().toURL()}, null);
+                URLClassLoader child =
+                        new URLClassLoader(new URL[] {childJar.toUri().toURL()}, parent)) {
+            ClassLoader wrapper = new ClassLoader(child) {};
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), wrapper), "");
+
+            assertThat(inventory.coverage())
+                    .isEqualTo(DependencyCoverageDto.of(2, 2, List.of("child-1.0.jar", "parent-1.0.jar")));
+        }
+    }
+
+    @Test
+    void countsTheSameArchiveOnlyOnceAcrossClassPathAndLoaderEntries() throws Exception {
+        Path jar = plainJar("library-1.0.jar");
+        try (URLClassLoader parent = new URLClassLoader(new URL[] {jar.toUri().toURL()}, null);
+                URLClassLoader child = new URLClassLoader(new URL[] {jar.toUri().toURL()}, parent)) {
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), child), jar.toString());
+
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("library-1.0.jar")));
+        }
+    }
+
+    @Test
+    void decodesLocalUrlsWithoutTurningLiteralPlusCharactersIntoSpaces() throws Exception {
+        try (URLClassLoader loader = explodedLoader(
+                "{\"components\":[{\"group\":\"com.example\",\"purl\":\"pkg:maven/com.example/lib@1.0%2Bbuild\"}]}",
+                List.of("lib-1.0+build.jar", "name with spaces.jar"))) {
+            DependencyInventory inventory =
+                    withClassPathInventory(new PathMatchingResourcePatternResolver(loader), ".");
+
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 1, List.of("name with spaces.jar")));
+        }
+    }
+
+    @Test
+    void ignoresNonFileUrlsAndPreservesLocalArchivesAfterAMalformedFileUrl() throws Exception {
+        URL remote = new URL(null, "https://example.invalid/library.jar", new URLStreamHandler() {
+            @Override
+            protected URLConnection openConnection(URL url) {
+                throw new AssertionError("The archive census must not open remote URLs");
+            }
+        });
+        Path local = plainJar("local-1.0.jar");
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {
+                    remote, new URL("file:/invalid%zz.jar"), local.toUri().toURL()
+                },
+                null)) {
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), loader), "");
+
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("local-1.0.jar")));
+        }
+    }
+
+    @Test
+    void inspectsRepackagedArchivesFoundOnlyInTheLoader() throws Exception {
+        Path jar = repackagedJar("app.war", "WEB-INF/lib/", List.of("nested-1.0.jar"));
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, null)) {
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), loader), ".");
+
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("nested-1.0.jar")));
+        }
+    }
+
+    @Test
+    void anUnreadableLoaderArchiveIsStillReportedAsUnidentified() throws Exception {
+        Path corrupt = Files.writeString(tempDir.resolve("corrupt-1.0.jar"), "not a zip file");
+        try (URLClassLoader loader =
+                new URLClassLoader(new URL[] {corrupt.toUri().toURL()}, null)) {
+            DependencyInventory inventory = withClassPathInventory(patternResolver(Map.of(), loader), ".");
+
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("corrupt-1.0.jar")));
+        }
+    }
+
+    @Test
+    void anSbomAndClassesDirectoryAloneDoNotProveArchiveCoverage() throws Exception {
+        try (URLClassLoader loader =
+                explodedLoader("{\"components\":[{\"purl\":\"pkg:maven/com.example/resolved@1.0\"}]}", List.of())) {
+            DependencyInventory inventory =
+                    withClassPathInventory(new PathMatchingResourcePatternResolver(loader), ".");
+
+            assertThat(inventory.dependencies()).hasSize(1);
+            assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.unavailable());
+        }
+        DependencyInventory noLoader = withClassPathInventory(
+                sbomResolver("{\"components\":[{\"purl\":\"pkg:maven/com.example/resolved@1.0\"}]}"), "");
+        assertThat(noLoader.dependencies()).hasSize(1);
+        assertThat(noLoader.coverage()).isEqualTo(DependencyCoverageDto.unavailable());
+    }
+
+    @Test
     void attributesAnArchiveByTheDescriptorReadFromInsideItEvenWhenTheNameDoesNotMatch() throws Exception {
         // A shaded archive's file name need not match the coordinates of the descriptor inside it, so
         // attribution follows the descriptor's owning-archive location rather than guessing from the name.
@@ -321,6 +489,22 @@ class DependencyCatalogTests {
     // Fixtures
     // -----------------------------------------------------------------------------------------------
 
+    private URLClassLoader explodedLoader(String sbom, List<String> archives) throws IOException {
+        Path root = tempDir.resolve("exploded app+layout");
+        Path classes = Files.createDirectories(root.resolve("BOOT-INF/classes"));
+        Path sbomFile = classes.resolve("META-INF/sbom/application.cdx.json");
+        Files.createDirectories(sbomFile.getParent());
+        Files.writeString(sbomFile, sbom);
+        List<URL> urls = new ArrayList<>();
+        urls.add(classes.toUri().toURL());
+        for (String archive : archives) {
+            urls.add(plainJar("exploded app+layout/BOOT-INF/lib/" + archive)
+                    .toUri()
+                    .toURL());
+        }
+        return new URLClassLoader(urls.toArray(new URL[0]), null);
+    }
+
     private Path repackagedJar(String name, String libraryPrefix, List<String> nestedArchives) throws IOException {
         Manifest manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
@@ -340,8 +524,9 @@ class DependencyCatalogTests {
 
     private Path plainJar(String name) throws IOException {
         Path jar = tempDir.resolve(name);
+        Files.createDirectories(jar.getParent());
         try (OutputStream out = Files.newOutputStream(jar);
-                JarOutputStream jarOut = new JarOutputStream(out, new Manifest())) {
+                JarOutputStream jarOut = new JarOutputStream(out)) {
             jarOut.putNextEntry(new ZipEntry("com/example/Library.class"));
             jarOut.closeEntry();
         }
@@ -353,10 +538,14 @@ class DependencyCatalogTests {
     }
 
     private DependencyInventory withClassPathInventory(ResourcePatternResolver resolver, String... entries) {
+        return withClassPathInventory(new DependencyCatalog(resolver), entries);
+    }
+
+    private DependencyInventory withClassPathInventory(DependencyCatalog catalog, String... entries) {
         String previousClassPath = System.getProperty("java.class.path");
         try {
             System.setProperty("java.class.path", String.join(File.pathSeparator, entries));
-            return new DependencyCatalog(resolver).inventory();
+            return catalog.inventory();
         } finally {
             if (previousClassPath == null) {
                 System.clearProperty("java.class.path");
@@ -419,6 +608,11 @@ class DependencyCatalogTests {
      * vice versa, testing something the runtime never does.
      */
     private static ResourcePatternResolver patternResolver(Map<String, List<Resource>> resourcesByPattern) {
+        return patternResolver(resourcesByPattern, null);
+    }
+
+    private static ResourcePatternResolver patternResolver(
+            Map<String, List<Resource>> resourcesByPattern, ClassLoader classLoader) {
         return new ResourcePatternResolver() {
             @Override
             public Resource[] getResources(String locationPattern) {
@@ -434,7 +628,7 @@ class DependencyCatalogTests {
 
             @Override
             public ClassLoader getClassLoader() {
-                return DependencyCatalogTests.class.getClassLoader();
+                return classLoader;
             }
         };
     }

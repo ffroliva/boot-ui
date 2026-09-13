@@ -864,7 +864,11 @@ Features:
   target. False/empty means no candidate was established, not that the dependency is unaffected or no upstream fix
   exists. Candidates do not guarantee compatibility, artifact publication, or reachability remediation.
 - Report provider coverage separately from scan completion. Spring enumerates conventional/manifest-selected nested
-  libraries or classpath JARs and attributes names to coordinates. Report unidentified names as `INCOMPLETE` with exact
+  libraries or JARs from `java.class.path` and local application-classloader URLs, and attributes names to coordinates.
+  This includes MVC and WebFlux applications extracted with `jarmode=tools extract --layers --launcher`, with layers
+  merged and launched through `JarLauncher`; the dependency JARs need not appear in `java.class.path`.
+  Archive counts remain separate from SBOM component totals and completed OSV queries. An SBOM alone never changes
+  an unobservable archive census to `COMPLETE`. Report unidentified names as `INCOMPLETE` with exact
   reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. `COMPLETE` describes
   the provider's reported identification, not independently verified runtime completeness: filename attribution and
   Quarkus missing/malformed model overclaims remain deferred below.
@@ -2356,6 +2360,41 @@ The browser UI should not depend directly on raw Actuator response shapes. BootU
 DTOs. High-cardinality list endpoints should support bounded server-side `q` / filter / `offset` / `limit` access and
 return page metadata so the SPA can avoid fetching every row before filtering.
 
+#### Advisor violation pages
+
+The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,
+`database-advisor`) share `GET <api>/<advisor>/rules/{ruleId}/violations` on their supported MVC, WebFlux, and Quarkus
+stacks. The `spring` root remains the Quarkus application advisor on Quarkus; this does not change availability.
+
+Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
+Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
+truncated}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
+index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
+identity and retained entries. Only the latest snapshot is kept.
+
+Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
+Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
+`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`, and
+`page: {total, matched, offset, limit, returned, hasMore}`. Page totals count retained entries; a terminal page does not
+prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
+rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
+rescan or collect new observations.
+
+The UI offers **View violations** only on demand when more findings exist, then bounded inline Previous/Next and
+**Back to samples**. It retains samples/the last page through loading or failure, provides Retry or an explicit
+**Refresh cached report** after 409 (never rescan), rejects stale responses, and displays accurate retained ranges and
+truncation warnings. Legacy reports without metadata keep their samples without an unusable detail control. No
+detail request occurs on mount, report arrival, or dismissal. Controls have unique accessible names and targets,
+keyboard focus handling, and one async announcement per rule.
+
+The same contract is exposed by the seven `get_*_rule_violations` MCP tools with required `id` and `scanId`, and
+optional `offset`/`limit`; CLI paths are `<advisor> violations <ruleId> --scan-id ... --offset ... --limit ...`, using
+`db` for Database Advisor. Transport result/response-byte budgets still apply. See
+[advisor retrieval](features/advisors.md#rest-mcp-and-cli-retrieval) for exact names and REST/MCP/CLI examples.
+GraalVM/CRaC, Pentesting, and Vulnerabilities retain their separate models.
+
 Initial endpoints:
 
 | Endpoint                                     | Method | Purpose                                                                                |
@@ -2512,6 +2551,7 @@ Initial properties:
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
+| `bootui.advisors.max-retained-violations`     | `10000`                                 | Positive per-advisor latest-scan detail budget across rules; frozen at scan start. Samples/counts are unchanged; missing retained details are explicit. |
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
 | `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                     |
 | `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                         |

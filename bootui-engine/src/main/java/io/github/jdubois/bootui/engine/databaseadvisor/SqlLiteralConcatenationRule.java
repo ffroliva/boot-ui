@@ -88,7 +88,7 @@ final class SqlLiteralConcatenationRule extends AbstractDatabaseAdvisorRule {
         for (ShapeEvidence evidence : reportable) {
             details.add(evidence.describe(statements.size()));
         }
-        return violation(details);
+        return violation(context, details);
     }
 
     private static String digest(String text) {
