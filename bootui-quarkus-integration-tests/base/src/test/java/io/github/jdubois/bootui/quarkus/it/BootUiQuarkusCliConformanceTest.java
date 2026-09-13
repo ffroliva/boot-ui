@@ -17,6 +17,7 @@ class BootUiQuarkusCliConformanceTest extends AbstractCliConformanceTest {
         @Override
         public Map<String, String> getConfigOverrides() {
             return Map.of(
+                    "bootui.overrides-file", "target/cli-conformance/application-bootui.properties",
                     "bootui.panels.memory.enabled", "false",
                     "bootui.panels.heap-dump.read-only", "true",
                     "bootui.heap-dump.capture-enabled", "false",

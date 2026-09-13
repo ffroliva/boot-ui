@@ -90,7 +90,7 @@ function diagnosticClass(level) {
       <template #actions>
         <SpinnerButton
           :loading="panel.loading"
-          :disabled="panel.loading || panel.readOnly"
+          :disabled="panel.actionsDisabled"
           class="btn btn-primary"
           type="button"
           label="Run Database checks"
@@ -257,7 +257,7 @@ function diagnosticClass(level) {
               <button
                 class="btn btn-sm btn-outline-secondary ms-auto"
                 type="button"
-                :disabled="panel.dismissLoading"
+                :disabled="panel.actionsDisabled"
                 @click="panel.dismiss(result.id)"
                 title="Dismiss this rule"
               >
@@ -306,7 +306,7 @@ function diagnosticClass(level) {
                 <button
                   class="btn btn-sm btn-outline-secondary ms-auto"
                   type="button"
-                  :disabled="panel.dismissLoading"
+                  :disabled="panel.actionsDisabled"
                   @click="panel.restore(result.id)"
                   title="Restore this rule"
                 >

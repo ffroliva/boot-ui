@@ -982,6 +982,91 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.getByRole('img', {name: /Known-findings score: 90.*Scan notes available/})).toHaveCount(1)
     })
 
+    test('disables sibling advisor actions during scans and dismissal refreshes', async ({page}) => {
+      const dismissedIds = new Set(['ARCH-TEST-3'])
+      let actionGate = Promise.resolve()
+      let refreshGate = Promise.resolve()
+      let reads = 0
+      let scans = 0
+      const mutations = []
+      function currentReport() {
+        const base = architectureReport('SCANNED')
+        const results = [1, 2, 3].map((index) => ({
+          ...base.results[0],
+          id: `ARCH-TEST-${index}`,
+          name: `Retained architecture finding ${index}`,
+          dismissed: dismissedIds.has(`ARCH-TEST-${index}`)
+        }))
+        const active = results.filter((result) => !result.dismissed).length
+        return {
+          ...base,
+          results,
+          rulesEvaluated: 3,
+          violationsFound: active,
+          severityCounts: [{severity: 'HIGH', count: active}]
+        }
+      }
+      await page.route(`**${apiPath}/architecture{,/scan}`, async (route) => {
+        if (route.request().method() === 'POST') {
+          scans++
+          await actionGate
+        } else {
+          reads++
+          await refreshGate
+        }
+        await route.fulfill({json: currentReport()})
+      })
+      for (const id of ['ARCH-TEST-1', 'ARCH-TEST-3']) {
+        await page.route(`**${apiPath}/dismissed-rules/${id}`, async (route) => {
+          const method = route.request().method()
+          mutations.push([id, method])
+          await actionGate
+          if (method === 'POST') dismissedIds.add(id)
+          else dismissedIds.delete(id)
+          await route.fulfill({json: {dismissed: [...dismissedIds]}})
+        })
+      }
+      await page.goto(`${uiPath}/#/architecture`)
+      const scan = page.locator('main .panel-header__actions button')
+      const actions = page.locator('main .panel-header__actions button, main .list-group-item button')
+      await expect(actions).toHaveCount(4)
+      for (const button of await actions.all()) await expect(button).toBeEnabled()
+      for (const [action, id] of [
+        ['scan', null],
+        ['Dismiss', 'ARCH-TEST-1'],
+        ['Restore', 'ARCH-TEST-3']
+      ]) {
+        let finishAction
+        let finishRefresh
+        actionGate = new Promise((resolve) => (finishAction = resolve))
+        if (action !== 'scan') refreshGate = new Promise((resolve) => (finishRefresh = resolve))
+        const previousReads = reads
+        const button =
+          action === 'scan'
+            ? scan
+            : page
+                .locator('.list-group-item')
+                .filter({has: page.getByText(id, {exact: true})})
+                .getByRole('button', {name: new RegExp(`${action}$`)})
+        await button.click()
+        await expect(actions).toHaveCount(4)
+        for (const button of await actions.all()) await expect(button).toBeDisabled()
+        finishAction()
+        if (action !== 'scan') {
+          await expect.poll(() => reads).toBe(previousReads + 1)
+          for (const button of await actions.all()) await expect(button).toBeDisabled()
+          finishRefresh()
+        }
+        for (const button of await actions.all()) await expect(button).toBeEnabled()
+        await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(currentReport())))
+      }
+      expect(scans).toBe(1)
+      expect(mutations).toEqual([
+        ['ARCH-TEST-1', 'POST'],
+        ['ARCH-TEST-3', 'DELETE']
+      ])
+    })
+
     for (const status of ['SCANNED', 'PARTIAL']) {
       test(`dismisses and restores a ${status} finding with exact score changes`, async ({page}) => {
         let dismissed = false

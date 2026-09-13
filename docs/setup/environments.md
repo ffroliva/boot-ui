@@ -164,7 +164,7 @@ COPY .bootui/boot-ui.yml /var/bootui/boot-ui.yml
 
 Two things to know. Dismissing from the console rewrites the whole file, so if you mount the baseline **read-only** the
 _Dismiss_ button fails; either keep the directory writable (a rebuild still restores the committed baseline) or set the
-advisor panels read-only with `bootui.panels.<id>.read-only=true`, which removes the dismiss and restore controls from
+advisor panels read-only with `bootui.panels.<id>.read-only=true`, which disables the dismiss and restore controls in
 the UI. And vulnerability dismissals are keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id —
 see [Dismissing a vulnerability](../features/advisors.md#dismissing-a-vulnerability).
 

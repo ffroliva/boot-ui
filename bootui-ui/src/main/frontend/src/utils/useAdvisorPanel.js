@@ -49,7 +49,11 @@ export function useAdvisorPanel(props, options) {
   // skeleton on first paint without flashing it on every later refresh or scan.
   const initialLoading = ref(true)
 
-  const {dismissLoading, dismiss, restore} = useDismissedRules(loadReport)
+  const dismissedRules = useDismissedRules(loadReport)
+  const {dismissLoading} = dismissedRules
+  const actionsDisabled = computed(
+    () => loading.value || dismissLoading.value || readOnly.value || !manifestAvailable.value
+  )
 
   const hasScanData = computed(() => hasScanResult(report.value?.scan?.status))
 
@@ -132,6 +136,7 @@ export function useAdvisorPanel(props, options) {
   }
 
   async function runScan() {
+    if (loading.value || dismissLoading.value) return
     if (readOnly.value) {
       showReadOnlyMessage()
       return
@@ -154,6 +159,24 @@ export function useAdvisorPanel(props, options) {
       }
     } finally {
       loading.value = false
+    }
+  }
+
+  async function mutateRule(ruleId, restore = false) {
+    if (loading.value || dismissLoading.value) return
+    if (readOnly.value) {
+      showReadOnlyMessage()
+      return
+    }
+    if (!manifestAvailable.value) {
+      showUnavailableMessage()
+      return
+    }
+    actionMessage.value = null
+    try {
+      await (restore ? dismissedRules.restore(ruleId) : dismissedRules.dismiss(ruleId))
+    } catch (e) {
+      error.value = describeLoadError(e, restore ? 'Unable to restore rule' : 'Unable to dismiss rule')
     }
   }
 
@@ -198,8 +221,9 @@ export function useAdvisorPanel(props, options) {
     loading,
     initialLoading,
     dismissLoading,
-    dismiss,
-    restore,
+    actionsDisabled,
+    dismiss: (ruleId) => mutateRule(ruleId),
+    restore: (ruleId) => mutateRule(ruleId, true),
     hasScanData,
     score,
     assessment,

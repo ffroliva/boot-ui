@@ -47,6 +47,38 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testPentestingToolsApplyLiveDismissalsToScanAndCachedRead() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try {
+            PentestingDismissalContract.verify(
+                    probe(),
+                    "/bootui/api",
+                    () -> pentestingTool("pentest_scan"),
+                    () -> pentestingTool("get_pentest_report"));
+        } finally {
+            disableMcp();
+        }
+    }
+
+    private JsonNode pentestingTool(String tool) {
+        JsonNode envelope = PentestingDismissalContract.response(probe().request(
+                        "POST",
+                        "/bootui/api/mcp",
+                        Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool
+                                + "\"}}"));
+        assertThat(envelope.has("error")).as(envelope.toString()).isFalse();
+        JsonNode result = envelope.path("result");
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        try {
+            return new ObjectMapper()
+                    .readTree(result.path("content").get(0).path("text").asText());
+        } catch (java.io.IOException ex) {
+            throw new AssertionError("Pentesting MCP content must contain the JSON report", ex);
+        }
+    }
+
+    @Test
     void testMcpGetRejectsUnsupportedSseStream() {
         Response response = probe().get("/bootui/api/mcp");
         assertThat(response.status()).isEqualTo(405);

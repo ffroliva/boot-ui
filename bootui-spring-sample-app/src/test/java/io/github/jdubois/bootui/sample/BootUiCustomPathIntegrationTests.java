@@ -24,7 +24,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "bootui.path=/dev-console/",
             "bootui.api-path=/internal/bootui-api/",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/bootui-custom-path-test-overrides.properties",
+            "bootui.overrides-file=target/custom-path-conformance/application-bootui.properties",
             "bootui.panels.copilot.enabled=false",
             "bootui.panels.heap-dump.read-only=true",
             "bootui.heap-dump.capture-enabled=false",

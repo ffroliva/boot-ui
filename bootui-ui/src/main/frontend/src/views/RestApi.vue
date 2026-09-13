@@ -118,7 +118,7 @@ watch(contractFilter, () => contract.scheduleReload())
       <template #actions>
         <SpinnerButton
           :loading="panel.loading"
-          :disabled="panel.loading || panel.readOnly"
+          :disabled="panel.actionsDisabled"
           class="btn btn-primary"
           type="button"
           label="Run REST API checks"
@@ -243,7 +243,7 @@ watch(contractFilter, () => contract.scheduleReload())
               <button
                 class="btn btn-sm btn-outline-secondary ms-auto"
                 type="button"
-                :disabled="panel.dismissLoading"
+                :disabled="panel.actionsDisabled"
                 @click="panel.dismiss(result.id)"
                 title="Dismiss this rule"
               >
@@ -292,7 +292,7 @@ watch(contractFilter, () => contract.scheduleReload())
                 <button
                   class="btn btn-sm btn-outline-secondary ms-auto"
                   type="button"
-                  :disabled="panel.dismissLoading"
+                  :disabled="panel.actionsDisabled"
                   @click="panel.restore(result.id)"
                   title="Restore this rule"
                 >

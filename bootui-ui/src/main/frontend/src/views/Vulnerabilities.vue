@@ -86,13 +86,18 @@ function dismissalKey(vulnerabilityId, packageName) {
   return `${vulnerabilityId}::${packageName}`
 }
 
-function toggleDismiss(dependency, vulnerability) {
+async function toggleDismiss(dependency, vulnerability) {
+  if (dismissLoading.value) return
   if (readOnly.value) {
     showReadOnlyMessage()
     return
   }
   const key = dismissalKey(vulnerability.id, dependency.packageName)
-  return vulnerability.dismissed ? restore(key) : dismiss(key)
+  try {
+    await (vulnerability.dismissed ? restore(key) : dismiss(key))
+  } catch (e) {
+    error.value = describeLoadError(e, vulnerability.dismissed ? 'Unable to restore rule' : 'Unable to dismiss rule')
+  }
 }
 
 function emptyAdvisoryText(dependency) {

@@ -11,7 +11,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
         properties = {
             "spring.profiles.active=dev",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/bootui-conformance-overrides.properties",
+            "bootui.overrides-file=target/mcp-conformance/application-bootui.properties",
             "bootui.panels.copilot.enabled=false",
             "bootui.panels.heap-dump.read-only=true",
             "bootui.heap-dump.capture-enabled=false",

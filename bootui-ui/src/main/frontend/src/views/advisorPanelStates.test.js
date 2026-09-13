@@ -2,6 +2,13 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Spring from './Spring.vue'
+import Architecture from './Architecture.vue'
+import Memory from './Memory.vue'
+import Security from './Security.vue'
+import RestApi from './RestApi.vue'
+import Hibernate from './Hibernate.vue'
+import DatabaseAdvisor from './DatabaseAdvisor.vue'
+import Pentesting from './Pentesting.vue'
 
 const report = {
   scan: {status: 'COMPLETED', scannedAt: '2024-05-01T10:15:00Z'},
@@ -25,10 +32,12 @@ function mountSpring() {
 }
 
 afterEach(() => {
+  document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
-describe('advisor panel first paint', () => {
+describe('advisor panel states', () => {
   it('shows the shared skeleton until the mount-time report settles', async () => {
     let resolveReport
     vi.stubGlobal(
@@ -47,6 +56,133 @@ describe('advisor panel first paint', () => {
 
     expect(wrapper.find('.skeleton-wrapper').exists()).toBe(false)
     expect(wrapper.find('.advisor-score-card').exists()).toBe(true)
+  })
+
+  const advisorComponents = [
+    ['Architecture', Architecture, 'architecture'],
+    ['Memory', Memory, 'memory'],
+    ['Security', Security, 'security'],
+    ['Spring', Spring, 'spring'],
+    ['RestApi', RestApi, 'rest-api'],
+    ['Hibernate', Hibernate, 'hibernate'],
+    ['DatabaseAdvisor', DatabaseAdvisor, 'database-advisor'],
+    ['Pentesting', Pentesting, 'pentesting']
+  ]
+
+  function actionableReport() {
+    const findings = [false, true].map((dismissed, index) => ({
+      id: `TEST-${index + 1}`,
+      name: `Retained rule ${index + 1}`,
+      title: `Retained finding ${index + 1}`,
+      severity: 'HIGH',
+      status: 'VIOLATION',
+      category: 'TEST',
+      confidence: 'High',
+      target: 'Application metadata',
+      description: 'Retained evidence.',
+      evidence: 'Retained evidence.',
+      recommendation: 'Review the finding.',
+      violationCount: 1,
+      sampleViolations: [],
+      dismissed
+    }))
+    return {
+      ...report,
+      scan: {status: 'SCANNED', scannedAt: 1700000000000},
+      evidence: {usable: true, coverageComplete: true, limitations: []},
+      checksRun: 2,
+      findingsFound: 1,
+      violationsFound: 1,
+      severityCounts: [{severity: 'HIGH', count: 1}],
+      findings,
+      results: findings
+    }
+  }
+
+  function actionButtons(wrapper) {
+    return [
+      wrapper.get('.panel-header__actions button'),
+      ...wrapper.findAll('.list-group-item button').filter((button) => ['Dismiss', 'Restore'].includes(button.text()))
+    ]
+  }
+
+  async function mountAdvisor(component, id) {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(url === `api/${id}` ? actionableReport() : {available: false, entries: [], total: 0})
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(component, {props: {panel: {id, available: true, enabled: true, readOnly: false}}})
+    await flushPromises()
+    expect(actionButtons(wrapper)).toHaveLength(3)
+    expect(actionButtons(wrapper).every((button) => !button.element.disabled)).toBe(true)
+    return {wrapper, fetchMock}
+  }
+
+  describe.each(advisorComponents)('%s rendered advisor actions', (name, component, id) => {
+    it.each([
+      ['read-only', {readOnly: true}],
+      ['unavailable', {available: false}],
+      ['disabled', {enabled: false}]
+    ])('disables actions under %s policy and reenables when it is lifted', async (state, policy) => {
+      const {wrapper, fetchMock} = await mountAdvisor(component, id)
+      const initialRequests = fetchMock.mock.calls.length
+      await wrapper.setProps({panel: {id, ...policy}})
+      expect(actionButtons(wrapper).length).toBeGreaterThan(0)
+      expect(actionButtons(wrapper).every((button) => button.element.disabled)).toBe(true)
+      for (const button of actionButtons(wrapper)) await button.trigger('click')
+      expect(fetchMock).toHaveBeenCalledTimes(initialRequests)
+      await wrapper.setProps({panel: {id, available: true, enabled: true, readOnly: false}})
+      expect(actionButtons(wrapper)).toHaveLength(3)
+      expect(actionButtons(wrapper).every((button) => !button.element.disabled)).toBe(true)
+      wrapper.unmount()
+    })
+
+    it.each(['scan', 'Dismiss', 'Restore'])(
+      'disables all rendered actions during pending %s, including cached refresh',
+      async (action) => {
+        const {wrapper, fetchMock} = await mountAdvisor(component, id)
+        let finishAction
+        let finishRefresh
+        fetchMock.mockImplementationOnce(() => new Promise((resolve) => (finishAction = resolve)))
+        if (action !== 'scan') {
+          fetchMock.mockImplementationOnce(() => new Promise((resolve) => (finishRefresh = resolve)))
+        }
+        const button =
+          action === 'scan'
+            ? actionButtons(wrapper)[0]
+            : actionButtons(wrapper).find((button) => button.text() === action)
+        await button.trigger('click')
+        await flushPromises()
+        const pendingRequests = fetchMock.mock.calls.length
+        expect(actionButtons(wrapper)).toHaveLength(3)
+        expect(actionButtons(wrapper).every((button) => button.element.disabled)).toBe(true)
+        for (const disabled of actionButtons(wrapper)) await disabled.trigger('click')
+        expect(fetchMock).toHaveBeenCalledTimes(pendingRequests)
+        const [url, init] = fetchMock.mock.calls.at(-1)
+        expect(url).toBe(
+          action === 'scan' ? `api/${id}/scan` : `api/dismissed-rules/TEST-${action === 'Dismiss' ? 1 : 2}`
+        )
+        expect(init.method).toBe(action === 'Restore' ? 'DELETE' : 'POST')
+
+        finishAction(new Response(JSON.stringify(action === 'scan' ? actionableReport() : {dismissed: []})))
+        await flushPromises()
+        if (action !== 'scan') {
+          expect(actionButtons(wrapper).every((button) => button.element.disabled)).toBe(true)
+          expect(fetchMock.mock.calls.at(-1)[0]).toBe(`api/${id}`)
+          expect(fetchMock.mock.calls.at(-1)[1]?.method).toBeUndefined()
+          finishRefresh(new Response(JSON.stringify(actionableReport())))
+          await flushPromises()
+        }
+        expect(actionButtons(wrapper)).toHaveLength(3)
+        expect(actionButtons(wrapper).every((button) => !button.element.disabled)).toBe(true)
+        wrapper.unmount()
+      }
+    )
   })
 
   it('clears the first-paint state even when the report request fails', async () => {
