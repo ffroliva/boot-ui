@@ -327,6 +327,89 @@ class ArchitectureRulesTests {
         assertThat(result.sampleViolations()).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            classes = {
+                FragmentSpringDataRepository.class,
+                DefinedFragmentSpringDataRepository.class,
+                ComposedDefinedFragmentSpringDataRepository.class
+            })
+    void transactionalFragmentsOfObservedSpringDataRepositoriesAreSupported(Class<?> repositoryType) {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(repositoryType, TransactionalFragment.class, JakartaTransactionalFragment.class);
+        ArchitectureContext context =
+                new ArchitectureContext(classes, List.of(getClass().getPackageName()), ArchitecturePlatform.SPRING);
+        ArchitectureRuleResultDto result =
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule().evaluate(context);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).isEmpty();
+        assertThat(context.evidence().evaluated()).isTrue();
+        assertThat(context.evidence().usable()).isFalse();
+        assertThat(context.evidence().requiredUnknown()).isFalse();
+    }
+
+    @Test
+    void repositoryFragmentsDoNotHideUnrelatedTransactionalInterfaces() {
+        ArchitectureRuleResultDto result = evaluate(
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
+                FragmentSpringDataRepository.class,
+                TransactionalFragment.class,
+                JakartaTransactionalFragment.class,
+                TransactionalMethodInterface.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .containsExactly("Interface method " + TransactionalMethodInterface.class.getName()
+                        + ".save() is annotated with @Transactional");
+    }
+
+    @Test
+    void transactionalFragmentsWithoutAnObservedRepositoryRemainReported() {
+        ArchitectureRuleResultDto result = evaluate(
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(),
+                OrdinaryFragmentConsumer.class,
+                TransactionalFragment.class,
+                JakartaTransactionalFragment.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(4);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample).contains("TransactionalFragment"))
+                .anySatisfy(sample -> assertThat(sample).contains("JakartaTransactionalFragment"));
+    }
+
+    @Test
+    void repositoryFragmentExemptionDoesNotChangeQuarkusInterfaceChecks() {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(
+                        FragmentSpringDataRepository.class,
+                        TransactionalFragment.class,
+                        JakartaTransactionalFragment.class);
+        ArchitectureRuleResultDto result = new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule()
+                .evaluate(new ArchitectureContext(
+                        classes, List.of(getClass().getPackageName()), ArchitecturePlatform.QUARKUS));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(4);
+    }
+
+    @Test
+    void transactionalInterfaceGuidanceIncludesBothOrdinaryAndSpringDataReferences() {
+        ArchitectureRuleResultDto result = evaluate(
+                new TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule(), TransactionalMethodInterface.class);
+
+        assertThat(result.recommendation())
+                .contains(
+                        "https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html#transactional-query-methods");
+        assertThat(result.learnMoreUrl())
+                .isEqualTo(
+                        "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html");
+    }
+
     @Test
     void springDataRepositoriesDoNotHideOrdinaryTransactionalInterfaceFindings() {
         ArchitectureRuleResultDto result = evaluate(
@@ -1251,6 +1334,30 @@ class ArchitectureRulesTests {
         @jakarta.transaction.Transactional
         void save();
     }
+
+    @jakarta.transaction.Transactional
+    private interface JakartaTransactionalFragment {
+
+        @jakarta.transaction.Transactional
+        void saveFragment();
+    }
+
+    @Transactional(readOnly = true)
+    private interface TransactionalFragment extends JakartaTransactionalFragment {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        int expireInOwnTransaction(Long id);
+    }
+
+    private interface FragmentSpringDataRepository extends CrudRepository<Object, Long>, TransactionalFragment {}
+
+    @RepositoryDefinition(domainClass = Object.class, idClass = Long.class)
+    private interface DefinedFragmentSpringDataRepository extends TransactionalFragment {}
+
+    @ComposedRepositoryDefinition
+    private interface ComposedDefinedFragmentSpringDataRepository extends TransactionalFragment {}
+
+    private interface OrdinaryFragmentConsumer extends TransactionalFragment {}
 
     @Transactional
     private interface TransactionalLookalikeRepository {}

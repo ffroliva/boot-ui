@@ -30,7 +30,13 @@ data class KotlinOrder(val id: Long, val customer: String)
 data class KotlinCart(val id: UUID)
 
 @Transactional(readOnly = true)
-interface KotlinCartRepository : CrudRepository<KotlinCart, UUID> {
+interface KotlinCartFragment {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun updateInOwnTransaction(id: UUID): Int
+}
+
+@Transactional(readOnly = true)
+interface KotlinCartRepository : CrudRepository<KotlinCart, UUID>, KotlinCartFragment {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun expireIfDueInOwnTransaction(id: UUID, now: Instant): Int
 }
