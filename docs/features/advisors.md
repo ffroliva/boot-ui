@@ -734,14 +734,23 @@ and skipped instead of failing the whole inventory.
 
 A coordinate-based inventory can only scan what it can name, so the panel also reports what it *couldn't*. Alongside the
 inventory, BootUI takes a census of the application's real archives — the `BOOT-INF/lib/`/`WEB-INF/lib/` entries of a
-repackaged JAR or WAR, or the classpath JARs when running exploded — and attributes each to a resolved coordinate. The
-provider reports one of three states, subject to the discovery limitations below:
+repackaged JAR or WAR, or JARs exposed through `java.class.path` and local application-classloader URLs when running
+exploded — and attributes each to a resolved coordinate. Both Spring MVC and WebFlux support the container layout
+produced by `java -Djarmode=tools -jar app.jar extract --layers --launcher`: after the extracted layers are merged,
+`java org.springframework.boot.loader.launch.JarLauncher` exposes `BOOT-INF/lib` JARs through its classloader even
+when `java.class.path` contains only the launch directory. The census does not recursively search directories or
+contact remote URLs.
+
+Archive counts and package counts answer different questions. An SBOM with 520 resolved packages can identify all
+325 runtime JARs: coverage reports 325 identified archives, while the scan reports how many of the 520 packages were
+queried. The SBOM alone does not establish complete archive coverage. The provider reports one of three states,
+subject to the discovery limitations below:
 
 | `coverage.status` | Meaning |
 | --- | --- |
 | `COMPLETE` | The provider reports all enumerated archives identified; this is not independent verification of the runtime inventory. |
 | `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
-| `UNAVAILABLE` | The census itself could not run (a blank or synthetic classpath, for example under a native image), so coverage is unknown rather than claimed. |
+| `UNAVAILABLE` | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
