@@ -127,6 +127,31 @@ public final class McpToolDescriptions {
                     "Return the last completed Hibernate advisor report without starting a new mapping scan. Use this "
                             + "cached evidence before deciding whether an active hibernate_scan is necessary."),
             Map.entry(
+                    "postgresql_read",
+                    "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources "
+                            + "and return what the server currently reports: the live session snapshot, cache hit and "
+                            + "rollback ratios, connection usage, transaction-ID age, the top normalized statements, "
+                            + "index and relation activity, autovacuum state, replication and notable settings. This "
+                            + "is a runtime view, not an advisor: it grades nothing and emits no findings. The read is "
+                            + "bounded and read-only. Read every section's `reason` before trusting its rows: a "
+                            + "section BootUI read only partly stays `AVAILABLE` and carries a non-null `reason`, so "
+                            + "`status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it "
+                            + "did not read at all. A `hint` is a methodology caveat on rows that were read, not "
+                            + "missing evidence. `truncated` means the row cap was reached, and any of these degrades "
+                            + "the database and report `status` to `PARTIAL`. The usual cause is a role without "
+                            + "pg_monitor membership, which hides other backends from the session list and the "
+                            + "statement text and replica details from their sections. Budget exhaustion is reported "
+                            + "in `reason`, not as row-cap truncation. An empty replica list proves absence only when "
+                            + "`replication.replicasAvailable` is true; otherwise the list was not read."),
+            Map.entry(
+                    "get_postgresql_report",
+                    "Return the last completed PostgreSQL runtime view without querying the server again. Before any "
+                            + "read has run its `status` is `NOT_READ` and it carries no rows, which means nothing has "
+                            + "been looked at rather than that nothing is wrong. Its session snapshot is only as "
+                            + "current as that read, so prefer an active postgresql_read when the question is about "
+                            + "what the database is doing right now. Check each section's `reason` for missing coverage; "
+                            + "an empty replica list proves absence only when `replication.replicasAvailable` is true."),
+            Map.entry(
                     "get_database_advisor_report",
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "
                             + "cached evidence before deciding whether an active database_advisor_scan is necessary."),
@@ -261,6 +286,10 @@ public final class McpToolDescriptions {
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
+        return springDescription(name) + advisorGuidance(name, false);
+    }
+
+    private static String springDescription(String name) {
         return switch (name) {
             case "spring_scan" ->
                 "Actively inspect Spring configuration and bean usage for correctness and maintainability risks. "
@@ -332,6 +361,10 @@ public final class McpToolDescriptions {
     }
 
     public static String quarkus(String name) {
+        return quarkusDescription(name) + advisorGuidance(name, true);
+    }
+
+    private static String quarkusDescription(String name) {
         return switch (name) {
             case "spring_scan" ->
                 "Actively inspect Quarkus configuration and idioms for correctness and maintainability risks. Verify "
@@ -357,10 +390,43 @@ public final class McpToolDescriptions {
     }
 
     private static String common(String name) {
+        if (McpToolCatalog.byName(name)
+                .map(entry -> entry.schema() == McpToolSchema.RULE_VIOLATIONS)
+                .orElse(false)) {
+            return "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. "
+                    + "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). "
+                    + "Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, "
+                    + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "
+                    + "before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the "
+                    + "cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset "
+                    + "with a smaller limit; a refusal is not an empty or completed page.";
+        }
         String description = COMMON.get(name);
         if (description == null) {
             throw new IllegalArgumentException("Missing MCP tool description: " + name);
         }
         return description;
+    }
+
+    private static String advisorGuidance(String name, boolean quarkus) {
+        String advisor =
+                switch (name) {
+                    case "architecture_scan", "get_architecture_report" -> "architecture";
+                    case "hibernate_scan", "get_hibernate_report" -> "hibernate";
+                    case "spring_scan", "get_spring_report" -> "spring";
+                    case "rest_api_scan", "get_rest_api_report" -> "rest_api";
+                    case "memory_scan", "get_memory_report" -> "memory";
+                    case "security_scan", "get_security_report" -> "security";
+                    case "database_advisor_scan", "get_database_advisor_report" -> "database_advisor";
+                    default -> null;
+                };
+        if (advisor == null) {
+            return "";
+        }
+        int sampleLimit = quarkus && (advisor.equals("spring") || advisor.equals("security")) ? 20 : 10;
+        return " sampleViolations are bounded previews (up to " + sampleLimit + "), not the full violationCount. "
+                + "Use violationDetails.scanId with get_" + advisor + "_rule_violations to page cached retained "
+                + "details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not "
+                + "guarantee completeness when truncated. Verify each finding before changing code.";
     }
 }

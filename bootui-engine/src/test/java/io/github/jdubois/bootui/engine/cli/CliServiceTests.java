@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.CliServerStatus;
 import io.github.jdubois.bootui.core.dto.CliToolInfo;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
+import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
@@ -17,6 +19,103 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class CliServiceTests {
+
+    @Test
+    void advisorPageArgumentsAreProjectedAndCappedIndependentlyOfOtherTools() {
+        for (int cap : List.of(7, 250, 2000)) {
+            CliService service = advisorService(cap);
+            assertThat(service.status().tools().get(0).arguments()).containsExactly("id", "scanId", "offset", "limit");
+            assertThat(service.invoke("get_architecture_rule_violations", Map.of("id", " RULE-1 ", "scanId", " scan "))
+                            .payload())
+                    .isEqualTo(new McpArguments(null, Math.min(100, cap), "RULE-1", "scan", 0));
+            assertThat(service.invoke(
+                                    "get_architecture_rule_violations",
+                                    Map.of("id", "RULE-1", "scanId", "scan", "offset", 22L, "limit", 5000))
+                            .payload())
+                    .isEqualTo(new McpArguments(null, Math.min(1000, cap), "RULE-1", "scan", 22));
+        }
+    }
+
+    @Test
+    void advisorPageArgumentsRejectNullFractionalOverflowingUnknownAndMissingValues() {
+        CliService service = advisorService(250);
+        for (String argument : List.of("id", "scanId", "offset", "limit")) {
+            List<Object> invalid = new java.util.ArrayList<>();
+            invalid.add(null);
+            if (argument.equals("id") || argument.equals("scanId")) {
+                invalid.addAll(List.of(3, true, "", " "));
+            } else {
+                invalid.addAll(List.of(
+                        "3",
+                        true,
+                        1.5,
+                        2147483648L,
+                        -2147483649L,
+                        new java.math.BigInteger("18446744073709551616"),
+                        -1));
+                if (argument.equals("limit")) {
+                    invalid.add(0);
+                }
+            }
+            for (Object value : invalid) {
+                Map<String, Object> body = new java.util.LinkedHashMap<>(Map.of("id", "RULE-1", "scanId", "scan"));
+                body.put(argument, value);
+                assertThat(service.invoke("get_architecture_rule_violations", body)
+                                .status())
+                        .as("%s=%s", argument, value)
+                        .isEqualTo(CliStatus.BAD_REQUEST);
+            }
+        }
+        for (Map<String, Object> body : List.<Map<String, Object>>of(
+                Map.of(),
+                Map.of("id", "RULE-1"),
+                Map.of("scanId", "scan"),
+                Map.of("id", "RULE-1", "scanId", "scan", "query", "ignored"),
+                Map.of("id", "RULE-1", "scanId", "scan", "extra", 1))) {
+            assertThat(service.invoke("get_architecture_rule_violations", body).status())
+                    .isEqualTo(CliStatus.BAD_REQUEST);
+        }
+    }
+
+    @Test
+    void advisorSnapshotFailuresPreserveTheCliClientErrorMapping() {
+        for (int status : List.of(400, 404, 409)) {
+            McpTool tool = new McpTool(
+                    "get_architecture_rule_violations",
+                    "Read retained violations.",
+                    McpToolSchema.RULE_VIOLATIONS,
+                    "architecture",
+                    false,
+                    args -> {
+                        throw new AdvisorViolationException(status, "Reread the cached report.");
+                    });
+            CliService service =
+                    new CliService(true, () -> List.of(tool), policy, "1", "/bootui/api/cli", 100, 4, 5000, failure());
+            CliToolResponse response =
+                    service.invoke("get_architecture_rule_violations", Map.of("id", "RULE-1", "scanId", "scan"));
+            assertThat(response.error()).isEqualTo("Reread the cached report.");
+            assertThat(response.status().code()).isEqualTo(status == 404 ? 400 : status);
+        }
+    }
+
+    private CliService advisorService(int cap) {
+        return new CliService(
+                true,
+                () -> List.of(new McpTool(
+                        "get_architecture_rule_violations",
+                        "Read retained violations.",
+                        McpToolSchema.RULE_VIOLATIONS,
+                        "architecture",
+                        false,
+                        args -> args)),
+                policy,
+                "1",
+                "/bootui/api/cli",
+                cap,
+                4,
+                5000,
+                failure());
+    }
 
     private final McpTool overview = new McpTool(
             "get_overview", "Read the overview.", McpToolSchema.NONE, "overview", false, args -> Map.of("ok", true));

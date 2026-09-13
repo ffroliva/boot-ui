@@ -51,7 +51,7 @@ class HibernateControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         HibernateReport initial = report("NOT_SCANNED", 0);
         HibernateReport dismissedView = report("NOT_SCANNED", 0);
-        when(scanner.initialReport()).thenReturn(initial);
+        when(scanner.lastReport()).thenReturn(initial);
         when(dismissedRules.load()).thenReturn(Set.of("HIB-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("HIB-IGNORED")))).thenReturn(dismissedView);
 
@@ -68,7 +68,6 @@ class HibernateControllerTests {
     void scanRefreshesCachedReportAndAppliesDismissals() throws Exception {
         HibernateScanner scanner = mock(HibernateScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         HibernateReport scanned = report("SCANNED", 2);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());

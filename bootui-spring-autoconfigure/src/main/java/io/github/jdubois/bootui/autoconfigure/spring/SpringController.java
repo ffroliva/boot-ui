@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SpringReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import java.time.Clock;
@@ -23,17 +26,18 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/spring")
-public class SpringController {
+public class SpringController implements AdvisorViolationsEndpoint {
 
     private final SpringScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
 
-    private volatile SpringReport lastReport;
-
     @Autowired
     public SpringController(
-            ApplicationContext applicationContext, Environment environment, DismissedRulesStore dismissedRules) {
+            ApplicationContext applicationContext,
+            Environment environment,
+            DismissedRulesStore dismissedRules,
+            BootUiProperties properties) {
         this(
                 new SpringScanner(
                         beanFactory(applicationContext),
@@ -41,12 +45,12 @@ public class SpringController {
                         isReactive(applicationContext),
                         Clock.systemUTC()),
                 dismissedRules);
+        scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
     }
 
     SpringController(SpringScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     // This same controller class is imported unmodified by both BootUiAutoConfiguration (servlet) and
@@ -61,14 +65,18 @@ public class SpringController {
 
     @GetMapping
     public SpringReport spring() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public SpringReport scan() {
         SpringReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 
     private static ConfigurableListableBeanFactory beanFactory(ApplicationContext applicationContext) {

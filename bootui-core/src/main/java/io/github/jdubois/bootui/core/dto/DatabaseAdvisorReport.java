@@ -31,14 +31,71 @@ public record DatabaseAdvisorReport(
         DatabaseAdvisorScanStatusDto scan,
         List<DatabaseAdvisorRuleResultDto> results,
         List<DatabaseAdvisorDiagnosticDto> diagnostics,
-        AdvisorEvidenceDto evidence) {
+        AdvisorEvidenceDto evidence,
+        AdvisorViolationDetailsDto violationDetails) {
 
     public DatabaseAdvisorReport {
         evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
+        violationDetails = violationDetails == null ? AdvisorViolationDetailsDto.unknown() : violationDetails;
         dataSourceNames = DtoCollections.immutableCopy(dataSourceNames);
         dataSources = DtoCollections.immutableCopy(dataSources);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
         diagnostics = DtoCollections.immutableCopy(diagnostics);
+    }
+
+    public DatabaseAdvisorReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> dataSourceNames,
+            List<DatabaseAdvisorDataSourceDto> dataSources,
+            int tablesAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            int rulesSkipped,
+            int rulesErrored,
+            boolean truncated,
+            List<DatabaseAdvisorSeverityCountDto> severityCounts,
+            DatabaseAdvisorScanStatusDto scan,
+            List<DatabaseAdvisorRuleResultDto> results,
+            List<DatabaseAdvisorDiagnosticDto> diagnostics,
+            AdvisorEvidenceDto evidence) {
+        this(
+                localOnly,
+                disclaimer,
+                dataSourceNames,
+                dataSources,
+                tablesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                rulesSkipped,
+                rulesErrored,
+                truncated,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                null);
+    }
+
+    public DatabaseAdvisorReport withViolationDetails(AdvisorViolationDetailsDto violationDetails) {
+        return new DatabaseAdvisorReport(
+                localOnly,
+                disclaimer,
+                dataSourceNames,
+                dataSources,
+                tablesAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                rulesSkipped,
+                rulesErrored,
+                truncated,
+                severityCounts,
+                scan,
+                results,
+                diagnostics,
+                evidence,
+                violationDetails);
     }
 }

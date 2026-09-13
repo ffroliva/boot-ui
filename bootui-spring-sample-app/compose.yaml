@@ -1,10 +1,13 @@
 services:
   postgres:
     image: postgres:18-alpine
+    command: [ "postgres", "-c", "shared_preload_libraries=pg_stat_statements" ]
     environment:
       POSTGRES_DB: bootui_sample
       POSTGRES_USER: bootui
       POSTGRES_PASSWORD: bootui
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-pg-stat-statements.sql:ro
     ports:
       - "5432"
   redis:

@@ -103,6 +103,14 @@ public final class BootUiClient implements AutoCloseable {
         if (id != null) {
             arguments.put("id", JsonValue.of(id));
         }
+        return invoke(toolName, arguments);
+    }
+
+    /**
+     * Invokes a tool with its declared argument map, including advisor snapshot and paging arguments.
+     * The server validates the schema; omit optional arguments rather than sending JSON null.
+     */
+    public ToolResult invoke(String toolName, Map<String, JsonValue> arguments) {
         HttpResponse<String> response = send(request(options.toolEndpoint(toolName))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JsonWriter.object(arguments)))

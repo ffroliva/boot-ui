@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
@@ -111,6 +112,7 @@ public class BootUiMcpTools {
             ObjectProvider<GraalVmController> graalvm,
             ObjectProvider<CracController> crac,
             ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
+            ObjectProvider<PostgresqlController> postgresql,
             ObjectProvider<VulnerabilitiesController> vulnerabilities,
             ObjectProvider<LoggersController> loggers,
             ObjectProvider<ConditionsController> conditions,
@@ -144,6 +146,7 @@ public class BootUiMcpTools {
         GraalVmController graalvmBean = graalvm.getIfAvailable();
         CracController cracBean = crac.getIfAvailable();
         DatabaseAdvisorController databaseAdvisorBean = databaseAdvisor.getIfAvailable();
+        PostgresqlController postgresqlBean = postgresql.getIfAvailable();
         VulnerabilitiesController vulnerabilitiesBean = vulnerabilities.getIfAvailable();
         LoggersController loggersBean = loggers.getIfAvailable();
         ConditionsController conditionsBean = conditions.getIfAvailable();
@@ -157,6 +160,10 @@ public class BootUiMcpTools {
         // --- Advisor tools (panel actions; refused when the backing panel is read-only) ---
         if (architectureBean != null) {
             registry.add(tool(
+                    "get_architecture_rule_violations",
+                    McpToolDescriptions.spring("get_architecture_rule_violations"),
+                    args -> architectureBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+            registry.add(tool(
                     "architecture_scan",
                     McpToolDescriptions.spring("architecture_scan"),
                     args -> architectureBean.scan()));
@@ -166,11 +173,19 @@ public class BootUiMcpTools {
                     args -> architectureBean.architecture()));
         }
         if (springBean != null) {
+            registry.add(tool(
+                    "get_spring_rule_violations",
+                    McpToolDescriptions.spring("get_spring_rule_violations"),
+                    args -> springBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("spring_scan", McpToolDescriptions.spring("spring_scan"), args -> springBean.scan()));
             registry.add(tool(
                     "get_spring_report", McpToolDescriptions.spring("get_spring_report"), args -> springBean.spring()));
         }
         if (hibernateBean != null) {
+            registry.add(tool(
+                    "get_hibernate_rule_violations",
+                    McpToolDescriptions.spring("get_hibernate_rule_violations"),
+                    args -> hibernateBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("hibernate_scan", McpToolDescriptions.spring("hibernate_scan"), args -> hibernateBean.scan()));
             registry.add(tool(
@@ -179,11 +194,19 @@ public class BootUiMcpTools {
                     args -> hibernateBean.hibernate()));
         }
         if (memoryBean != null) {
+            registry.add(tool(
+                    "get_memory_rule_violations",
+                    McpToolDescriptions.spring("get_memory_rule_violations"),
+                    args -> memoryBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(tool("memory_scan", McpToolDescriptions.spring("memory_scan"), args -> memoryBean.scan()));
             registry.add(tool(
                     "get_memory_report", McpToolDescriptions.spring("get_memory_report"), args -> memoryBean.memory()));
         }
         if (securityBean != null) {
+            registry.add(tool(
+                    "get_security_rule_violations",
+                    McpToolDescriptions.spring("get_security_rule_violations"),
+                    args -> securityBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("security_scan", McpToolDescriptions.spring("security_scan"), args -> securityBean.scan()));
             registry.add(tool(
@@ -200,6 +223,10 @@ public class BootUiMcpTools {
                     args -> pentestingBean.pentesting()));
         }
         if (restApiBean != null) {
+            registry.add(tool(
+                    "get_rest_api_rule_violations",
+                    McpToolDescriptions.spring("get_rest_api_rule_violations"),
+                    args -> restApiBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
             registry.add(
                     tool("rest_api_scan", McpToolDescriptions.spring("rest_api_scan"), args -> restApiBean.scan()));
             registry.add(tool(
@@ -222,6 +249,10 @@ public class BootUiMcpTools {
         }
         if (databaseAdvisorBean != null) {
             registry.add(tool(
+                    "get_database_advisor_rule_violations",
+                    McpToolDescriptions.spring("get_database_advisor_rule_violations"),
+                    args -> databaseAdvisorBean.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+            registry.add(tool(
                     "database_advisor_scan",
                     McpToolDescriptions.spring("database_advisor_scan"),
                     args -> databaseAdvisorBean.scan()));
@@ -229,6 +260,14 @@ public class BootUiMcpTools {
                     "get_database_advisor_report",
                     McpToolDescriptions.spring("get_database_advisor_report"),
                     args -> databaseAdvisorBean.databaseAdvisor()));
+        }
+        if (postgresqlBean != null) {
+            registry.add(tool(
+                    "postgresql_read", McpToolDescriptions.spring("postgresql_read"), args -> postgresqlBean.read()));
+            registry.add(tool(
+                    "get_postgresql_report",
+                    McpToolDescriptions.spring("get_postgresql_report"),
+                    args -> postgresqlBean.postgresql()));
         }
         if (vulnerabilitiesBean != null) {
             registry.add(tool(

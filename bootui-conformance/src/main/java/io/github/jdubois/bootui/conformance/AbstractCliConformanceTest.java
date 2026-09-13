@@ -72,11 +72,53 @@ public abstract class AbstractCliConformanceTest {
         assertThat(tool.path("name").asText()).isNotBlank();
         assertThat(tool.path("description").asText()).isNotBlank();
         assertThat(tool.path("panel").asText()).isNotBlank();
-        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "ID");
+        assertThat(tool.path("schema").asText()).isIn("NONE", "LIMIT", "QUERY_LIMIT", "ID", "RULE_VIOLATIONS");
         assertThat(tool.path("arguments").isArray()).isTrue();
         assertThat(tool.path("action").isBoolean()).isTrue();
         assertThat(tool.path("panelEnabled").isBoolean()).isTrue();
         assertThat(tool.path("panelReadOnly").isBoolean()).isTrue();
+    }
+
+    @Test
+    void testCliAdvisorViolationPagesUseTheScanSnapshotAndStrictArguments() {
+        JsonNode entry = catalogEntry("get_architecture_rule_violations");
+        assertThat(entry.path("schema").asText()).isEqualTo("RULE_VIOLATIONS");
+        assertThat(entry.path("command").asText()).contains("architecture violations");
+        Response scan = invoke("architecture_scan", "{}");
+        assertThat(scan.status()).isEqualTo(200);
+        String scanId = scan.json().path("violationDetails").path("scanId").asText();
+        assertThat(scanId).isNotBlank();
+        if (!scan.json().path("results").isEmpty()) {
+            JsonNode rule = scan.json().path("results").get(0);
+            Response page = invoke(
+                    "get_architecture_rule_violations",
+                    "{\"id\":\"" + rule.path("id").asText() + "\",\"scanId\":\"" + scanId
+                            + "\",\"offset\":0,\"limit\":1}");
+            assertThat(page.status()).isEqualTo(200);
+            assertThat(page.json().path("scanId").asText()).isEqualTo(scanId);
+            assertThat(page.json().path("violationCount").asInt())
+                    .isEqualTo(rule.path("violationCount").asInt());
+            assertThat(page.json().path("page").path("limit").asInt()).isEqualTo(1);
+        }
+        assertThat(invoke("get_architecture_rule_violations", "{\"id\":\"ARCH-CODE-002\"}")
+                        .status())
+                .isEqualTo(400);
+        assertThat(invoke(
+                                "get_architecture_rule_violations",
+                                "{\"id\":\"ARCH-CODE-002\",\"scanId\":\"" + scanId + "\",\"offset\":-1}")
+                        .status())
+                .isEqualTo(400);
+        assertThat(invoke(
+                                "get_architecture_rule_violations",
+                                "{\"id\":\"ARCH-CODE-002\",\"scanId\":\"stale-snapshot\"}")
+                        .status())
+                .isEqualTo(409);
+        assertThat(invoke("get_architecture_report", "{}")
+                        .json()
+                        .path("violationDetails")
+                        .path("scanId")
+                        .asText())
+                .isEqualTo(scanId);
     }
 
     @Test

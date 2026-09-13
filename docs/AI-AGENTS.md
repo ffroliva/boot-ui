@@ -187,6 +187,11 @@ the classpath) are simply not advertised.
   `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
   `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report` return the last
   completed report without starting another scan.
+- **Cached per-rule violations (reads):** `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
+  `get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
+  `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that
+  advisor's latest completed scan. Each takes required `id` (rule ID) and `scanId`, with optional `offset` and
+  `limit`. They have the same stack/capability availability as their report, and remain usable in read-only mode.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_transactions` (Spring MVC/WebFlux only), `get_traces`, `get_log_tail`, `get_http_exchanges`,
   and `get_rest_client_traces`.
@@ -197,7 +202,7 @@ the classpath) are simply not advertised.
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
-  `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+  `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -206,8 +211,57 @@ the classpath) are simply not advertised.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump, execute an HTTP
-  probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent command.
+  `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
+  execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
+  command.
+
+### Reading retained advisor violations
+
+The seven rule-based advisors keep compact `sampleViolations` previews: at most ten per result, or twenty for the
+Quarkus application and Security advisors. `violationCount` is the actual counted total, not the preview size.
+First read the cached report, then use its `violationDetails.scanId` with the matching detail tool:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_architecture_report","arguments":{}}}
+```
+
+For example, if the report identifies scan `scan-opaque-1` and rule `ARCH-SPRING-004`:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_architecture_rule_violations","arguments":{"id":"ARCH-SPRING-004","scanId":"scan-opaque-1","offset":0,"limit":100}}}
+```
+
+Each page contains `scanId`, `ruleId`, `violationCount`, `retainedCount`, `truncated`, `violations`, and `page`.
+Advance `offset` by `page.returned` until `page.hasMore` is false, keeping the same rule and scan ID.
+Both `page.total` and `page.matched` count **retained entries for that rule**, not `violationCount`.
+An offset at or past the retained end returns an empty terminal page.
+
+The default offset is zero and page size is 100, capped at `min(1000, bootui.mcp.max-results)` (or
+`bootui.cli.max-results` on the CLI facade). `id` and `scanId` must be nonblank strings; offsets must be
+nonnegative integers and limits positive integers. Nulls, fractional/overflowing numbers, and undeclared arguments
+are refused, not silently normalized.
+
+Report-level `violationDetails` carries `scanId`, `total`, `retained`, `retentionLimit`, and `truncated`.
+Only the latest scan is retained, by default up to 10,000 sanitized details across that advisor's rules, configurable
+with `bootui.advisors.max-retained-violations`. A truncated report or rule is not a complete retained list, even when
+`page.hasMore` becomes false; a rule can have a positive count and zero retained details. Increasing the retention
+limit cannot recover discarded details without an explicitly authorized new scan. This retrieval completeness is
+separate from the report's `evidence` coverage. Dismissal does not change the scan ID or remove retained details.
+Some upstream observations supply a count but not every affected identity; their diagnostics and truncation remain
+visible rather than inventing missing detail strings. Raising the retention limit cannot repair that observation gap.
+Existing observation bounds also remain: for example, Memory rules that inspect only their top-five inputs do not
+inspect more inputs when details are paged. The count is the rule's existing counted sequence, not proof of full coverage.
+Always verify each finding against source and effective configuration before editing.
+
+These reads never rerun checks, import classes, query the database, or start a scan. A missing or replaced snapshot
+returns a known client failure (REST 409): **reread the cached report, not the scan tool**, then restart paging that
+report's scan ID. An unknown/non-finding rule returns REST 404. MCP exposes these as in-band `isError: true` failures
+with actionable messages, not internal errors. The CLI facade retains its existing tool-error mapping: unknown
+rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale snapshots remain HTTP 409.
+
+MCP still refuses an oversized rendered response with JSON-RPC `-32003`. Retry the **same scan ID and offset**
+with a smaller `limit`; a byte-budget refusal is neither an empty page nor proof of completion. Do not advance
+the offset on any error. Keep pages bounded and stop rather than looping if even one detail exceeds the byte budget.
 
 ### Reading a bounded result
 

@@ -56,6 +56,24 @@ from the repository root:
 Spring Boot will start Docker Compose, wait for Postgres, Redis, Kafka, and Ollama, pull the small `qwen2.5:0.5b` chat
 model when missing, and then bind the sample app to `http://localhost:8080`.
 
+### PostgreSQL statement statistics
+
+The Compose PostgreSQL service preloads `pg_stat_statements` and creates the extension in `bootui_sample` through
+[`docker/postgres/init.sql`](docker/postgres/init.sql). This enables the PostgreSQL panel's **Statement ranking** tab.
+Open a database-backed sample endpoint, then click **Run PostgreSQL read** to collect the statistics. The sample's
+`bootui` database user is a superuser; a restricted diagnostic role should instead have `pg_monitor` membership.
+
+Initialization scripts run only for a new PostgreSQL data directory. If you already have a database volume, recreate
+the service with the updated configuration and enable the extension once, without deleting the volume:
+
+```bash
+docker compose -f bootui-spring-sample-app/compose.yaml up -d postgres
+docker compose -f bootui-spring-sample-app/compose.yaml exec -T postgres \
+  psql -U bootui -d bootui_sample -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
+```
+
+These commands run from the repository root. The extension setup is Docker-only; the default `dev` profile still uses H2.
+
 ## Visit BootUI
 
 Open <http://localhost:8080/bootui> in a browser running on the same machine.

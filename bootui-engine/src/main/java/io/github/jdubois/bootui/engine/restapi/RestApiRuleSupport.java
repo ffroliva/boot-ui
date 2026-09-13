@@ -61,9 +61,14 @@ final class RestApiRuleSupport {
      * Builds a result from a list of violation detail strings: {@code PASS} when empty, otherwise a
      * {@code VIOLATION} carrying the (capped, truncated) samples and the total count.
      */
-    static RestApiRuleResultDto fromViolations(RestApiRuleDefinition definition, List<String> violations) {
+    static RestApiRuleResultDto fromViolations(
+            RestApiContext context, RestApiRuleDefinition definition, List<String> violations) {
         if (violations.isEmpty()) {
             return pass(definition);
+        }
+        if (context.violationCollector() != null) {
+            context.violationCollector()
+                    .record(definition.id(), violations.size(), violations, RestApiRuleSupport::detail);
         }
         List<String> samples = new ArrayList<>();
         for (String violation : violations) {

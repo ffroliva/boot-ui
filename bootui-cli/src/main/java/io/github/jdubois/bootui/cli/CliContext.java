@@ -70,8 +70,28 @@ final class CliContext {
 
     /** Calls one tool and reports it. */
     int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id) {
+        return invokeTool(tool, query, limit, id, null, null);
+    }
+
+    int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id, String scanId, Integer offset) {
         try (BootUiClient client = newClient()) {
-            ToolResult result = client.invoke(tool.name(), query, limit, id);
+            Map<String, JsonValue> arguments = new LinkedHashMap<>();
+            if (query != null) {
+                arguments.put("query", JsonValue.of(query));
+            }
+            if (limit != null) {
+                arguments.put("limit", JsonValue.of(limit.longValue()));
+            }
+            if (id != null) {
+                arguments.put("id", JsonValue.of(id));
+            }
+            if (scanId != null) {
+                arguments.put("scanId", JsonValue.of(scanId));
+            }
+            if (offset != null) {
+                arguments.put("offset", JsonValue.of(offset.longValue()));
+            }
+            ToolResult result = client.invoke(tool.name(), arguments);
             if (result.successful()) {
                 emit(result.payload(), result.rawBody());
                 return ExitCodes.SUCCESS;

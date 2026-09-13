@@ -9,12 +9,15 @@ import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChain
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.MatcherFacts;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,6 +29,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -91,6 +95,8 @@ final class SecurityScanner {
     private final Environment environment;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<SecurityReport> scanState =
+            new AdvisorScanState<>(SecurityReport::withViolationDetails);
 
     SecurityScanner(
             ObjectProvider<FilterChainProxy> filterChainProxies,
@@ -121,10 +127,25 @@ final class SecurityScanner {
     }
 
     SecurityReport scan() {
-        return singleFlight.run(ActionOperations.SECURITY_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.SECURITY_SCAN, () -> {
+            AdvisorViolationCollector collector = scanState.collector();
+            return scanState.publish(doScan(collector), collector);
+        });
     }
 
-    private SecurityReport doScan() {
+    SecurityReport lastReport() {
+        return scanState.currentReport(this::initialReport);
+    }
+
+    AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanState.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    void setViolationRetentionLimit(IntSupplier limit) {
+        scanState.setRetentionLimit(limit);
+    }
+
+    private SecurityReport doScan(AdvisorViolationCollector collector) {
         SecurityDiscovery discovery = safeDiscovery();
         SecurityContext context = discovery.context();
         if (context == null) {
@@ -134,9 +155,10 @@ final class SecurityScanner {
             return report("DISABLED", message, clock.millis(), 0, 0, List.of());
         }
 
+        SecurityContext evaluationContext = context.withViolationCollector(collector);
         context.evidence().evaluation().reset();
         List<SecurityRuleResultDto> results = SecurityRuleRegistry.activeRules().stream()
-                .map(rule -> rule.evaluate(context))
+                .map(rule -> rule.evaluate(evaluationContext))
                 .toList();
         int chains = context.chains().size();
         AdvisorEvidenceDto evidence = evidence(discovery);
@@ -188,7 +210,7 @@ final class SecurityScanner {
         return new SecurityReport(
                 true,
                 DISCLAIMER,
-                chainDescriptions(lastContext),
+                chainDescriptions(scannedAt == null ? null : lastContext),
                 filterChainsAnalyzed,
                 rulesEvaluated,
                 violationsFound,
@@ -222,17 +244,18 @@ final class SecurityScanner {
                 scan.filterChainsAnalyzed(),
                 violationsFound);
         return new SecurityReport(
-                report.localOnly(),
-                report.disclaimer(),
-                report.filterChains(),
-                report.filterChainsAnalyzed(),
-                report.rulesEvaluated(),
-                violationsFound,
-                severityCounts(active),
-                updatedScan,
-                marked,
-                report.analysisErrors(),
-                report.evidence());
+                        report.localOnly(),
+                        report.disclaimer(),
+                        report.filterChains(),
+                        report.filterChainsAnalyzed(),
+                        report.rulesEvaluated(),
+                        violationsFound,
+                        severityCounts(active),
+                        updatedScan,
+                        marked,
+                        report.analysisErrors(),
+                        report.evidence())
+                .withViolationDetails(report.violationDetails());
     }
 
     static List<SecurityRuleResultDto> analysisErrors(List<SecurityRuleResultDto> results) {

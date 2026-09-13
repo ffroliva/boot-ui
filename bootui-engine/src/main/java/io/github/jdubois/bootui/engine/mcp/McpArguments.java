@@ -8,12 +8,34 @@ package io.github.jdubois.bootui.engine.mcp;
  * {@code max-results} cap and the blank-string rules are applied identically on both adapters.
  *
  * @param query an optional case-insensitive filter (never blank; {@code null} when absent)
- * @param limit the effective page size: a client value floored at 1 and capped at {@code maxResults},
- *     or {@code maxResults} when the client supplied none
+ * @param limit the effective page size, capped at {@code maxResults}; advisor pages default to 100 and
+ *     additionally cap at 1000, while existing tools default to {@code maxResults}
  * @param id an exact resource identifier for {@link McpToolSchema#ID} tools (never blank; {@code null}
  *     when absent, which {@link McpDispatcher} rejects before invoking the tool)
+ * @param scanId the completed snapshot identifier for advisor detail reads, otherwise {@code null}
+ * @param offset the retained detail offset for advisor reads (defaults to zero), otherwise {@code null}
  */
-public record McpArguments(String query, Integer limit, String id) {
+public record McpArguments(String query, Integer limit, String id, String scanId, Integer offset) {
+
+    /** Backward-compatible constructor for existing tools. */
+    public McpArguments(String query, Integer limit, String id) {
+        this(query, limit, id, null, null);
+    }
+
+    /** Applies advisor page defaults without changing any existing tool's default. */
+    public static McpArguments normalize(McpRequest request, McpToolSchema schema, int maxResults) {
+        McpArguments base = normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
+        if (schema != McpToolSchema.RULE_VIOLATIONS) {
+            return base;
+        }
+        String scanId = request.rawScanId() == null ? null : request.rawScanId().trim();
+        if (scanId != null && scanId.isEmpty()) {
+            scanId = null;
+        }
+        int limit = Math.min(request.rawLimit() == null ? 100 : request.rawLimit(), Math.min(1000, maxResults));
+        return new McpArguments(
+                base.query(), limit, base.id(), scanId, request.rawOffset() == null ? 0 : request.rawOffset());
+    }
 
     /**
      * Normalizes the raw, adapter-extracted arguments.

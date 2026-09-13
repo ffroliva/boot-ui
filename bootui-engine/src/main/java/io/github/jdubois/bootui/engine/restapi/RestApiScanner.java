@@ -2,12 +2,15 @@ package io.github.jdubois.bootui.engine.restapi;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
 import io.github.jdubois.bootui.core.dto.RestApiSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -17,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -51,6 +55,7 @@ public final class RestApiScanner {
     private final Clock clock;
     private final List<RestApiRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(RestApiReport::withViolationDetails);
 
     RestApiScanner(
             Supplier<List<String>> basePackagesSupplier,
@@ -132,10 +137,25 @@ public final class RestApiScanner {
     }
 
     public RestApiReport scan() {
-        return singleFlight.run(ActionOperations.REST_API_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.REST_API_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private RestApiReport doScan() {
+    public RestApiReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private RestApiReport doScan(AdvisorViolationCollector collector) {
         Set<String> failures = new LinkedHashSet<>();
         List<String> basePackages = basePackages(failures);
         if (basePackages.isEmpty()) {
@@ -218,7 +238,9 @@ public final class RestApiScanner {
                 model.hasExceptionHandling(),
                 model.responseStatusExceptionClasses(),
                 model.thrownExceptions(),
-                model.framework());
+                model.framework(),
+                new RestApiEvaluationEvidence(),
+                collector);
         context.evidence().observations(!model.incomplete(), openApi != null, versioning != null);
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
@@ -390,7 +412,8 @@ public final class RestApiScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     private List<RestApiSeverityCountDto> severityCounts(List<RestApiRuleResultDto> results) {

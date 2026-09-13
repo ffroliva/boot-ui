@@ -133,13 +133,25 @@ class BootUiEngineConfigurationTests {
     void architectureScannerFactoryWiresBasePackageProviderIntoTheScanner() {
         // Pins the base-package seam: the scanner must read its base packages from the injected provider
         // (the supplier is what bounds the on-demand ArchUnit import to the host application's own code).
-        ArchitectureScanner scanner =
-                new BootUiEngineConfiguration().bootUiArchitectureScanner(() -> List.of("com.example.wiring"));
+        ArchitectureScanner scanner = new BootUiEngineConfiguration()
+                .bootUiArchitectureScanner(() -> List.of("com.example.wiring"), new BootUiProperties());
 
         ArchitectureReport initial = scanner.initialReport();
 
         assertThat(initial.scan().status()).isEqualTo("NOT_SCANNED");
         assertThat(initial.basePackages()).containsExactly("com.example.wiring");
+    }
+
+    @Test
+    void advisorFactoryRetentionPolicyIsLiveButPublishedSnapshotsKeepTheirLimit() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getAdvisors().setMaxRetainedViolations(12);
+        ArchitectureScanner scanner = new BootUiEngineConfiguration().bootUiArchitectureScanner(List::of, properties);
+        var first = scanner.scan();
+        assertThat(first.violationDetails().retentionLimit()).isEqualTo(12);
+        properties.getAdvisors().setMaxRetainedViolations(23);
+        assertThat(scanner.lastReport().violationDetails().retentionLimit()).isEqualTo(12);
+        assertThat(scanner.scan().violationDetails().retentionLimit()).isEqualTo(23);
     }
 
     @ParameterizedTest
@@ -233,8 +245,8 @@ class BootUiEngineConfigurationTests {
         try (GenericReactiveWebApplicationContext context = new GenericReactiveWebApplicationContext()) {
             BasePackageProvider provider = mock(BasePackageProvider.class);
             when(provider.basePackages()).thenReturn(List.of("com.example.first"), List.of("com.example.second"));
-            RestApiScanner scanner =
-                    new BootUiEngineConfiguration().bootUiRestApiScanner(provider, new MockEnvironment(), context);
+            RestApiScanner scanner = new BootUiEngineConfiguration()
+                    .bootUiRestApiScanner(provider, new MockEnvironment(), context, new BootUiProperties());
             verifyNoInteractions(provider);
             assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.first");
             assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.second");
@@ -253,9 +265,10 @@ class BootUiEngineConfigurationTests {
         beans.registerSingleton("factory", factory);
 
         var configuration = new BootUiEngineConfiguration.HibernateAdvisorConfiguration();
-        HibernateScanner scanner =
-                configuration.bootUiHibernateScanner(configuration.bootUiHibernateAdvisorObservationSource(
-                        beans, environment, mock(ApplicationContext.class)));
+        HibernateScanner scanner = configuration.bootUiHibernateScanner(
+                configuration.bootUiHibernateAdvisorObservationSource(
+                        beans, environment, mock(ApplicationContext.class)),
+                new BootUiProperties());
         HibernateReport report = scanner.scan();
 
         HibernateRuleResultDto ddlAuto = report.results().stream()

@@ -9,6 +9,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureRuleSupport.observed;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
@@ -21,6 +22,7 @@ import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaMethodReference;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -36,6 +38,7 @@ import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -219,6 +222,8 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
             if (context != null) context.evidence().reset();
             int totalViolations = 0;
             List<String> samples = new ArrayList<>();
+            List<String> retained = new ArrayList<>();
+            int retentionLimit = context.violationCollector().remainingCapacity();
             for (String basePackage : context.basePackages()) {
                 Set<String> slices = new HashSet<>();
                 for (JavaClass type : context.classes()) {
@@ -243,16 +248,17 @@ final class FreeOfPackageCyclesRule extends AbstractArchitectureRule {
                 context.evidence().markUsableIf(!details.isEmpty());
                 totalViolations += details.size();
                 for (String detail : details) {
-                    if (samples.size() >= MAX_SAMPLES) {
-                        break;
-                    }
-                    samples.add(ArchitectureRuleSupport.detail(detail));
+                    if (samples.size() < MAX_SAMPLES) samples.add(ArchitectureRuleSupport.detail(detail));
+                    if (retained.size() < retentionLimit) retained.add(ArchitectureRuleSupport.detail(detail));
+                    if (samples.size() >= MAX_SAMPLES && retained.size() >= retentionLimit) break;
                 }
             }
             context.evidence().complete(totalViolations > 0);
             if (totalViolations == 0) {
                 return ArchitectureRuleSupport.pass(definition());
             }
+            context.violationCollector()
+                    .record(definition().id(), totalViolations, retained, java.util.function.UnaryOperator.identity());
             return ArchitectureRuleSupport.result(
                     definition(), ArchitectureRuleSupport.VIOLATION, totalViolations, samples);
             // See AbstractArchitectureRule#evaluate: LinkageError is caught to degrade to an ERROR result rather
@@ -511,9 +517,25 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 
 /**
  * Flags use of the legacy {@code java.util.Date} / {@code Calendar} family instead of
- * {@code java.time}.
+ * {@code java.time}, except for the standard conversion bridges between the two APIs.
  */
 final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
+
+    private static final Set<String> LEGACY_TYPES =
+            Set.of("java.util.Date", "java.util.Calendar", "java.sql.Date", "java.sql.Time", "java.sql.Timestamp");
+
+    private static final Map<String, String> JAVA_TIME_BRIDGES = Map.ofEntries(
+            Map.entry("java.util.Date.toInstant()", "java.time.Instant"),
+            Map.entry("java.util.Date.from(java.time.Instant)", "java.util.Date"),
+            Map.entry("java.util.Calendar.toInstant()", "java.time.Instant"),
+            Map.entry("java.sql.Date.toLocalDate()", "java.time.LocalDate"),
+            Map.entry("java.sql.Date.valueOf(java.time.LocalDate)", "java.sql.Date"),
+            Map.entry("java.sql.Time.toLocalTime()", "java.time.LocalTime"),
+            Map.entry("java.sql.Time.valueOf(java.time.LocalTime)", "java.sql.Time"),
+            Map.entry("java.sql.Timestamp.toInstant()", "java.time.Instant"),
+            Map.entry("java.sql.Timestamp.toLocalDateTime()", "java.time.LocalDateTime"),
+            Map.entry("java.sql.Timestamp.from(java.time.Instant)", "java.sql.Timestamp"),
+            Map.entry("java.sql.Timestamp.valueOf(java.time.LocalDateTime)", "java.sql.Timestamp"));
 
     NoLegacyDateTimeRule() {
         super(new ArchitectureRuleDefinition(
@@ -521,17 +543,48 @@ final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
                 "Classes should not use legacy date and time classes",
                 ArchitectureCategory.CODING_PRACTICES,
                 "INFO",
-                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or"
-                        + " java.sql date types.",
+                "Detects dependencies on java.util.Date, java.util.Calendar, java.sql.Date, java.sql.Time, and"
+                        + " java.sql.Timestamp, except calls and method references to their standard java.time"
+                        + " conversion bridges. Legacy declarations, construction, and other operations remain findings.",
                 "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time"
-                        + " handling.",
+                        + " handling. Convert values at legacy API boundaries with the standard java.time bridges"
+                        + " rather than keeping legacy types in application fields or signatures.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED;
+        return classes()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
+                .should(new ArchCondition<>("avoid legacy date/time dependencies except java.time conversion bridges") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                            if (LEGACY_TYPES.contains(
+                                            dependency.getTargetClass().getName())
+                                    && !isJavaTimeBridge(dependency)) {
+                                events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                            }
+                        }
+                    }
+                });
+    }
+
+    private static boolean isJavaTimeBridge(Dependency dependency) {
+        return dependency.convertTo(JavaMethodCall.class).stream().anyMatch(call -> isJavaTimeBridge(call.getTarget()))
+                || dependency.convertTo(JavaMethodReference.class).stream()
+                        .anyMatch(reference -> isJavaTimeBridge(reference.getTarget()));
+    }
+
+    private static boolean isJavaTimeBridge(CodeUnitAccessTarget target) {
+        String returnType = target.getRawReturnType().getName();
+        if (returnType.equals(JAVA_TIME_BRIDGES.get(target.getFullName()))) {
+            return true;
+        }
+        // The bytecode owner can be a subclass, e.g. java.sql.Date.from(Instant) inherited from java.util.Date.
+        return target.resolveMember()
+                .filter(method -> returnType.equals(JAVA_TIME_BRIDGES.get(method.getFullName())))
+                .isPresent();
     }
 }
 
@@ -1155,7 +1208,9 @@ final class ServicesAndRepositoriesShouldNotDependOnServletTypesRule extends Abs
 
 /**
  * Flags transaction annotations on interfaces, which Spring recommends avoiding because behaviour
- * differs between proxy modes and can be silently ignored with AspectJ weaving.
+ * differs between proxy modes and can be silently ignored with AspectJ weaving. Spring Data repository
+ * interfaces and their inherited fragments are exempt on Spring because repository proxies read their
+ * transaction declarations.
  */
 final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends AbstractArchitectureRule {
 
@@ -1166,19 +1221,23 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                         "Transactional annotations should not be declared on interfaces",
                         ArchitectureCategory.SPRING_STEREOTYPES,
                         "MEDIUM",
-                        "Detects @Transactional on interfaces or interface methods.",
+                        "Detects @Transactional on interfaces or interface methods, excluding Spring Data repositories"
+                                + " and their inherited fragments on Spring.",
                         "Declare transaction semantics on concrete implementation classes or methods so proxy and"
-                                + " weaving modes behave consistently.",
+                                + " weaving modes behave consistently. Spring Data repository interfaces and their"
+                                + " inherited fragments are supported transaction declaration sites; see"
+                                + " https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html#transactional-query-methods",
                         "https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
+        Set<JavaClass> repositoryInterfaces = springDataRepositoryInterfaces(context);
         return classes()
                 .should(new ArchCondition<JavaClass>("not declare @Transactional on interfaces") {
                     @Override
                     public void check(JavaClass javaClass, ConditionEvents events) {
-                        if (!javaClass.isInterface()) {
+                        if (!javaClass.isInterface() || repositoryInterfaces.contains(javaClass)) {
                             return;
                         }
                         context.evidence().observed();
@@ -1198,6 +1257,31 @@ final class TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule extends 
                     }
                 })
                 .as("Transactional annotations should not be declared on interfaces");
+    }
+
+    private static Set<JavaClass> springDataRepositoryInterfaces(ArchitectureContext context) {
+        if (context.platform() != ArchitecturePlatform.SPRING) {
+            return Set.of();
+        }
+        Set<JavaClass> repositoryInterfaces = new HashSet<>();
+        for (JavaClass javaClass : context.classes()) {
+            if (javaClass.isInterface() && isSpringDataRepository(javaClass)) {
+                repositoryInterfaces.add(javaClass);
+                repositoryInterfaces.addAll(javaClass.getAllRawInterfaces());
+            }
+        }
+        return repositoryInterfaces;
+    }
+
+    private static boolean isSpringDataRepository(JavaClass javaClass) {
+        return javaClass.isAssignableTo("org.springframework.data.repository.Repository")
+                || hasRepositoryDefinition(javaClass)
+                || javaClass.getAllRawInterfaces().stream()
+                        .anyMatch(TransactionalAnnotationsShouldNotBeDeclaredOnInterfacesRule::hasRepositoryDefinition);
+    }
+
+    private static boolean hasRepositoryDefinition(JavaClass javaClass) {
+        return javaClass.isMetaAnnotatedWith("org.springframework.data.repository.RepositoryDefinition");
     }
 
     private static boolean hasTransactionalAnnotation(CanBeAnnotated annotated) {

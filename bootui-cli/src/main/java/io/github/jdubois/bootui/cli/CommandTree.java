@@ -122,6 +122,23 @@ final class CommandTree {
                     .setter(setter((String value) -> command.id = value))
                     .build());
         }
+        if (tool.takesScanId()) {
+            spec.addOption(OptionSpec.builder("--scan-id")
+                    .paramLabel("<scanId>")
+                    .type(String.class)
+                    .required(true)
+                    .description("The cached report's violationDetails.scanId; does not start a scan.")
+                    .setter(setter((String value) -> command.scanId = value))
+                    .build());
+        }
+        if (tool.takesOffset()) {
+            spec.addOption(OptionSpec.builder("--offset")
+                    .paramLabel("<offset>")
+                    .type(Integer.class)
+                    .description("Zero-based retained violation offset (default 0).")
+                    .setter(setter((Integer value) -> command.offset = value))
+                    .build());
+        }
         configure(context, spec);
         return spec;
     }
@@ -316,6 +333,8 @@ final class CommandTree {
         private String query;
         private Integer limit;
         private String id;
+        private String scanId;
+        private Integer offset;
 
         ToolCommand(CliContext context, ToolManifest.Tool tool) {
             this.context = context;
@@ -324,7 +343,7 @@ final class CommandTree {
 
         @Override
         public Integer call() {
-            return context.invokeTool(tool, query, limit, id);
+            return context.invokeTool(tool, query, limit, id, scanId, offset);
         }
     }
 }

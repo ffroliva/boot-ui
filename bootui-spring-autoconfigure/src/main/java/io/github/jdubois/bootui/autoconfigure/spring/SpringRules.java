@@ -78,12 +78,14 @@ abstract class AbstractSpringRule implements SpringRule {
         return skipped(reason);
     }
 
-    SpringRuleResultDto violation(String detail) {
-        return violation(List.of(detail));
+    SpringRuleResultDto violation(SpringContext context, String detail) {
+        return violation(context, List.of(detail));
     }
 
-    SpringRuleResultDto violation(List<String> details) {
-        return details.isEmpty() ? pass() : SpringRuleSupport.violation(definition, details);
+    SpringRuleResultDto violation(SpringContext context, List<String> details) {
+        return details.isEmpty()
+                ? pass()
+                : SpringRuleSupport.violation(definition, details, context.violationCollector());
     }
 
     static String names(List<BeanRef> refs) {
@@ -97,8 +99,10 @@ abstract class AbstractSpringRule implements SpringRule {
         context.applies(!refs.isEmpty());
         if (refs.stream().anyMatch(ref -> !ref.metadataKnown())) return unknown(context);
         if (refs.size() > 1 && !SpringModel.hasResolvedCandidateMetadata(refs))
-            return violation(subject + " default candidate metadata is unresolved: " + names(refs)
-                    + ". Qualified/name-matched injection points may be intentional; execution is not established.");
+            return violation(
+                    context,
+                    subject + " default candidate metadata is unresolved: " + names(refs)
+                            + ". Qualified/name-matched injection points may be intentional; execution is not established.");
         return pass();
     }
 
@@ -127,6 +131,7 @@ final class BeanDefinitionOverridingRule extends AbstractSpringRule {
                 ? unknown(c)
                 : value
                         ? violation(
+                                c,
                                 "The current bean factory permits bean definition overriding; no actual replacement was inferred.")
                         : pass();
     }
@@ -152,6 +157,7 @@ final class CircularReferencesAllowedRule extends AbstractSpringRule {
                 ? unknown(c)
                 : value
                         ? violation(
+                                c,
                                 "The current bean factory permits circular-reference resolution; no cycle was inferred.")
                         : pass();
     }
@@ -180,7 +186,7 @@ final class DuplicateObjectMapperRule extends AbstractSpringRule {
             if ("SKIPPED".equals(result.status())) return unknown(c);
             details.addAll(result.sampleViolations());
         }
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -205,6 +211,7 @@ final class AmbiguousTaskExecutorRule extends AbstractSpringRule {
                 ? unknown(c)
                 : selection == AsyncSelection.AMBIGUOUS
                         ? violation(
+                                c,
                                 "Default async candidate metadata is unresolved; explicit qualifiers/configurers and other consumers require separate review.")
                         : pass();
     }
@@ -264,8 +271,10 @@ final class RestTemplateInUseRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return c.targets(c.restTemplates()).isEmpty()
                 ? c.observations().incomplete().isEmpty() ? pass() : unknown(c)
-                : violation("Declared RestTemplate bean(s): " + names(c.restTemplates())
-                        + "; review actual call sites before migration.");
+                : violation(
+                        c,
+                        "Declared RestTemplate bean(s): " + names(c.restTemplates())
+                                + "; review actual call sites before migration.");
     }
 }
 
@@ -285,10 +294,12 @@ final class DefaultPackageComponentsRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         c.applies(c.beanDefinitionCount() > 0);
         if (c.defaultPackageBeans().isEmpty() && !c.observations().incomplete().isEmpty()) return unknown(c);
-        return violation(c.defaultPackageBeans().stream()
-                .limit(50)
-                .map(name -> "Default-package application product: " + SpringRuleSupport.detail(name))
-                .toList());
+        return violation(
+                c,
+                c.defaultPackageBeans().stream()
+                        .limit(50)
+                        .map(name -> "Default-package application product: " + SpringRuleSupport.detail(name))
+                        .toList());
     }
 }
 
@@ -310,7 +321,7 @@ final class MutableSingletonFieldRule extends AbstractSpringRule {
         return c.mutableSingletonFields().isEmpty()
                         && !c.observations().incomplete().isEmpty()
                 ? unknown(c)
-                : violation(c.mutableSingletonFields());
+                : violation(c, c.mutableSingletonFields());
     }
 }
 
@@ -337,6 +348,7 @@ final class LazyInitializationDisabledRule extends AbstractSpringRule {
                 : c.beanDefinitionCount() - lazy <= 300
                         ? pass()
                         : violation(
+                                c,
                                 "More than 300 bean definitions are not marked lazy; this does not prove eager instantiation. If startup time matters, measure before evaluating lazy initialization.");
     }
 }
@@ -370,7 +382,7 @@ final class DebugOrTraceLoggingRule extends AbstractSpringRule {
                 details.add("Broad verbose logging is configured for " + logger
                         + "; current effective levels are not established.");
         }
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -391,7 +403,7 @@ final class RemovedOrRenamedPropertyRule extends AbstractSpringRule {
         List<String> details = new ArrayList<>();
         for (var entry : SpringMigrationProperties.ENTRIES.entrySet())
             if (c.observed(c.hasProperty(entry.getKey()))) details.add(entry.getKey() + " — " + entry.getValue() + ".");
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -410,7 +422,7 @@ final class MissingApplicationNameRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return c.observed(c.firstProperty("spring.application.name")) == null
-                ? violation("spring.application.name is absent; Boot's application-name defaults are unavailable.")
+                ? violation(c, "spring.application.name is absent; Boot's application-name defaults are unavailable.")
                 : pass();
     }
 }
@@ -430,7 +442,7 @@ final class ConfigOnNotFoundIgnoreRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return "ignore".equalsIgnoreCase(c.observed(c.firstProperty("spring.config.on-not-found")))
-                ? violation("Global on-not-found=ignore is configured; no actual missing location was observed.")
+                ? violation(c, "Global on-not-found=ignore is configured; no actual missing location was observed.")
                 : pass();
     }
 }
@@ -452,6 +464,7 @@ final class Jackson2DefaultsCompatibilityRule extends AbstractSpringRule {
         if (!c.observed(c.isPropertyTrue("spring.jackson.use-jackson2-defaults"))) return pass();
         return c.observations().yes(JACKSON3_CONFIGURATION)
                 ? violation(
+                        c,
                         "Jackson 3 Boot configuration requests Jackson 2-compatible defaults; document intent and test payload compatibility before any change.")
                 : unknown(c);
     }
@@ -473,6 +486,7 @@ final class DevToolsOnClasspathRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return c.applies(c.devToolsPresent()) && c.isProductionProfileActive()
                 ? violation(
+                        c,
                         "DevTools is present with a production-like effective profile name (naming heuristic only); restart and LiveReload activity are not established.")
                 : pass();
     }
@@ -493,7 +507,7 @@ final class ProfileValidationDisabledRule extends AbstractSpringRule {
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return c.observed(c.isPropertyFalse("spring.profiles.validate"))
-                ? violation("Profile-name validation is explicitly disabled; no invalid name was inferred.")
+                ? violation(c, "Profile-name validation is explicitly disabled; no invalid name was inferred.")
                 : pass();
     }
 }
@@ -518,6 +532,7 @@ final class VirtualThreadsAvailableRule extends AbstractSpringRule {
         if (!c.dispatcherServletPresent() && !c.bootApplicationTaskExecutorPresent())
             return skipped("No applicable MVC or Boot task-execution evidence; reactive HTTP alone is inapplicable.");
         return violation(
+                c,
                 "Virtual threads are available but not configured for applicable MVC/Boot task execution. Measure blocking workloads; this does not convert reactive event loops or boundedElastic.");
     }
 }
@@ -538,6 +553,7 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         return c.applies(c.virtualThreadsSupported() && c.pooledTaskExecutorPresent()) && c.isVirtualThreadsEnabled()
                 ? violation(
+                        c,
                         "A ThreadPoolTaskExecutor coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling.")
                 : pass();
     }
@@ -564,6 +580,7 @@ final class AsyncWithoutCustomExecutorRule extends AbstractSpringRule {
                 ? unknown(c)
                 : selection == AsyncSelection.FRAMEWORK_FALLBACK
                         ? violation(
+                                c,
                                 "Default @Async selection falls back to Framework's SimpleAsyncTaskExecutor, creating a new platform thread per task without a configured concurrency limit.")
                         : pass();
     }
@@ -599,6 +616,7 @@ final class SchedulerPoolTooSmallRule extends AbstractSpringRule {
                 ? unknown(c, "The selected scheduler or its native execution pool could not be observed safely.")
                 : size == 1
                         ? violation(
+                                c,
                                 "Multiple registered application tasks share an observed one-thread scheduler; review overlap requirements and fixed-delay semantics.")
                         : pass();
     }
@@ -625,6 +643,7 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
                 ? unknown(c)
                 : capacity == Integer.MAX_VALUE
                         ? violation(
+                                c,
                                 "The observed default @Async executor queue is effectively unbounded; backlog can increase heap use under sustained load.")
                         : pass();
     }
@@ -665,7 +684,7 @@ final class InMemoryCacheManagerRule extends AbstractSpringRule {
             if (details.isEmpty()) return unknown(c, reason);
             c.observations().evaluation().unknown(reason);
         }
-        return details.isEmpty() ? pass() : violation(details);
+        return details.isEmpty() ? pass() : violation(c, details);
     }
 }
 
@@ -689,6 +708,7 @@ final class ResponseCompressionDisabledRule extends AbstractSpringRule {
                 ? pass()
                 : c.applies(c.observations().yes(BOOT_WEB_SERVER))
                         ? violation(
+                                c,
                                 "Boot origin compression is not configured. If the edge does not compress, evaluate response sizes, bandwidth and CPU cost.")
                         : unknown(c);
         return webLink(c, result);
@@ -717,6 +737,7 @@ final class GracefulShutdownDisabledRule extends AbstractSpringRule {
         if (timeout != null && timeout.isNegative()) throw new IllegalArgumentException();
         return "immediate".equalsIgnoreCase(shutdown) || timeout != null && timeout.isZero()
                 ? violation(
+                        c,
                         "Immediate shutdown or exactly zero phase grace is configured; in-flight work may not have time to finish.")
                 : pass();
     }
@@ -742,6 +763,7 @@ final class Http2DisabledRule extends AbstractSpringRule {
                 ? pass()
                 : c.applies(c.observations().yes(BOOT_WEB_SERVER))
                         ? violation(
+                                c,
                                 "Boot origin HTTP/2 is not configured; edge HTTP/2 may already satisfy client requirements.")
                         : unknown(c);
         return webLink(c, result);
@@ -776,7 +798,7 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
                         "spring.web.error." + key
                                 + " allows fallback error details; on-param is not an access-control boundary. DevTools defaults may be deliberate.");
         }
-        return webLink(c, violation(details));
+        return webLink(c, violation(c, details));
     }
 }
 
@@ -823,7 +845,7 @@ final class HttpClientTimeoutsUnsetRule extends AbstractSpringRule {
                             "A named Boot service group lacks a complete connect/read timeout policy; review its effective per-client deadlines.");
             }
         }
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -847,6 +869,7 @@ final class RedundantTomcatThreadsRule extends AbstractSpringRule {
         if (cap == null) return pass();
         return c.observations().yes(TOMCAT_VIRTUAL_EXECUTOR)
                 ? violation(
+                        c,
                         "A Boot-managed Tomcat virtual executor is observed alongside an explicit thread cap; review the cap's applicability.")
                 : unknown(c);
     }
@@ -886,6 +909,7 @@ final class OpenSessionInViewEnabledRule extends AbstractSpringRule {
         return evidence == null
                 ? pass()
                 : violation(
+                        c,
                         "Observed " + evidence
                                 + "; review persistence-context boundaries and explicit fetching, not inferred connection lifetime.");
     }
@@ -913,6 +937,7 @@ final class InMemoryDatasourceInProductionRule extends AbstractSpringRule {
                 ? unknown(c)
                 : kind.endsWith(" memory")
                         ? violation(
+                                c,
                                 "Observed supported JDBC memory storage with a production-like effective profile name (naming heuristic); review durability. URL omitted.")
                         : pass();
     }
@@ -938,6 +963,7 @@ final class InMemoryR2dbcInProductionRule extends AbstractSpringRule {
         if (!c.applies(kind != null)) return unknown(c);
         return kind.equals("H2 memory")
                 ? violation(
+                        c,
                         "Supported Boot R2DBC configuration requests H2 memory storage with a production-like effective profile name (naming heuristic). URL omitted.")
                 : pass();
     }
@@ -960,6 +986,7 @@ final class ActuatorExposeAllRule extends AbstractSpringRule {
         if (!c.applies(ActuatorExposure.applicable(c))) return unknown(c);
         return ActuatorExposure.exposesAll(c) && ActuatorExposure.anyAccessible(c)
                 ? violation(
+                        c,
                         "Host wildcard web exposure permits applicable Actuator endpoints after exclusions/access policy; network reachability and authorization are not established.")
                 : pass();
     }
@@ -987,7 +1014,7 @@ final class SensitiveActuatorEndpointsExposedRule extends AbstractSpringRule {
                 details.add("Known endpoint '" + id
                         + "' is explicitly web-exposed with read access; caller authorization is not assessed.");
         details.sort(String::compareTo);
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -1018,7 +1045,7 @@ final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
                 details.add(key + "=always permits " + (id.equals("health") ? "probe details" : "configuration values")
                         + " for callers allowed to access this endpoint.");
         }
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -1044,7 +1071,7 @@ final class DangerousActuatorEndpointsAccessibleRule extends AbstractSpringRule 
         if (ActuatorExposure.heapdumpAccessible(c))
             details.add(
                     "Known heapdump endpoint has web exposure and effective read permission; heap dumps can contain secrets.");
-        return violation(details);
+        return violation(c, details);
     }
 }
 
@@ -1066,6 +1093,7 @@ final class ReactiveHandlerWithBlockingDatasourceRule extends AbstractSpringRule
         if (!c.observations().incomplete().isEmpty()) return unknown(c);
         return c.applies(c.reactiveHandlerMethodCount() > 0) && !c.dataSources().isEmpty()
                 ? violation(
+                        c,
                         "Application reactive handlers coexist with JDBC DataSource metadata; review actual call sites. Correct offloading and migration-only usage are not defects.")
                 : pass();
     }
@@ -1092,6 +1120,7 @@ final class UnlimitedCodecAggregationRule extends AbstractSpringRule {
         Long limit = c.observations().get(CODEC_LIMIT, Long.class);
         return limit != null && limit == -1
                 ? violation(
+                        c,
                         "Observed Boot codec metadata requests explicitly unlimited aggregation (-1); review bounded aggregation, not a universal HTTP body/upload limit.")
                 : pass();
     }

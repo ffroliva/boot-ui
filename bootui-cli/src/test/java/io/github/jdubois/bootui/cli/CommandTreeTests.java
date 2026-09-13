@@ -59,6 +59,9 @@ class CommandTreeTests {
             if (tool.takesId()) {
                 args.add("some-id");
             }
+            if (tool.takesScanId()) {
+                args.addAll(List.of("--scan-id", "scan-1"));
+            }
             int exitCode = run(args);
             String expected = "/bootui/api/cli/tools/" + tool.name();
             if (exitCode != ExitCodes.SUCCESS || paths.size() != 1 || !expected.equals(paths.get(0))) {
@@ -76,6 +79,8 @@ class CommandTreeTests {
         for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
             check(failures, tool, "--query", tool.takesQuery());
             check(failures, tool, "--limit", tool.takesLimit());
+            check(failures, tool, "--scan-id", tool.takesScanId());
+            check(failures, tool, "--offset", tool.takesOffset());
         }
 
         assertThat(failures)
@@ -106,14 +111,45 @@ class CommandTreeTests {
         assertThat(bodies).containsExactly("{\"query\":\"dataSource\"}");
     }
 
+    @Test
+    void advisorCommandsRequireTheScanIdAndForwardEveryPageArgument() {
+        for (String group : List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "db")) {
+            paths.clear();
+            assertThat(run(List.of(group, "violations", "RULE-1"))).isEqualTo(ExitCodes.ERROR);
+            assertThat(paths).isEmpty();
+            bodies.clear();
+            assertThat(run(List.of(
+                            group, "violations", "RULE-1", "--scan-id", "scan-1", "--offset", "22", "--limit", "7")))
+                    .isEqualTo(ExitCodes.SUCCESS);
+            assertThat(bodies).containsExactly("{\"limit\":7,\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22}");
+        }
+    }
+
+    @Test
+    void advisorHelpDocumentsRequiredSnapshotAndOffset() {
+        StringWriter output = new StringWriter();
+        int status = BootUiCli.run(
+                new String[] {"architecture", "violations", "--help"},
+                Map.of(),
+                true,
+                new PrintWriter(output, true),
+                new PrintWriter(output, true));
+        assertThat(status).isEqualTo(ExitCodes.SUCCESS);
+        assertThat(output.toString()).contains("--scan-id", "--offset", "--limit", "<id>");
+        assertThat(paths).isEmpty();
+    }
+
     private void check(Map<String, String> failures, ToolManifest.Tool tool, String flag, boolean supported) {
         paths.clear();
         List<String> args = new ArrayList<>(tool.path());
         if (tool.takesId()) {
             args.add("some-id");
         }
+        if (tool.takesScanId() && !flag.equals("--scan-id")) {
+            args.addAll(List.of("--scan-id", "scan-1"));
+        }
         args.add(flag);
-        args.add("--limit".equals(flag) ? "3" : "x");
+        args.add("--limit".equals(flag) || "--offset".equals(flag) ? "3" : "x");
 
         int exitCode = run(args);
         boolean accepted = exitCode == ExitCodes.SUCCESS;

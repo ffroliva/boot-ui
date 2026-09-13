@@ -66,6 +66,28 @@ class BootUiCustomPathIntegrationTests extends AbstractBootUiApiConformanceTest 
     }
 
     @Test
+    void advisorDetailReadsUseTheCustomMountAndDoNotTriggerScans() {
+        for (String root : java.util.List.of(
+                "architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            Response before = probe().get(API_PATH + "/" + root);
+            if (before.status() != 200) {
+                assertThat(probe().get(API_PATH + "/" + root + "/rules/RULE/violations?scanId=stale")
+                                .status())
+                        .isIn(403, 404);
+                continue;
+            }
+            String details = API_PATH + "/" + root + "/rules/RULE/violations";
+            assertThat(probe().get(details).status()).as(root).isEqualTo(400);
+            assertThat(probe().get(details + "?scanId=stale").status()).as(root).isEqualTo(409);
+            assertThat(probe().get(details + "?scanId=stale&offset=1.5").status())
+                    .as(root)
+                    .isEqualTo(400);
+            assertThat(probe().get(API_PATH + "/" + root).json().path("violationDetails"))
+                    .isEqualTo(before.json().path("violationDetails"));
+        }
+    }
+
+    @Test
     void servesTheShellAssetsAndApiUnderConfiguredPaths() {
         BootUiHttpProbe probe = probe();
         Response shell = probe.get(UI_PATH + "/");

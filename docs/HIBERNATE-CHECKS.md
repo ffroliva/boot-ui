@@ -1,5 +1,11 @@
 # Hibernate checks
 
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
+`GET <api>/hibernate/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve the retained sequence, including
+persistence-unit labels, without re-reading entities or executing SQL. Retention is bounded across rules and units;
+check `truncated` separately from evidence coverage. See
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
 the JPA `EntityManagerFactory` metamodel, selected persistence-unit observations, and verified Spring Data JPA repository metadata when
 available; it does not intercept runtime queries, invoke repositories, execute SQL, or modify mappings.

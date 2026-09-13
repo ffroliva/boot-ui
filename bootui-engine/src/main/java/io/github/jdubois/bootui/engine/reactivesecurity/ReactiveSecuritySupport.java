@@ -40,8 +40,9 @@ final class ReactiveSecuritySupport {
         return result(definition, ERROR, 0, List.of(detail(reason)));
     }
 
-    static SecurityRuleResultDto violation(ReactiveSecurityRuleDefinition definition, List<String> details) {
-        return violation(definition, null, details);
+    static SecurityRuleResultDto violation(
+            ReactiveSecurityContext context, ReactiveSecurityRuleDefinition definition, List<String> details) {
+        return violation(context, definition, null, details);
     }
 
     /**
@@ -50,7 +51,14 @@ final class ReactiveSecuritySupport {
      * CORS). A {@code null} or unknown override falls back to the definition severity.
      */
     static SecurityRuleResultDto violation(
-            ReactiveSecurityRuleDefinition definition, String severityOverride, List<String> details) {
+            ReactiveSecurityContext context,
+            ReactiveSecurityRuleDefinition definition,
+            String severityOverride,
+            List<String> details) {
+        if (context.violationCollector() != null) {
+            context.violationCollector()
+                    .record(definition.id(), details.size(), details, ReactiveSecuritySupport::detail);
+        }
         return result(definition, VIOLATION, severityOverride, details.size(), samples(details));
     }
 

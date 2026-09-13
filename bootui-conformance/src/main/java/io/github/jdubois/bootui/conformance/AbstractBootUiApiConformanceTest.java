@@ -776,6 +776,68 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void advisorViolationPagesStayBoundToTheCountedSnapshot() {
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
+            assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
+            JsonNode report = scanned.json();
+            JsonNode metadata = report.path("violationDetails");
+            String scanId = metadata.path("scanId").asText();
+            assertThat(scanId).as(panel + " snapshot identifier").isNotBlank();
+            assertThat(metadata.path("retentionLimit").asInt()).isPositive();
+            assertThat(metadata.path("truncated").isBoolean()).isTrue();
+            int counted = 0;
+            for (JsonNode result : report.path("results"))
+                counted += result.path("violationCount").asInt();
+            assertThat(metadata.path("total").asInt())
+                    .as(panel + " original count")
+                    .isEqualTo(counted);
+            assertThat(metadata.path("retained").asInt()).isLessThanOrEqualTo(counted);
+            String query = "?scanId=" + URLEncoder.encode(scanId, StandardCharsets.UTF_8);
+            String missing = api("/" + panel + "/rules/NO-SUCH-RULE/violations");
+            assertThat(probe.get(missing + query).status()).isEqualTo(404);
+            assertThat(probe.get(missing + "?scanId=stale-snapshot").status()).isEqualTo(409);
+            assertThat(probe.get(missing + query + "&offset=-1").status()).isEqualTo(400);
+            assertThat(probe.get(missing + query + "&limit=0").status()).isEqualTo(400);
+            assertThat(probe.get(missing + query + "&offset=1.5").status()).isEqualTo(400);
+            if (!report.path("results").isEmpty()) {
+                JsonNode rule = report.path("results").get(0);
+                String id = rule.path("id").asText();
+                String route =
+                        api("/" + panel + "/rules/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/violations");
+                Response response = probe.get(route + query + "&offset=0&limit=1");
+                assertThat(response.status()).as(panel + " detail page").isEqualTo(200);
+                assertThat(response.isJson()).isTrue();
+                JsonNode page = response.json();
+                assertThat(page.path("scanId").asText()).isEqualTo(scanId);
+                assertThat(page.path("ruleId").asText()).isEqualTo(id);
+                assertThat(page.path("violationCount").asInt())
+                        .isEqualTo(rule.path("violationCount").asInt());
+                assertThat(page.path("violations").isArray()).isTrue();
+                assertThat(page.path("violations").size()).isLessThanOrEqualTo(1);
+                assertThat(page.path("page").path("returned").asInt())
+                        .isEqualTo(page.path("violations").size());
+                assertThat(page.path("page").path("total").asInt())
+                        .isEqualTo(page.path("retainedCount").asInt());
+                if (!page.path("violations").isEmpty() && !"QS-AUTHZ-004".equals(id)) {
+                    assertThat(page.path("violations").get(0))
+                            .isEqualTo(rule.path("sampleViolations").get(0));
+                }
+                int end = page.path("retainedCount").asInt();
+                JsonNode last =
+                        probe.get(route + query + "&offset=" + end + "&limit=1").json();
+                assertThat(last.path("violations")).isEmpty();
+                assertThat(last.path("page").path("hasMore").asBoolean()).isFalse();
+            }
+            assertThat(probe.get(api("/" + panel)).json().path("violationDetails"))
+                    .isEqualTo(metadata);
+        }
+    }
+
+    @Test
     void concurrentArchitectureScansReturnCanonicalBusyConflict() throws Exception {
         assumeTrue(
                 isPanelUsableInLiveManifest("architecture"), "architecture panel is not available in this environment");

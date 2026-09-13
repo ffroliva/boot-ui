@@ -1,5 +1,10 @@
 # REST API checks
 
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
+`GET <api>/rest-api/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded retained details from the
+same scan without re-importing declarations. Retention truncation is separate from declaration coverage; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The REST API panel runs a fixed, zero-config ruleset against the host application's compiled web declarations:
 Spring MVC and Spring WebFlux controllers, or JAX-RS/Quarkus REST resource methods. It reports declaration conflicts
 and conditional design-review prompts, not a verdict on the application's runtime HTTP behavior.

@@ -2076,6 +2076,81 @@ Acceptance criteria:
 - The Database advisor's `DB-RUNTIME-001` rule reports only statement shapes with repeated distinct texts and a literal
   in a filtering position, states its confidence and limitations, and includes no captured literal values.
 
+### 5.17.7 PostgreSQL Panel
+
+Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?", as a
+runtime view rather than an assessment. The panel shows the server's own numbers and grades none of them: it carries no
+rule catalogue, no findings, no severities and no score.
+
+Data sources:
+
+- Discovered application JDBC `DataSource` beans, using the same datasource discovery seam as the Database advisor.
+- PostgreSQL `pg_stat_*`, `pg_catalog`, `pg_settings`, `pg_stat_statements` when installed, and replication/catalog views.
+
+Features:
+
+- Return an initial `NOT_READ` report until the developer explicitly invokes `POST /bootui/api/postgresql/read`.
+- Run a bounded read-only transaction with pinned `statement_timeout`, `lock_timeout`, and idle-in-transaction timeout.
+- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, sessions, statements, indexes, tables,
+  vacuum, replication/WAL, and settings. Skipped or failed sections are reported with their reason and remain
+  limitations, never empty tables.
+- Scope the session snapshot and the session breakdown to `current_database()`, and take the connection total from
+  `pg_stat_database` so it remains correct for a role that cannot see other backends.
+- Return, and render as tables, the rows each section read: the live `pg_stat_activity` session snapshot with state,
+  wait event, blocking pids, transaction age and statement; the top normalized statements; index usage; relation size
+  and access shape; autovacuum state; replication and WAL; and the curated settings.
+- Carry a report-level list of what the read does not cover, assembled from every degraded section, truncation and
+  unread datasource.
+- Reserve `truncated` for row caps. Budget exhaustion carries a section `reason`, retaining any rows already read;
+  no retained rows means a failed section, not an empty successful one. Incomplete relation lists do not replace
+  the comparison baseline.
+- Exclude the timeout settings BootUI overrides for its own read from the notable application settings.
+- Expose `replication.replicasAvailable` so an empty replica list is only evidence of absence when it was read.
+  On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.
+- Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
+
+Availability:
+
+- Spring MVC, Spring WebFlux, and Quarkus expose the same endpoint and report contract, and offer the panel only when a
+  PostgreSQL datasource is configured. Availability is decided from declared configuration alone — a datasource's JDBC
+  URL, including through a wrapping driver, or the Quarkus `db-kind` — and never opens a connection. A datasource that
+  declares no readable URL cannot be ruled out and keeps the panel available; a non-PostgreSQL datasource reached by the
+  read is skipped with diagnostics rather than treated as a failure.
+- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it
+  `pg_stat_activity` removes the rows of backends the role does not own while `pg_stat_statements` keeps its rows and
+  replaces the statement text with `<insufficient privilege>`; neither is detectable from the result set, so the read
+  probes `pg_read_all_stats` membership and degrades both sections rather than reporting a short, confident list. The
+  statement ranking is degraded on the placeholder appearing as well as on the probe. `pg_stat_replication` restricts a
+  third way: every replica is still listed, but its state, sync state and lag are hidden, which degrades that section.
+- The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
+- Connections borrowed with auto-commit disabled are refused before metadata or SQL, without commit or rollback.
+  This includes pool defaults such as `spring.datasource.hikari.auto-commit=false`; the read reports an explicit
+  error rather than risking an application-owned transaction.
+
+Out of scope for the current release surface:
+
+- Monitoring, alerting, baselining to disk, query-plan capture, DDL, cancelling sessions, changing settings, or reading
+  application table rows.
+- Attributing PostgreSQL counters to this JVM only; the counters are cumulative since the last reset and cover every
+  client of the database.
+
+Acceptance criteria:
+
+- Opening the panel never contacts PostgreSQL; only the explicit read action does.
+- The read action is blocked by global read-only mode and `bootui.panels.postgresql.read-only`, despite being read-only at
+  the database.
+- Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
+- The panel reports a runtime observation of one database, not a repeatable assessment of the application, so it carries
+  no findings and no score, and never contributes to the Overview dashboard's advisor scoring or retained-findings
+  totals.
+- A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
+  table; a section that could not be read shows its reason and hint instead of an empty table.
+- Autovacuum "due" is computed per relation from the cluster autovacuum settings overridden by that table's own
+  `reloptions` (including PostgreSQL 18's `autovacuum_vacuum_max_threshold`), and the remaining approximations — the
+  live-tuple estimate, and the unmodelled PostgreSQL 13+ insert-triggered trigger — are stated on the section.
+- A borrowed connection that could not be restored to the state it was found in degrades the read, exactly like a
+  session whose bounds could not be pinned, rather than only appearing in the diagnostics.
+
 ### 5.18 Cache Panel
 
 Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
@@ -2291,6 +2366,41 @@ The browser UI should not depend directly on raw Actuator response shapes. BootU
 DTOs. High-cardinality list endpoints should support bounded server-side `q` / filter / `offset` / `limit` access and
 return page metadata so the SPA can avoid fetching every row before filtering.
 
+#### Advisor violation pages
+
+The seven compact rule advisors (`architecture`, `hibernate`, `spring`, `rest-api`, `memory`, `security`,
+`database-advisor`) share `GET <api>/<advisor>/rules/{ruleId}/violations` on their supported MVC, WebFlux, and Quarkus
+stacks. The `spring` root remains the Quarkus application advisor on Quarkus; this does not change availability.
+
+Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
+Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
+truncated}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
+index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
+identity and retained entries. Only the latest snapshot is kept.
+
+Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
+Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
+`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`, and
+`page: {total, matched, offset, limit, returned, hasMore}`. Page totals count retained entries; a terminal page does not
+prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
+rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
+retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
+rescan or collect new observations.
+
+The UI offers **View violations** only on demand when more findings exist, then bounded inline Previous/Next and
+**Back to samples**. It retains samples/the last page through loading or failure, provides Retry or an explicit
+**Refresh cached report** after 409 (never rescan), rejects stale responses, and displays accurate retained ranges and
+truncation warnings. Legacy reports without metadata keep their samples without an unusable detail control. No
+detail request occurs on mount, report arrival, or dismissal. Controls have unique accessible names and targets,
+keyboard focus handling, and one async announcement per rule.
+
+The same contract is exposed by the seven `get_*_rule_violations` MCP tools with required `id` and `scanId`, and
+optional `offset`/`limit`; CLI paths are `<advisor> violations <ruleId> --scan-id ... --offset ... --limit ...`, using
+`db` for Database Advisor. Transport result/response-byte budgets still apply. See
+[advisor retrieval](features/advisors.md#rest-mcp-and-cli-retrieval) for exact names and REST/MCP/CLI examples.
+GraalVM/CRaC, Pentesting, and Vulnerabilities retain their separate models.
+
 Initial endpoints:
 
 | Endpoint                                     | Method | Purpose                                                                                |
@@ -2358,6 +2468,8 @@ Initial endpoints:
 | `/bootui/api/hibernate-statistics/enable` | POST | Enable Hibernate statistics collection for the current runtime                         |
 | `/bootui/api/database-advisor`       | GET    | Latest Database advisor report, with per-datasource read status and scan diagnostics   |
 | `/bootui/api/database-advisor/scan`  | POST   | Run explicit read-only, bounded physical-schema checks                                 |
+| `/bootui/api/postgresql`             | GET    | Latest PostgreSQL vital-signs report without starting a database read                  |
+| `/bootui/api/postgresql/read`        | POST   | Run an explicit bounded, read-only PostgreSQL statistics read                          |
 | `/bootui/api/sql-trace`                       | GET    | Retained SQL execution report and aggregate statistics                                |
 | `/bootui/api/sql-trace/insights`              | GET    | Ranked normalized statements and request-route attribution over the retained window   |
 | `/bootui/api/sql-trace/clear`                 | POST   | Clear the retained SQL execution buffer                                                |
@@ -2445,6 +2557,7 @@ Initial properties:
 | `bootui.mask-secrets`                        | `true`                                  | Mask secret-like config values.                                                                   |
 | `bootui.expose-values`                       | `MASKED`                                | One of `MASKED`, `METADATA_ONLY`, `FULL`.                                                         |
 | `bootui.read-only`                           | `false`                                 | Disable all browser-triggered actions while keeping read-only panel data visible.                 |
+| `bootui.advisors.max-retained-violations`     | `10000`                                 | Positive per-advisor latest-scan detail budget across rules; frozen at scan start. Samples/counts are unchanged; missing retained details are explicit. |
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
 | `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                     |
 | `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                         |
@@ -2612,7 +2725,7 @@ Design rules:
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
-    `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+    `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -2620,7 +2733,7 @@ Design rules:
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
-    `resume_rest_client_recording`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+    `resume_rest_client_recording`, `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
   commands are deliberately excluded. Tools whose backing controller is absent or not applicable to the running stack
@@ -2772,6 +2885,7 @@ Top-level navigation:
   - Mappings.
 - Database:
   - Database Connection Pools.
+  - PostgreSQL.
   - Transactions.
   - SQL Trace.
   - Hibernate Statistics.

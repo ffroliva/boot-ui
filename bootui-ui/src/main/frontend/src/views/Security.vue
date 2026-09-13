@@ -3,6 +3,7 @@ import {computed, inject, ref} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
+import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -178,16 +179,12 @@ const panel = useAdvisorPanel(props, {
               <strong>What happened:</strong>
               {{ panel.violationCountLabel(result.violationCount) }} for this rule.
             </div>
-            <div v-if="result.sampleViolations && result.sampleViolations.length" class="mb-2">
-              <div class="small fw-semibold">
-                Sample details (showing {{ result.sampleViolations.length }} of {{ result.violationCount }})
-              </div>
-              <ul class="small mb-0">
-                <li v-for="(sample, index) in result.sampleViolations" :key="index" class="font-monospace">
-                  {{ sample }}
-                </li>
-              </ul>
-            </div>
+            <AdvisorRuleViolations
+              api-path="api/security"
+              :rule="result"
+              :details="panel.report.violationDetails"
+              :refresh-report="panel.loadReport"
+            />
             <div class="small">
               <strong>Recommendation:</strong>
               {{ result.recommendation }}

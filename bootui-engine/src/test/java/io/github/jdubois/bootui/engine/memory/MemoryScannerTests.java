@@ -32,6 +32,84 @@ class MemoryScannerTests {
     private static final long GB = 1024L * 1024 * 1024;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {7, 10000})
+    void retainsCountedPoolObservationsWithoutSamplingOrCountingInternalSeverityChecks(int retentionLimit) {
+        AtomicInteger collections = new AtomicInteger();
+        MemoryScanner scanner = new MemoryScanner(() -> growingDirectPools(collections.incrementAndGet()), CLOCK);
+        scanner.setViolationRetentionLimit(() -> retentionLimit);
+        scanner.scan();
+        scanner.scan();
+        scanner.scan();
+        MemoryReport report = scanner.scan();
+        String scanId = report.violationDetails().scanId();
+        String ruleId = "MEM-POOL-007";
+        List<String> expected = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(
+                        index -> MemoryRuleSupport.detail(
+                                "'direct' buffer pool usage increased on 3 consecutive scan intervals (now "
+                                        + MemoryFormat.bytes((104L + index) * MB)
+                                        + "); net growth does not prove missing releases or a leak. Confirm comparable workload conditions."))
+                .toList();
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals(ruleId))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(16);
+                    assertThat(result.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+                });
+        int total = report.results().stream()
+                .mapToInt(MemoryRuleResultDto::violationCount)
+                .sum();
+        assertThat(report.violationDetails().total()).isEqualTo(total);
+        assertThat(report.violationDetails().retained()).isEqualTo(Math.min(total, retentionLimit));
+        var page = scanner.ruleViolations(ruleId, scanId, 0, 11);
+        assertThat(page.violationCount()).isEqualTo(16);
+        if (retentionLimit > total) {
+            assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, 11));
+            assertThat(page.page().hasMore()).isTrue();
+            var last = scanner.ruleViolations(ruleId, scanId, 11, 11);
+            assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+            assertThat(last.page().hasMore()).isFalse();
+            assertThat(last.truncated()).isFalse();
+        } else {
+            assertThat(page.truncated()).isTrue();
+            assertThat(page.violations()).containsExactlyElementsOf(expected.subList(0, page.retainedCount()));
+        }
+        assertThat(scanner.applyDismissals(report, java.util.Set.of(ruleId)).violationDetails())
+                .isEqualTo(report.violationDetails());
+        assertThat(scanner.lastReport()).isSameAs(report);
+        assertThat(collections).hasValue(4);
+    }
+
+    private static MemoryContext growingDirectPools(int sample) {
+        MemoryContext baseline = healthyContext();
+        MemoryData memory = baseline.memory();
+        var pools = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(index -> new MemoryContext.BufferPoolSnapshot(
+                        "direct", (100L + sample + index) * MB, (100L + sample + index) * MB, 1))
+                .toList();
+        MemoryData growing = new MemoryData(
+                memory.heapUsed(),
+                memory.heapCommitted(),
+                memory.heapMax(),
+                memory.nonHeapUsed(),
+                memory.nonHeapCommitted(),
+                memory.nonHeapMax(),
+                memory.pools(),
+                240 * MB,
+                240 * MB,
+                16,
+                256 * MB,
+                memory.inputArguments(),
+                memory.gcCollectorNames(),
+                null,
+                null,
+                pools);
+        return new MemoryContext(
+                growing, baseline.threads(), baseline.heapContent(), baseline.classLoading(), baseline.runtime());
+    }
+
     @Test
     void initialReportIsNotScanned() {
         MemoryScanner scanner = new MemoryScanner(() -> healthyContext(), CLOCK);

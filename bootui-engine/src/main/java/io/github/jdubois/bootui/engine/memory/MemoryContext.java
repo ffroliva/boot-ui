@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.memory;
 import io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto;
 import io.github.jdubois.bootui.core.dto.ThreadInfoDto;
 import io.github.jdubois.bootui.core.dto.ThreadStateCountDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -27,7 +28,57 @@ record MemoryContext(
         GcEvent postHistogramGcEvent,
         GcTrend gcTrend,
         BufferPoolTrend bufferPoolTrend,
-        OldGenTrend oldGenTrend) {
+        OldGenTrend oldGenTrend,
+        AdvisorViolationCollector violationCollector) {
+
+    MemoryContext(
+            MemoryData memory,
+            ThreadData threads,
+            HeapContentData heapContent,
+            PostGcHeapData postGcHeap,
+            ClassLoadingData classLoading,
+            RuntimeData runtime,
+            GcSample preHistogramGc,
+            GcSample postHistogramGc,
+            GcEvent latestGcEvent,
+            GcEvent postHistogramGcEvent,
+            GcTrend gcTrend,
+            BufferPoolTrend bufferPoolTrend,
+            OldGenTrend oldGenTrend) {
+        this(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                postHistogramGc,
+                latestGcEvent,
+                postHistogramGcEvent,
+                gcTrend,
+                bufferPoolTrend,
+                oldGenTrend,
+                null);
+    }
+
+    MemoryContext withViolationCollector(AdvisorViolationCollector collector) {
+        return new MemoryContext(
+                memory,
+                threads,
+                heapContent,
+                postGcHeap,
+                classLoading,
+                runtime,
+                preHistogramGc,
+                postHistogramGc,
+                latestGcEvent,
+                postHistogramGcEvent,
+                gcTrend,
+                bufferPoolTrend,
+                oldGenTrend,
+                collector);
+    }
 
     MemoryContext {
         memory = memory == null ? MemoryData.empty() : memory;
@@ -135,7 +186,8 @@ record MemoryContext(
                 postHistogramGcEvent,
                 trend,
                 bufferPoolTrend,
-                oldGenTrend);
+                oldGenTrend,
+                violationCollector);
     }
 
     /** Returns a copy of this context with the scanner-computed buffer-pool growth trend attached. */
@@ -153,7 +205,8 @@ record MemoryContext(
                 postHistogramGcEvent,
                 gcTrend,
                 trend,
-                oldGenTrend);
+                oldGenTrend,
+                violationCollector);
     }
 
     /** Returns a copy of this context with the scanner-computed old-generation usage trend attached. */
@@ -171,7 +224,8 @@ record MemoryContext(
                 postHistogramGcEvent,
                 gcTrend,
                 bufferPoolTrend,
-                trend);
+                trend,
+                violationCollector);
     }
 
     /** Returns a copy with the scanner-filtered latest GC event attached. */
@@ -189,7 +243,8 @@ record MemoryContext(
                 postHistogramGcEvent,
                 gcTrend,
                 bufferPoolTrend,
-                oldGenTrend);
+                oldGenTrend,
+                violationCollector);
     }
 
     int heapUsedPercent() {

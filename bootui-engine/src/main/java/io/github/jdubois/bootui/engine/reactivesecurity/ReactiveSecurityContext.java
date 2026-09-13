@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.reactivesecurity;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.security.SecurityEvaluation;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,14 +17,15 @@ record ReactiveSecurityContext(
         List<CorsConfigObservation> corsConfigs,
         boolean corsObservationComplete,
         ReactiveSecurityEnvironmentSnapshot environment,
-        SecurityEvaluation evaluation) {
+        SecurityEvaluation evaluation,
+        AdvisorViolationCollector violationCollector) {
 
     ReactiveSecurityContext(
             List<WebFilterChainObservation> chains,
             List<CorsConfigObservation> corsConfigs,
             boolean corsObservationComplete,
             ReactiveSecurityEnvironmentSnapshot environment) {
-        this(chains, corsConfigs, corsObservationComplete, environment, new SecurityEvaluation());
+        this(chains, corsConfigs, corsObservationComplete, environment, new SecurityEvaluation(), null);
     }
 
     boolean applies(boolean applicable) {
@@ -44,11 +46,17 @@ record ReactiveSecurityContext(
     }
 
     static ReactiveSecurityContext from(ReactiveSecurityObservation observation) {
+        return from(observation, null);
+    }
+
+    static ReactiveSecurityContext from(ReactiveSecurityObservation observation, AdvisorViolationCollector collector) {
         return new ReactiveSecurityContext(
                 observation.chains(),
                 observation.corsConfigs(),
                 observation.corsObservationComplete(),
-                observation.environment());
+                observation.environment(),
+                new SecurityEvaluation(),
+                collector);
     }
 
     boolean isTlsConfigured() {

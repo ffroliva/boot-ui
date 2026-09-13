@@ -183,6 +183,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
+| Database        | PostgreSQL                | `postgresql`                | `bootui.panels.postgresql.enabled`                | `bootui.panels.postgresql.read-only`      |
 | Database        | Transactions              | `transactions`              | `bootui.panels.transactions.enabled`              | `bootui.panels.transactions.read-only`    |
 | Database        | SQL Trace                 | `sql-trace`                 | `bootui.panels.sql-trace.enabled`                 | `bootui.panels.sql-trace.read-only`       |
 | Database        | Hibernate Statistics      | `hibernate-statistics`      | `bootui.panels.hibernate-statistics.enabled`      | `bootui.panels.hibernate-statistics.read-only` |
@@ -214,6 +215,24 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Developer tools | Claude Code               | `claude-code`               | `bootui.panels.claude-code.enabled`               | Not applicable; view-only.                |
 
 ## Per-panel action details
+
+### Advisor violation retention
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.advisors.max-retained-violations` | `10000` | Positive maximum sanitized violation details retained across all rules in each advisor's latest scan. |
+
+Shared by Architecture, Hibernate, Spring/Quarkus application, REST API, Memory, Security, and Database Advisor on
+their supported stacks. The limit is captured when a scan starts, including across Hibernate persistence units;
+zero, negative, and invalid values are not an unlimited mode. Only the latest snapshot is retained. Counts and
+existing ten-/twenty-entry summary samples remain unchanged when retention is exhausted; report
+`violationDetails.truncated` and each detail page's `truncated` explicitly disclose missing entries.
+
+Raising this setting requires a new explicit scan to retain previously omitted details; it cannot fill an existing
+snapshot. Detail pages default to 100 entries, at most 1000, and MCP/CLI also enforce their transport budgets.
+Reads remain available with `bootui.read-only=true` or a panel's read-only setting; disabled/unavailable panels
+remain gated. Retrieval completeness does not affect evidence coverage or scores. See
+[reading every retained violation](features/advisors.md#reading-every-retained-violation).
 
 ### Startup Timeline
 

@@ -32,6 +32,7 @@ const PANEL_HEADINGS = {
   conditions: /Auto-configuration conditions/,
   mappings: /HTTP mappings/,
   'database-connection-pools': /Database Connection Pools/,
+  postgresql: /^PostgreSQL/,
   'database-advisor': /^Database$/,
   'sql-trace': /SQL Trace/,
   data: /Spring Data repositories/,

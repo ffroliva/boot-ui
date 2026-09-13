@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.restapi;
 
+import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.ErrorContractReport;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
@@ -21,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/rest-api")
-public class RestApiController {
+public class RestApiController implements AdvisorViolationsEndpoint {
 
     private final RestApiScanner scanner;
 
@@ -29,19 +31,16 @@ public class RestApiController {
 
     private final ErrorContractService errorContract;
 
-    private volatile RestApiReport lastReport;
-
     public RestApiController(
             RestApiScanner scanner, DismissedRulesStore dismissedRules, ErrorContractService errorContract) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
         this.errorContract = errorContract;
-        this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public RestApiReport restApi() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     /**
@@ -59,7 +58,11 @@ public class RestApiController {
     @PostMapping("/scan")
     public RestApiReport scan() {
         RestApiReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

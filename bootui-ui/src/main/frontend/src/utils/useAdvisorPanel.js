@@ -128,8 +128,10 @@ export function useAdvisorPanel(props, options) {
     try {
       report.value = await getJson(options.apiPath)
       error.value = null
+      return true
     } catch (e) {
       error.value = describeLoadError(e, options.loadErrorMessage)
+      return false
     }
   }
 
@@ -237,6 +239,7 @@ export function useAdvisorPanel(props, options) {
     pluralize,
     violationCountLabel,
     scanTime,
+    loadReport,
     runScan,
     scanStatusBadgeClass,
     scanStatusLabel

@@ -68,6 +68,64 @@ class DatabaseAdvisorScannerTests {
     }
 
     @Test
+    void retainsEveryCountedTableBeforeSamplingWithoutQueryingAgain() {
+        var tables = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(index ->
+                        DatabaseAdvisorFixtures.table("events_" + index, List.of(), List.of(), List.of(), List.of()))
+                .toList();
+        var schema = DatabaseAdvisorFixtures.schema("primary", Dialect.GENERIC, tables);
+        var expected = tables.stream()
+                .map(table -> DatabaseAdvisorRuleSupport.detail("primary: table " + table.qualifiedName()
+                        + " has no primary key reported by JDBC; verify driver/privilege coverage before a migration."))
+                .toList();
+        java.util.concurrent.atomic.AtomicInteger discoveries = new java.util.concurrent.atomic.AtomicInteger();
+        DatabaseAdvisorScanner scanner = DatabaseAdvisorScanner.using(
+                () -> {
+                    discoveries.incrementAndGet();
+                    return List.of(new NamedDataSource("primary", dataSource));
+                },
+                () -> EntityDiscovery.empty(null),
+                FIXED_CLOCK);
+        try (var introspector = mockStatic(SchemaIntrospector.class)) {
+            introspector
+                    .when(() -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()))
+                    .thenReturn(schema);
+            DatabaseAdvisorReport report = scanner.scan();
+            String scanId = report.violationDetails().scanId();
+            String id = "DB-SCHEMA-001";
+            assertThat(report.results())
+                    .filteredOn(result -> result.id().equals(id))
+                    .singleElement()
+                    .satisfies(result -> {
+                        assertThat(result.violationCount()).isEqualTo(16);
+                        assertThat(result.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+                    });
+            assertThat(scanner.ruleViolations(id, scanId, 0, 11).violations())
+                    .containsExactlyElementsOf(expected.subList(0, 11));
+            var last = scanner.ruleViolations(id, scanId, 11, 11);
+            assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+            assertThat(last.page().hasMore()).isFalse();
+            assertThat(last.truncated()).isFalse();
+            assertThat(scanner.applyDismissals(report, Set.of(id)).violationDetails())
+                    .isEqualTo(report.violationDetails());
+            assertThat(scanner.lastReport()).isSameAs(report);
+            assertThat(discoveries).hasValue(1);
+            introspector.verify(
+                    () -> SchemaIntrospector.introspect(eq("primary"), any(DataSource.class), any(), any()));
+
+            scanner.setViolationRetentionLimit(() -> 7);
+            DatabaseAdvisorReport bounded = scanner.scan();
+            assertThat(bounded.results()).isEqualTo(report.results());
+            assertThat(bounded.evidence()).isEqualTo(report.evidence());
+            assertThat(bounded.truncated()).isEqualTo(report.truncated());
+            assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+            assertThat(scanner.ruleViolations(id, bounded.violationDetails().scanId(), 0, null)
+                            .truncated())
+                    .isTrue();
+        }
+    }
+
+    @Test
     void postgresScanKeepsMysqlAndOracleSkipsNeutralWithoutCompletionCredit() {
         var findings = VendorFindings.builder()
                 .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_INVALID_INDEXES, List.of(), false))

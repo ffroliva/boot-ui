@@ -1,5 +1,10 @@
 # Security checks
 
+Servlet and reactive reports keep ten-entry `sampleViolations` previews and full `violationCount` values.
+**View violations** and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve
+sanitized retained details without invoking security callbacks or rescanning. Retention truncation is separate from
+security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
 **54 servlet rules** and **25 reactive rules**. It inspects recognized, already-created filter chains and supported
 configuration metadata. It does not execute application authorization managers, custom matchers, decoders, credential

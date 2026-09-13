@@ -1,5 +1,12 @@
 # Quarkus security checks
 
+Quarkus Security keeps its twenty-entry `sampleViolations` preview and full `violationCount`. **View violations**
+and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details
+retained by the same scan. Retention truncation is separate from security evidence coverage; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+`QS-AUTHZ-004` preserves its aggregate preview while retaining endpoint identities when metadata provides them.
+Legacy count-only observations retain zero endpoint identities and explicitly report incomplete details.
+
 The Security panel, on Quarkus, runs a fixed, on-demand **42-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`,

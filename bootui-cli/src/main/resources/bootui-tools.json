@@ -53,6 +53,19 @@
       "summary": "Actively scan application classes for architecture and dependency violations."
     },
     {
+      "name": "get_architecture_rule_violations",
+      "command": "architecture violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "architecture",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+    },
+    {
       "name": "get_beans",
       "command": "beans",
       "schema": "QUERY_LIMIT",
@@ -167,6 +180,32 @@
       "summary": "Return current connection pool configuration and live metrics (active, idle, pending connections) for each configured datasource."
     },
     {
+      "name": "postgresql_read",
+      "command": "db postgres read",
+      "schema": "NONE",
+      "panel": "postgresql",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources and return what the server currently reports: the live session snapshot, cache hit and rollback ratios, connection usage, transaction-ID age, the top normalized statements, index and relation activity, autovacuum state, replication and notable settings."
+    },
+    {
+      "name": "get_postgresql_report",
+      "command": "db postgres report",
+      "schema": "NONE",
+      "panel": "postgresql",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return the last completed PostgreSQL runtime view without querying the server again."
+    },
+    {
       "name": "get_database_advisor_report",
       "command": "db report",
       "schema": "NONE",
@@ -191,6 +230,19 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively introspect the physical database schema (tables, columns, keys, indexes) via read-only JDBC metadata, plus PostgreSQL/MySQL/MariaDB catalog checks and Hibernate mapping cross-reference when available."
+    },
+    {
+      "name": "get_database_advisor_rule_violations",
+      "command": "db violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "database-advisor",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
     },
     {
       "name": "get_dev_services",
@@ -356,6 +408,19 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect JPA/Hibernate mappings and persistence configuration for correctness and performance risks."
+    },
+    {
+      "name": "get_hibernate_rule_violations",
+      "command": "hibernate violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "hibernate",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
     },
     {
       "name": "get_http_exchanges",
@@ -537,6 +602,19 @@
       "summary": "Actively analyze JVM memory and return prioritized findings."
     },
     {
+      "name": "get_memory_rule_violations",
+      "command": "memory violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "memory",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+    },
+    {
       "name": "get_metrics",
       "command": "metrics",
       "schema": "QUERY_LIMIT",
@@ -651,6 +729,19 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring REST controllers and API design for correctness and maintainability risks."
+    },
+    {
+      "name": "get_rest_api_rule_violations",
+      "command": "rest-api violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "rest-api",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
     },
     {
       "name": "clear_rest_client_traces",
@@ -769,6 +860,19 @@
       "summary": "Actively review application security configuration and return prioritized findings."
     },
     {
+      "name": "get_security_rule_violations",
+      "command": "security violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "security",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
+    },
+    {
       "name": "get_claude_code_sessions",
       "command": "sessions claude",
       "schema": "NONE",
@@ -819,6 +923,19 @@
         "SPRING_WEBFLUX"
       ],
       "summary": "Actively inspect Spring configuration and bean usage for correctness and maintainability risks."
+    },
+    {
+      "name": "get_spring_rule_violations",
+      "command": "spring violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "spring",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId."
     },
     {
       "name": "clear_sql_traces",

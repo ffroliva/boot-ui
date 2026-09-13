@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from '@playwright/test'
+import {expect, test} from './fixtures.js'
 
 // These checks only run when the sample app was booted with the full Docker stack (the `docker`
 // Spring profile, set via BOOTUI_SAMPLE_PROFILES=docker by the weekly "Docker configuration"
@@ -27,6 +27,27 @@ test.describe('Docker profile smoke checks', () => {
     expect(response.ok()).toBeTruthy()
     const health = await response.json()
     expect(health.components?.db?.details?.database).toBe('PostgreSQL')
+  })
+
+  test('reads PostgreSQL statement statistics', async ({request, page, openView}) => {
+    const products = await request.get('/api/sample/products')
+    expect(products.ok()).toBeTruthy()
+
+    await openView('postgresql', 'PostgreSQL')
+    const readResponse = page.waitForResponse(
+      (response) => response.url().endsWith('/bootui/api/postgresql/read') && response.request().method() === 'POST'
+    )
+    await page.getByRole('button', {name: /Run PostgreSQL read$/}).click()
+    const response = await readResponse
+    expect(response.ok()).toBeTruthy()
+    const report = await response.json()
+    expect(report.databases.length).toBeGreaterThan(0)
+    for (const database of report.databases) {
+      const statements = database.sections.find((section) => section.id === 'statements')
+      expect(statements?.status).toBe('AVAILABLE')
+      expect(statements?.reason).toBeNull()
+      expect(database.statements.length).toBeGreaterThan(0)
+    }
   })
 
   test('uses a Redis-backed Spring cache', async ({request}) => {

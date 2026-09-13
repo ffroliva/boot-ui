@@ -38,6 +38,7 @@ import io.github.jdubois.bootui.quarkus.web.MemoryResource;
 import io.github.jdubois.bootui.quarkus.web.MetricsResource;
 import io.github.jdubois.bootui.quarkus.web.OverviewResource;
 import io.github.jdubois.bootui.quarkus.web.PentestingResource;
+import io.github.jdubois.bootui.quarkus.web.PostgresqlResource;
 import io.github.jdubois.bootui.quarkus.web.ProfileDiffResource;
 import io.github.jdubois.bootui.quarkus.web.RabbitResource;
 import io.github.jdubois.bootui.quarkus.web.RestApiResource;
@@ -108,6 +109,7 @@ public class QuarkusMcpTools {
             MappingsResource mappings,
             OverviewResource overview,
             DatabaseAdvisorResource databaseAdvisor,
+            PostgresqlResource postgresql,
             VulnerabilitiesResource vulnerabilities,
             LoggersResource loggers,
             ScheduledResource scheduled,
@@ -134,6 +136,55 @@ public class QuarkusMcpTools {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_architecture_rule_violations",
+                        McpToolDescriptions.quarkus("get_architecture_rule_violations"),
+                        args -> architecture.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_spring_rule_violations",
+                        McpToolDescriptions.quarkus("get_spring_rule_violations"),
+                        args -> spring.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_hibernate_rule_violations",
+                        McpToolDescriptions.quarkus("get_hibernate_rule_violations"),
+                        args -> hibernate.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_database_advisor_rule_violations",
+                        McpToolDescriptions.quarkus("get_database_advisor_rule_violations"),
+                        args -> databaseAdvisor.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_memory_rule_violations",
+                        McpToolDescriptions.quarkus("get_memory_rule_violations"),
+                        args -> memory.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_security_rule_violations",
+                        McpToolDescriptions.quarkus("get_security_rule_violations"),
+                        args -> security.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_rest_api_rule_violations",
+                        McpToolDescriptions.quarkus("get_rest_api_rule_violations"),
+                        args -> restApi.ruleViolations(args.id(), args.scanId(), args.offset(), args.limit())));
         addIfAvailable(
                 registry,
                 availability,
@@ -181,6 +232,17 @@ public class QuarkusMcpTools {
                         "get_database_advisor_report",
                         McpToolDescriptions.quarkus("get_database_advisor_report"),
                         args -> databaseAdvisor.databaseAdvisor()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool("postgresql_read", McpToolDescriptions.quarkus("postgresql_read"), args -> postgresql.read()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_postgresql_report",
+                        McpToolDescriptions.quarkus("get_postgresql_report"),
+                        args -> postgresql.postgresql()));
         addIfAvailable(
                 registry,
                 availability,

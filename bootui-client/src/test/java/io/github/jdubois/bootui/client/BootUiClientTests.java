@@ -125,6 +125,27 @@ class BootUiClientTests {
     }
 
     @Test
+    void forwardsAdvisorSnapshotAndPagingArgumentsWithoutADtoDependency() {
+        java.util.Map<String, JsonValue> arguments = new java.util.LinkedHashMap<>();
+        arguments.put("id", JsonValue.of("ARCH-SPRING-004"));
+        arguments.put("scanId", JsonValue.of("scan-1"));
+        arguments.put("offset", JsonValue.of(22));
+        arguments.put("limit", JsonValue.of(7));
+        responseBody = "{\"scanId\":\"scan-1\",\"ruleId\":\"ARCH-SPRING-004\",\"violations\":[\"detail\"],"
+                + "\"page\":{\"offset\":22,\"limit\":7,\"returned\":1,\"hasMore\":false}}";
+
+        ToolResult result = client().invoke("get_architecture_rule_violations", arguments);
+
+        assertThat(result.successful()).isTrue();
+        assertThat(result.rawBody()).isEqualTo(responseBody);
+        assertThat(requests).singleElement().satisfies(request -> {
+            assertThat(request.path).isEqualTo("/bootui/api/cli/tools/get_architecture_rule_violations");
+            assertThat(request.body)
+                    .isEqualTo("{\"id\":\"ARCH-SPRING-004\",\"scanId\":\"scan-1\",\"offset\":22,\"limit\":7}");
+        });
+    }
+
+    @Test
     void sendsAnEmptyObjectWhenATakesNoArguments() {
         client().invoke("get_overview");
 

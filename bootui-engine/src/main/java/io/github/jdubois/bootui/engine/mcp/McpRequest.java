@@ -12,8 +12,8 @@ import java.util.Set;
  * limit}/{@code id} arguments). The top-level JSON-RPC message id (used to correlate a response with
  * its request) is <em>not</em> carried here: the codec pairs the returned {@link McpDispatchOutcome}
  * with the original message-id node when it renders the response. {@link #rawId} below is a different,
- * tool-specific concept: the {@code arguments.id} of an {@link McpToolSchema#ID} tool call (e.g. which
- * exception group to fetch detail for).
+ * tool-specific concept: the {@code arguments.id} of an {@link McpToolSchema#ID} or
+ * {@link McpToolSchema#RULE_VIOLATIONS} tool call (e.g. which exception group or advisor rule to fetch).
  *
  * @param jsonrpc the top-level JSON-RPC version string (typically {@code "2.0"})
  * @param method the JSON-RPC method (possibly blank; the dispatcher decides what to do)
@@ -26,6 +26,8 @@ import java.util.Set;
  * @param rawId the client {@code arguments.id} as parsed (may be {@code null}/blank/untrimmed)
  * @param argumentNames every property present in {@code arguments}
  * @param argumentsError a safe adapter-detected shape/type error, or {@code null}
+ * @param rawScanId the completed advisor snapshot identifier, or {@code null}
+ * @param rawOffset the zero-based retained detail offset, or {@code null}
  */
 public record McpRequest(
         String jsonrpc,
@@ -37,10 +39,39 @@ public record McpRequest(
         Integer rawLimit,
         String rawId,
         Set<String> argumentNames,
-        String argumentsError) {
+        String argumentsError,
+        String rawScanId,
+        Integer rawOffset) {
 
     public McpRequest {
         argumentNames = argumentNames == null ? Set.of() : Set.copyOf(argumentNames);
+    }
+
+    /** Backward-compatible constructor for codecs without advisor detail arguments. */
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                null,
+                null);
     }
 
     /** Backward-compatible constructor for engine callers that already provide typed values. */

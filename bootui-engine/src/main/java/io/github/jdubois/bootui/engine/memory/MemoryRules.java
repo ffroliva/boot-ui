@@ -74,22 +74,25 @@ abstract class AbstractMemoryRule implements MemoryRule {
         return MemoryEvaluation.unknown(MemoryRuleSupport.pass(definition));
     }
 
-    MemoryEvaluation violation(List<String> details) {
-        return details.isEmpty() ? pass() : MemoryEvaluation.complete(MemoryRuleSupport.violation(definition, details));
-    }
-
-    MemoryEvaluation violation(String detail) {
-        return violation(List.of(detail));
-    }
-
-    MemoryEvaluation violation(String severityOverride, List<String> details) {
+    MemoryEvaluation violation(MemoryContext context, List<String> details) {
         return details.isEmpty()
                 ? pass()
-                : MemoryEvaluation.complete(MemoryRuleSupport.violation(definition, severityOverride, details));
+                : MemoryEvaluation.complete(MemoryRuleSupport.violation(context, definition, details));
     }
 
-    MemoryEvaluation violation(String severityOverride, String detail) {
-        return violation(severityOverride, List.of(detail));
+    MemoryEvaluation violation(MemoryContext context, String detail) {
+        return violation(context, List.of(detail));
+    }
+
+    MemoryEvaluation violation(MemoryContext context, String severityOverride, List<String> details) {
+        return details.isEmpty()
+                ? pass()
+                : MemoryEvaluation.complete(
+                        MemoryRuleSupport.violation(context, definition, severityOverride, details));
+    }
+
+    MemoryEvaluation violation(MemoryContext context, String severityOverride, String detail) {
+        return violation(context, severityOverride, List.of(detail));
     }
 }
 
@@ -188,6 +191,7 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
             int postPercent = MemoryFormat.percentOf(postGc.heapUsed(), memory.heapMax());
             if (postPercent >= THRESHOLD_PERCENT) {
                 return violation(
+                        context,
                         MemoryRuleSupport.MEDIUM,
                         "Heap is " + postPercent + "% full (" + MemoryFormat.bytes(postGc.heapUsed()) + " of "
                                 + MemoryFormat.bytes(memory.heapMax())
@@ -201,6 +205,7 @@ final class HighHeapUtilizationRule extends AbstractMemoryRule {
         int percent = MemoryFormat.percentOf(memory.heapUsed(), memory.heapMax());
         if (percent >= THRESHOLD_PERCENT) {
             return violation(
+                    context,
                     MemoryRuleSupport.MEDIUM,
                     "Heap is " + percent + "% full (" + MemoryFormat.bytes(memory.heapUsed()) + " of "
                             + MemoryFormat.bytes(memory.heapMax())
@@ -243,9 +248,11 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
         if (postGc.oldGenAvailable() && postGc.oldGenUsed() >= 0) {
             int postPercent = MemoryFormat.percentOf(postGc.oldGenUsed(), pool.max());
             if (postPercent >= THRESHOLD_PERCENT) {
-                return violation("Old-generation pool '" + pool.name() + "' is " + postPercent + "% full ("
-                        + MemoryFormat.bytes(postGc.oldGenUsed()) + " of " + MemoryFormat.bytes(pool.max())
-                        + ") in the post-histogram snapshot; this is occupancy, not a retained-size measurement.");
+                return violation(
+                        context,
+                        "Old-generation pool '" + pool.name() + "' is " + postPercent + "% full ("
+                                + MemoryFormat.bytes(postGc.oldGenUsed()) + " of " + MemoryFormat.bytes(pool.max())
+                                + ") in the post-histogram snapshot; this is occupancy, not a retained-size measurement.");
             }
             return pass();
         }
@@ -253,8 +260,10 @@ final class OldGenerationNearMaxRule extends AbstractMemoryRule {
             return skipped("Old-generation usage is unavailable.");
         }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
-            return violation("Old-generation pool '" + pool.name() + "' is " + pool.usedPercent() + "% full ("
-                    + MemoryFormat.bytes(pool.used()) + " of " + MemoryFormat.bytes(pool.max()) + ").");
+            return violation(
+                    context,
+                    "Old-generation pool '" + pool.name() + "' is " + pool.usedPercent() + "% full ("
+                            + MemoryFormat.bytes(pool.used()) + " of " + MemoryFormat.bytes(pool.max()) + ").");
         }
         return pass();
     }
@@ -305,9 +314,13 @@ final class SmallMaxHeapUnderPressureRule extends AbstractMemoryRule {
         }
         if (smallHeap && usedPercent >= PRESSURE_PERCENT) {
             int percent = MemoryFormat.percentOf(memory.heapMax(), containerLimit);
-            return violation("Max heap " + MemoryFormat.bytes(memory.heapMax()) + " is only " + percent
-                    + "% of the container memory limit " + MemoryFormat.bytes(containerLimit) + " and is already "
-                    + usedPercent + "% full; check total container and native usage before considering a larger heap.");
+            return violation(
+                    context,
+                    "Max heap " + MemoryFormat.bytes(memory.heapMax()) + " is only " + percent
+                            + "% of the container memory limit " + MemoryFormat.bytes(containerLimit)
+                            + " and is already "
+                            + usedPercent
+                            + "% full; check total container and native usage before considering a larger heap.");
         }
         return pass();
     }
@@ -348,8 +361,10 @@ final class MetaspaceSaturationRule extends AbstractMemoryRule {
             return skipped("Metaspace usage is unavailable.");
         }
         if (pool.usedPercent() >= THRESHOLD_PERCENT) {
-            return violation("Metaspace is " + pool.usedPercent() + "% full (" + MemoryFormat.bytes(pool.used())
-                    + " of " + MemoryFormat.bytes(pool.max()) + ").");
+            return violation(
+                    context,
+                    "Metaspace is " + pool.usedPercent() + "% full (" + MemoryFormat.bytes(pool.used()) + " of "
+                            + MemoryFormat.bytes(pool.max()) + ").");
         }
         return pass();
     }
@@ -390,7 +405,7 @@ final class CodeCacheSaturationRule extends AbstractMemoryRule {
                         + MemoryFormat.bytes(pool.used()) + " of " + MemoryFormat.bytes(pool.max()) + ").");
             }
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -426,9 +441,11 @@ final class DirectBufferGrowthRule extends AbstractMemoryRule {
         }
         int percent = MemoryFormat.percentOf(capacity, max);
         if (percent >= LIMIT_PERCENT) {
-            return violation("Direct-buffer capacity is " + MemoryFormat.bytes(capacity) + " (" + percent
-                    + "% of the effective NIO direct-memory cap " + MemoryFormat.bytes(max)
-                    + "); this does not measure the process's complete native footprint.");
+            return violation(
+                    context,
+                    "Direct-buffer capacity is " + MemoryFormat.bytes(capacity) + " (" + percent
+                            + "% of the effective NIO direct-memory cap " + MemoryFormat.bytes(max)
+                            + "); this does not measure the process's complete native footprint.");
         }
         return pass();
     }
@@ -466,9 +483,11 @@ final class MissingHeapSizingInContainerRule extends AbstractMemoryRule {
                 || memory.hasJvmArgumentPrefix("-XX:MaxRAMFraction")
                 || memory.hasJvmArgumentPrefix("-XX:MaxRAM=");
         if (!explicitMaxHeap && !ramSizing) {
-            return violation("Container memory limit " + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
-                    + " detected but neither -Xmx/-XX:MaxHeapSize nor an explicit RAM-sizing option is set; the"
-                    + " heap defaults to about 25% of the limit (50% for small limits).");
+            return violation(
+                    context,
+                    "Container memory limit " + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
+                            + " detected but neither -Xmx/-XX:MaxHeapSize nor an explicit RAM-sizing option is set; the"
+                            + " heap defaults to about 25% of the limit (50% for small limits).");
         }
         return pass();
     }
@@ -499,9 +518,11 @@ final class ContainerSupportDisabledRule extends AbstractMemoryRule {
             return inapplicable("No container memory limit was detected.");
         }
         if (Boolean.FALSE.equals(memory.booleanJvmArgument("UseContainerSupport"))) {
-            return violation("-XX:-UseContainerSupport is set despite a detected cgroup memory limit of "
-                    + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
-                    + "; JVM ergonomics may size against the host and exceed the container.");
+            return violation(
+                    context,
+                    "-XX:-UseContainerSupport is set despite a detected cgroup memory limit of "
+                            + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
+                            + "; JVM ergonomics may size against the host and exceed the container.");
         }
         return pass();
     }
@@ -536,7 +557,7 @@ final class DeadlockDetectedRule extends AbstractMemoryRule {
         if (!threads.deadlockDetected()) {
             return pass();
         }
-        return violation("Deadlock detected involving thread id(s): " + threads.deadlockedThreadIds() + ".");
+        return violation(context, "Deadlock detected involving thread id(s): " + threads.deadlockedThreadIds() + ".");
     }
 }
 
@@ -580,8 +601,10 @@ final class HighBlockedThreadRatioRule extends AbstractMemoryRule {
         boolean absoluteWithRatio = blocked >= ABSOLUTE_BLOCKED && ratio >= MIN_RATIO_FOR_ABSOLUTE;
         if (highRatio || absoluteWithRatio) {
             int percent = MemoryFormat.percentOf(blocked, threads.total());
-            return violation(blocked + " of " + threads.total() + " threads (" + percent
-                    + "%) are BLOCKED waiting for a monitor, indicating lock contention.");
+            return violation(
+                    context,
+                    blocked + " of " + threads.total() + " threads (" + percent
+                            + "%) are BLOCKED waiting for a monitor, indicating lock contention.");
         }
         return pass();
     }
@@ -614,10 +637,12 @@ final class ThreadPoolExhaustionGapRule extends AbstractMemoryRule {
         }
         long gap = (long) threads.peak() - threads.total();
         if (threads.peak() >= 2L * threads.total() && gap >= MIN_GAP) {
-            return violation("Peak threads " + threads.peak() + " was well above the current " + threads.total()
-                    + " live threads (gap " + gap
-                    + ") since JVM start or the last peak reset; this is historical context, not necessarily a"
-                    + " current leak.");
+            return violation(
+                    context,
+                    "Peak threads " + threads.peak() + " was well above the current " + threads.total()
+                            + " live threads (gap " + gap
+                            + ") since JVM start or the last peak reset; this is historical context, not necessarily a"
+                            + " current leak.");
         }
         return pass();
     }
@@ -682,7 +707,7 @@ final class RunawayCpuThreadRule extends AbstractMemoryRule {
                     + (thread.cpuTimeMillis() / 1000) + "s of accumulated CPU (" + percent
                     + "% of JVM uptime) and is currently RUNNABLE; the snapshot does not establish its past states.");
         }
-        return missingCpu ? violation(details).withMissingEvidence() : violation(details);
+        return missingCpu ? violation(context, details).withMissingEvidence() : violation(context, details);
     }
 }
 
@@ -735,7 +760,7 @@ final class BigObjectsRule extends AbstractMemoryRule {
             details.add(entry.className() + " averages " + MemoryFormat.bytes(perInstance) + "/instance across "
                     + entry.instances() + " instances (" + MemoryFormat.bytes(entry.bytes()) + " total).");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -820,7 +845,7 @@ final class CollectionBloatRule extends AbstractMemoryRule {
                     + "% of histogram bytes, shallow) across " + entry.instances()
                     + " instances; confirm this collection is bounded.");
         }
-        return violation(severity, details);
+        return violation(context, severity, details);
     }
 
     private static boolean isCollectionClass(String className) {
@@ -873,9 +898,11 @@ final class DominantClassRule extends AbstractMemoryRule {
                 .filter(entry -> !isArrayClass(entry.className()))
                 .findFirst()
                 .filter(entry -> MemoryFormat.percentOf(entry.bytes(), totalBytes) >= SHARE_PERCENT_THRESHOLD)
-                .map(entry -> violation(entry.className() + " occupies "
-                        + MemoryFormat.percentOf(entry.bytes(), totalBytes) + "% of the sampled heap, shallow ("
-                        + MemoryFormat.bytes(entry.bytes()) + ")."))
+                .map(entry -> violation(
+                        context,
+                        entry.className() + " occupies "
+                                + MemoryFormat.percentOf(entry.bytes(), totalBytes) + "% of the sampled heap, shallow ("
+                                + MemoryFormat.bytes(entry.bytes()) + ")."))
                 .orElseGet(this::pass);
     }
 
@@ -917,10 +944,12 @@ final class ExcessiveLoadedClassesRule extends AbstractMemoryRule {
         if (classLoading.loadedClasses() <= 0) return missingPass();
         boolean manyLoaded = classLoading.loadedClasses() >= LOADED_THRESHOLD;
         if (manyLoaded) {
-            return violation(classLoading.loadedClasses() + " classes are currently loaded ("
-                    + classLoading.totalLoadedClasses() + " loaded and " + classLoading.unloadedClasses()
-                    + " unloaded since start); compare representative workload trends before inferring"
-                    + " classloader retention.");
+            return violation(
+                    context,
+                    classLoading.loadedClasses() + " classes are currently loaded ("
+                            + classLoading.totalLoadedClasses() + " loaded and " + classLoading.unloadedClasses()
+                            + " unloaded since start); compare representative workload trends before inferring"
+                            + " classloader retention.");
         }
         return pass();
     }
@@ -963,6 +992,7 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         }
         if (memory.heapMax() >= limit) {
             return violation(
+                    context,
                     MemoryRuleSupport.HIGH,
                     "Maximum heap " + MemoryFormat.bytes(memory.heapMax())
                             + " meets or exceeds the container limit " + MemoryFormat.bytes(limit)
@@ -985,16 +1015,18 @@ final class CommittedFootprintNearContainerLimitRule extends AbstractMemoryRule 
         }
         if (MemoryFormat.percentOf(configuredFootprint, limit) >= THRESHOLD_PERCENT) {
             int percent = MemoryFormat.percentOf(configuredFootprint, limit);
-            return violation("Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
-                    + percent + "% of the container memory limit " + MemoryFormat.bytes(limit)
-                    + " (maximum heap "
-                    + MemoryFormat.bytes(memory.heapMax()) + " + committed non-heap "
-                    + MemoryFormat.bytes(memory.nonHeapCommitted()) + " + direct buffers "
-                    + MemoryFormat.bytes(memory.directBufferCapacity()) + " + ~"
-                    + context.threads().total()
-                    + " thread stacks " + MemoryFormat.bytes(stacks)
-                    + "); review native headroom. This incomplete mixed reservation estimate is not committed"
-                    + " or resident memory.");
+            return violation(
+                    context,
+                    "Configured JVM memory envelope " + MemoryFormat.bytes(configuredFootprint) + " is "
+                            + percent + "% of the container memory limit " + MemoryFormat.bytes(limit)
+                            + " (maximum heap "
+                            + MemoryFormat.bytes(memory.heapMax()) + " + committed non-heap "
+                            + MemoryFormat.bytes(memory.nonHeapCommitted()) + " + direct buffers "
+                            + MemoryFormat.bytes(memory.directBufferCapacity()) + " + ~"
+                            + context.threads().total()
+                            + " thread stacks " + MemoryFormat.bytes(stacks)
+                            + "); review native headroom. This incomplete mixed reservation estimate is not committed"
+                            + " or resident memory.");
         }
         return pass();
     }
@@ -1038,11 +1070,13 @@ final class HighGcOverheadRule extends AbstractMemoryRule {
         if (percent >= THRESHOLD_PERCENT) {
             String count =
                     runtime.gcCollectionCount() >= 0 ? " across " + runtime.gcCollectionCount() + " collections" : "";
-            return violation("Approximate accumulated GC time is " + (runtime.gcCollectionTimeMillis() / 1000) + "s"
-                    + count + ", " + percent + "% of the "
-                    + (runtime.uptimeMillis() / 1000)
-                    + "s uptime. This lifetime ratio includes diagnostic collections and startup; it is not"
-                    + " CPU utilization or an exact application-pause percentage.");
+            return violation(
+                    context,
+                    "Approximate accumulated GC time is " + (runtime.gcCollectionTimeMillis() / 1000) + "s"
+                            + count + ", " + percent + "% of the "
+                            + (runtime.uptimeMillis() / 1000)
+                            + "s uptime. This lifetime ratio includes diagnostic collections and startup; it is not"
+                            + " CPU utilization or an exact application-pause percentage.");
         }
         return pass();
     }
@@ -1082,9 +1116,11 @@ final class UnequalInitialAndMaxHeapRule extends AbstractMemoryRule {
         }
         if (initial < memory.heapMax()) {
             String initialLabel = memory.hasJvmArgumentPrefix("-Xms") ? "-Xms" : "Initial heap";
-            return violation(initialLabel + " " + MemoryFormat.bytes(initial) + " is smaller than -Xmx "
-                    + MemoryFormat.bytes(memory.heapMax())
-                    + "; for a low-latency collector, setting them equal avoids heap-resize latency.");
+            return violation(
+                    context,
+                    initialLabel + " " + MemoryFormat.bytes(initial) + " is smaller than -Xmx "
+                            + MemoryFormat.bytes(memory.heapMax())
+                            + "; for a low-latency collector, setting them equal avoids heap-resize latency.");
         }
         return pass();
     }
@@ -1142,10 +1178,14 @@ final class CompressedOopsCliffRule extends AbstractMemoryRule {
             return inapplicable("Compressed object pointers are disabled (UseCompressedOops=false).");
         }
         if (heapMax > boundary && heapMax <= upperBound) {
-            return violation("Max heap " + MemoryFormat.bytes(heapMax) + " is just above the ~"
-                    + MemoryFormat.bytes(boundary) + " compressed-oops boundary"
-                    + (alignment == DEFAULT_ALIGNMENT_BYTES ? "" : " (object alignment " + alignment + " bytes)")
-                    + "; a heap at or just below the boundary may hold more objects for the same memory.");
+            return violation(
+                    context,
+                    "Max heap " + MemoryFormat.bytes(heapMax) + " is just above the ~"
+                            + MemoryFormat.bytes(boundary) + " compressed-oops boundary"
+                            + (alignment == DEFAULT_ALIGNMENT_BYTES
+                                    ? ""
+                                    : " (object alignment " + alignment + " bytes)")
+                            + "; a heap at or just below the boundary may hold more objects for the same memory.");
         }
         return pass();
     }
@@ -1192,8 +1232,10 @@ final class PendingFinalizationBacklogRule extends AbstractMemoryRule {
         if (pending < 0) return missingPass();
         if (pending == 0 && context.runtime().uptimeMillis() <= 0) return missingPass();
         if (pending >= THRESHOLD) {
-            return violation(pending + " objects are pending finalization; the finalizer thread is not keeping up"
-                    + " and is retaining memory and native resources.");
+            return violation(
+                    context,
+                    pending + " objects are pending finalization; the finalizer thread is not keeping up"
+                            + " and is retaining memory and native resources.");
         }
         return pass();
     }
@@ -1234,9 +1276,11 @@ final class UnboundedMetaspaceInContainerRule extends AbstractMemoryRule {
         }
         MemoryPoolSnapshot pool = metaspace.get();
         if (pool.max() <= 0 && pool.used() >= MIN_USED) {
-            return violation("Metaspace has no reported pool maximum and uses " + MemoryFormat.bytes(pool.used())
-                    + " inside a container limited to " + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
-                    + "; review native headroom without assuming this undefined maximum means unlimited memory.");
+            return violation(
+                    context,
+                    "Metaspace has no reported pool maximum and uses " + MemoryFormat.bytes(pool.used())
+                            + " inside a container limited to " + MemoryFormat.bytes(memory.containerMemoryLimitBytes())
+                            + "; review native headroom without assuming this undefined maximum means unlimited memory.");
         }
         return pass();
     }
@@ -1270,17 +1314,21 @@ final class ClassLoadingChurnRule extends AbstractMemoryRule {
         long unloaded = context.classLoading().unloadedClasses();
         if (unloaded < 0) return missingPass();
         if (unloaded >= UNLOAD_THRESHOLD) {
-            return violation(unloaded
-                    + " classes have been unloaded since start; this historical total does not establish"
-                    + " current churn.");
+            return violation(
+                    context,
+                    unloaded
+                            + " classes have been unloaded since start; this historical total does not establish"
+                            + " current churn.");
         }
         long uptimeMillis = context.runtime().uptimeMillis();
         if (uptimeMillis >= MIN_UPTIME_MILLIS) {
             long minutes = uptimeMillis / 60_000L;
             long ratePerMin = minutes > 0 ? unloaded / minutes : 0;
             if (ratePerMin >= UNLOAD_RATE_PER_MIN) {
-                return violation("Lifetime-average class unloading is about " + ratePerMin + "/min (" + unloaded
-                        + " over " + minutes + " min); this does not establish a sustained recent rate.");
+                return violation(
+                        context,
+                        "Lifetime-average class unloading is about " + ratePerMin + "/min (" + unloaded + " over "
+                                + minutes + " min); this does not establish a sustained recent rate.");
             }
         }
         return context.classLoading().loadedClasses() <= 0 ? missingPass() : pass();
@@ -1338,6 +1386,7 @@ final class PlatformThreadStackReservationRule extends AbstractMemoryRule {
             String residencyNote = " This is an approximate virtual-memory reservation, not confirmed resident usage;"
                     + " touched stack pages are already included in cgroup usage.";
             return violation(
+                    context,
                     MemoryRuleSupport.MEDIUM,
                     platformThreads + " platform threads reserve about " + MemoryFormat.bytes(reserved)
                             + " of stack memory at " + MemoryFormat.bytes(stackBytes) + " each" + relativeNote
@@ -1404,7 +1453,7 @@ final class ArrayDominanceRule extends AbstractMemoryRule {
             details.add(entry.className() + ": " + MemoryFormat.bytes(entry.bytes()) + " across " + entry.instances()
                     + " instances.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }
 
@@ -1456,7 +1505,7 @@ final class RecentGcOverheadRule extends AbstractMemoryRule {
                 + " since the previous scan; corroborate with GC logs because completed events can cross sampling"
                 + " boundaries.";
         String severity = percent >= HIGH_THRESHOLD_PERCENT ? MemoryRuleSupport.HIGH : MemoryRuleSupport.MEDIUM;
-        return violation(severity, detail);
+        return violation(context, severity, detail);
     }
 }
 
@@ -1494,9 +1543,11 @@ final class CompressedClassSpaceRule extends AbstractMemoryRule {
             return skipped("Compressed Class Space does not report a maximum size on this JVM.");
         }
         if (ccs.usedPercent() >= THRESHOLD_PERCENT) {
-            return violation("Compressed Class Space is " + ccs.usedPercent() + "% full ("
-                    + MemoryFormat.bytes(ccs.used()) + " of " + MemoryFormat.bytes(ccs.max())
-                    + "); exhaustion causes OutOfMemoryError: Compressed class space.");
+            return violation(
+                    context,
+                    "Compressed Class Space is " + ccs.usedPercent() + "% full ("
+                            + MemoryFormat.bytes(ccs.used()) + " of " + MemoryFormat.bytes(ccs.max())
+                            + "); exhaustion causes OutOfMemoryError: Compressed class space.");
         }
         return pass();
     }
@@ -1546,10 +1597,12 @@ final class ContainerMemoryPressureRule extends AbstractMemoryRule {
         int percent = MemoryFormat.percentOf(measuredUsage, limit);
         if (percent >= THRESHOLD_PERCENT) {
             String usageLabel = workingSet != null ? "Container working set" : "Container memory usage";
-            return violation(usageLabel + " is " + percent + "% of the cgroup limit ("
-                    + MemoryFormat.bytes(measuredUsage) + " of " + MemoryFormat.bytes(limit)
-                    + "); if the kernel cannot reclaim enough charged memory for the next allocation, it may"
-                    + " OOM-kill a process.");
+            return violation(
+                    context,
+                    usageLabel + " is " + percent + "% of the cgroup limit ("
+                            + MemoryFormat.bytes(measuredUsage) + " of " + MemoryFormat.bytes(limit)
+                            + "); if the kernel cannot reclaim enough charged memory for the next allocation, it may"
+                            + " OOM-kill a process.");
         }
         return pass();
     }
@@ -1601,8 +1654,10 @@ final class SerialGcOnMultiCoreRule extends AbstractMemoryRule {
                     + " threshold of 2 CPUs and ~2 GiB of memory (available: "
                     + MemoryFormat.bytes(effectiveMemoryBytes) + ").");
         }
-        return violation("Serial GC is active ('Copy'/'MarkSweepCompact') on a " + cpus
-                + "-CPU system; review collector tradeoffs against measured workload goals, not CPU count alone.");
+        return violation(
+                context,
+                "Serial GC is active ('Copy'/'MarkSweepCompact') on a " + cpus
+                        + "-CPU system; review collector tradeoffs against measured workload goals, not CPU count alone.");
     }
 
     /**
@@ -1658,6 +1713,7 @@ final class G1FullGcFrequencyRule extends AbstractMemoryRule {
             return pass();
         }
         return violation(
+                context,
                 "G1 Full GC occurred " + fullGcDelta + " time(s) since the last scan (G1 Old Generation collection"
                         + " count increased); the cause is unknown and may include"
                         + " explicit GC or other diagnostics. Check GC logs before"
@@ -1709,10 +1765,12 @@ final class OverProvisionedHeapRule extends AbstractMemoryRule {
         }
         long slack = committed - used;
         if (used <= committed / COMMITTED_TO_USED_RATIO && slack >= MIN_SLACK_BYTES) {
-            return violation("Committed heap " + MemoryFormat.bytes(committed)
-                    + " is at least " + COMMITTED_TO_USED_RATIO + "x observed heap usage "
-                    + MemoryFormat.bytes(used) + " (slack " + MemoryFormat.bytes(slack)
-                    + ") in one snapshot; this does not establish spare production capacity or a safe heap reduction.");
+            return violation(
+                    context,
+                    "Committed heap " + MemoryFormat.bytes(committed)
+                            + " is at least " + COMMITTED_TO_USED_RATIO + "x observed heap usage "
+                            + MemoryFormat.bytes(used) + " (slack " + MemoryFormat.bytes(slack)
+                            + ") in one snapshot; this does not establish spare production capacity or a safe heap reduction.");
         }
         return pass();
     }
@@ -1748,10 +1806,10 @@ final class InterpretedJitModeRule extends AbstractMemoryRule {
             if (arg.startsWith("-XX:TieredStopAtLevel=")) tieredLevel = arg;
         }
         if (executionMode.equals("-Xint")) {
-            return violation("JVM is running in fully interpreted mode (-Xint); JIT compilation is disabled.");
+            return violation(context, "JVM is running in fully interpreted mode (-Xint); JIT compilation is disabled.");
         }
         if (Boolean.FALSE.equals(memory.booleanJvmArgument("UseCompiler"))) {
-            return violation("JIT compiler is explicitly disabled (-XX:-UseCompiler).");
+            return violation(context, "JIT compiler is explicitly disabled (-XX:-UseCompiler).");
         }
         if (tieredLevel != null && !Boolean.FALSE.equals(memory.booleanJvmArgument("TieredCompilation"))) {
             String arg = tieredLevel;
@@ -1759,8 +1817,10 @@ final class InterpretedJitModeRule extends AbstractMemoryRule {
                 int level = Integer.parseInt(
                         arg.substring("-XX:TieredStopAtLevel=".length()).trim());
                 if (level < 4) {
-                    return violation(arg + " caps JIT at tier " + level
-                            + " (below tier 4); assess whether this is intentional for startup or diagnostics.");
+                    return violation(
+                            context,
+                            arg + " caps JIT at tier " + level
+                                    + " (below tier 4); assess whether this is intentional for startup or diagnostics.");
                 }
             } catch (NumberFormatException ex) {
                 return skipped("The compilation tier argument could not be interpreted.");
@@ -1807,10 +1867,12 @@ final class HighSwapUtilizationRule extends AbstractMemoryRule {
         if (swapPercent < SWAP_USED_PERCENT_THRESHOLD) {
             return pass();
         }
-        return violation(swapPercent + "% of swap is in use (" + MemoryFormat.bytes(usedSwap) + " of "
-                + MemoryFormat.bytes(totalSwap)
-                + ") in the operating-system MXBean's environment; this does not establish that this JVM is"
-                + " swapped out or that paging is active.");
+        return violation(
+                context,
+                swapPercent + "% of swap is in use (" + MemoryFormat.bytes(usedSwap) + " of "
+                        + MemoryFormat.bytes(totalSwap)
+                        + ") in the operating-system MXBean's environment; this does not establish that this JVM is"
+                        + " swapped out or that paging is active.");
     }
 }
 
@@ -1853,8 +1915,10 @@ final class GcEventDurationOutlierRule extends AbstractMemoryRule {
         }
         String collectorName = latestGcEvent.collectorName();
         String collectorNote = collectorName != null && !collectorName.isBlank() ? " (" + collectorName + ")" : "";
-        return violation("The most recently completed GC event took " + durationMillis + " ms" + collectorNote
-                + ", at or above the " + PAUSE_THRESHOLD_MILLIS + " ms threshold.");
+        return violation(
+                context,
+                "The most recently completed GC event took " + durationMillis + " ms" + collectorNote
+                        + ", at or above the " + PAUSE_THRESHOLD_MILLIS + " ms threshold.");
     }
 }
 
@@ -1899,8 +1963,9 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
         List<MemoryContext.BufferPoolSnapshot> pools = context.memory().bufferPools();
         List<String> details = new ArrayList<>();
         boolean escalateToHigh = false;
-        boolean directPoolAtStaticThreshold = MemoryRuleSupport.VIOLATION.equals(
-                new DirectBufferGrowthRule().evaluate(context).status());
+        boolean directPoolAtStaticThreshold = MemoryRuleSupport.VIOLATION.equals(new DirectBufferGrowthRule()
+                .evaluate(context.withViolationCollector(null))
+                .status());
         for (MemoryContext.BufferPoolSnapshot pool : pools) {
             if (!"direct".equalsIgnoreCase(pool.name())) {
                 continue;
@@ -1920,7 +1985,7 @@ final class BufferPoolGrowthWithoutReleaseRule extends AbstractMemoryRule {
         if (details.isEmpty()) {
             return pass();
         }
-        return violation(escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
+        return violation(context, escalateToHigh ? MemoryRuleSupport.MEDIUM : MemoryRuleSupport.LOW, details);
     }
 }
 
@@ -1958,9 +2023,11 @@ final class OldGenerationTrendingUpwardRule extends AbstractMemoryRule {
         if (trend.consecutiveIncreaseStreak() < GROWTH_STREAK_THRESHOLD) {
             return pass();
         }
-        return violation("Post-histogram old-generation occupancy has increased on " + trend.consecutiveIncreaseStreak()
-                + " consecutive scan intervals (now " + MemoryFormat.bytes(trend.lastUsedBytes())
-                + "); this does not establish retained-size growth or a leak. Confirm stable workload and"
-                + " collection evidence.");
+        return violation(
+                context,
+                "Post-histogram old-generation occupancy has increased on " + trend.consecutiveIncreaseStreak()
+                        + " consecutive scan intervals (now " + MemoryFormat.bytes(trend.lastUsedBytes())
+                        + "); this does not establish retained-size growth or a leak. Confirm stable workload and"
+                        + " collection evidence.");
     }
 }

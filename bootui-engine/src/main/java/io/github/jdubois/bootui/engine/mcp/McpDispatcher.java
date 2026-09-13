@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import io.github.jdubois.bootui.engine.action.ActionBusyException;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
@@ -271,10 +272,20 @@ public final class McpDispatcher {
             return new ToolCallError(
                     policy.readOnlyReason(tool.panelId()), McpDispatchOutcome.ToolErrorReason.PANEL_READ_ONLY);
         }
-        McpArguments arguments =
-                McpArguments.normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
-        if (tool.schema() == McpToolSchema.ID && arguments.id() == null) {
+        boolean ruleViolations = tool.schema() == McpToolSchema.RULE_VIOLATIONS;
+        if (ruleViolations && request.rawLimit() != null && request.rawLimit() < 1) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.invalidArgumentMinimumMessage("limit", 1));
+        }
+        if (ruleViolations && request.rawOffset() != null && request.rawOffset() < 0) {
+            return new ProtocolError(
+                    McpProtocol.INVALID_PARAMS, McpProtocol.invalidArgumentMinimumMessage("offset", 0));
+        }
+        McpArguments arguments = McpArguments.normalize(request, tool.schema(), maxResults);
+        if ((tool.schema() == McpToolSchema.ID || ruleViolations) && arguments.id() == null) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
+        }
+        if (ruleViolations && arguments.scanId() == null) {
+            return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_SCAN_ID_ARGUMENT_MESSAGE);
         }
         if (!toolCallSemaphore.tryAcquire()) {
             runtimeStats.recordCapacityRefusal();
@@ -333,6 +344,10 @@ public final class McpDispatcher {
                 return new ToolCallError(busy.result().message(), McpDispatchOutcome.ToolErrorReason.ACTION_BUSY);
             }
             if (cause instanceof McpToolClientException clientError) {
+                return new ToolCallError(clientError.getMessage(), clientError.status());
+            }
+            if (cause instanceof AdvisorViolationException clientError
+                    && McpToolClientExceptions.isClientError(clientError.status())) {
                 return new ToolCallError(clientError.getMessage(), clientError.status());
             }
             if (cause instanceof RuntimeException runtime) {

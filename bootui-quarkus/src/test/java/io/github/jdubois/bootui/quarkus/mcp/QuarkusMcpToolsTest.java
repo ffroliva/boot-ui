@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,9 +17,63 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.*;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class QuarkusMcpToolsTest {
+
+    @Test
+    void everyAdvisorPageForwardsAllArgumentsToItsNativeResource() throws Exception {
+        QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        Map<String, Class<?>> resourceTypes = Map.of(
+                "architecture",
+                ArchitectureResource.class,
+                "hibernate",
+                HibernateResource.class,
+                "spring",
+                SpringResource.class,
+                "rest_api",
+                RestApiResource.class,
+                "memory",
+                MemoryResource.class,
+                "security",
+                SecurityResource.class,
+                "database_advisor",
+                DatabaseAdvisorResource.class);
+        Map<Class<?>, Object> resources = new java.util.HashMap<>();
+        resourceTypes.values().forEach(type -> resources.put(type, mock(type)));
+        java.lang.reflect.Constructor<?> constructor = java.util.Arrays.stream(
+                        QuarkusMcpTools.class.getDeclaredConstructors())
+                .max(java.util.Comparator.comparingInt(java.lang.reflect.Constructor::getParameterCount))
+                .orElseThrow();
+        Object[] arguments = java.util.Arrays.stream(constructor.getParameterTypes())
+                .map(type -> type == QuarkusPanelAvailability.class
+                        ? availability
+                        : resources.computeIfAbsent(type, org.mockito.Mockito::mock))
+                .toArray();
+        List<McpTool> tools = ((QuarkusMcpTools) constructor.newInstance(arguments)).tools();
+        resourceTypes.forEach((advisor, resourceType) -> {
+            invoke(tools, "get_" + advisor + "_rule_violations", new McpArguments(null, 7, "RULE-1", "scan-1", 22));
+            assertThat(mockingDetails(resources.get(resourceType)).getInvocations())
+                    .singleElement()
+                    .satisfies(invocation -> {
+                        assertThat(invocation.getMethod().getName()).isEqualTo("ruleViolations");
+                        assertThat(invocation.getArguments()).containsExactly("RULE-1", "scan-1", 22, 7);
+                    });
+        });
+    }
+
+    @Test
+    void unavailableAdvisorPanelsOmitTheirDetailTools() {
+        QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        when(availability.isPanelAvailable(BootUiPanels.HIBERNATE)).thenReturn(false);
+        when(availability.isPanelAvailable(BootUiPanels.DATABASE_ADVISOR)).thenReturn(false);
+        assertThat(tools(availability))
+                .extracting(McpTool::name)
+                .doesNotContain("get_hibernate_rule_violations", "get_database_advisor_rule_violations");
+    }
 
     @Test
     void advertisesCompleteMaximumCatalogWhenEveryPanelIsAvailable() {
@@ -121,6 +176,7 @@ class QuarkusMcpToolsTest {
                         mock(MappingsResource.class),
                         mock(OverviewResource.class),
                         mock(DatabaseAdvisorResource.class),
+                        mock(PostgresqlResource.class),
                         mock(VulnerabilitiesResource.class),
                         mock(LoggersResource.class),
                         mock(ScheduledResource.class),
