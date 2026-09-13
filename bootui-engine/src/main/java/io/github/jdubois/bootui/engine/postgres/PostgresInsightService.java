@@ -49,6 +49,9 @@ import java.util.function.Supplier;
 public final class PostgresInsightService {
 
     private static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
+    private static final String MANUAL_COMMIT_REASON =
+            "The datasource connection is already in manual-commit mode, so BootUI skipped this PostgreSQL"
+                    + " read to avoid touching the application's transaction state.";
 
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
@@ -231,6 +234,10 @@ public final class PostgresInsightService {
                 unread.add(dataSource.name() + ": " + reason);
                 return null;
             }
+            if (!connection.getAutoCommit()) {
+                diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "ERROR", MANUAL_COMMIT_REASON));
+                return errorDatabase(dataSource.name(), null, -1, MANUAL_COMMIT_REASON);
+            }
             DatabaseMetaData metaData = connection.getMetaData();
             Dialect dialect = Dialect.detect(
                     metaData.getDatabaseProductName(), metaData.getDatabaseProductVersion(), metaData.getURL());
@@ -268,12 +275,6 @@ public final class PostgresInsightService {
         Role role = new Role(null, false);
         try {
             originalAutoCommit = connection.getAutoCommit();
-            if (!originalAutoCommit) {
-                String reason = "The datasource connection is already in manual-commit mode, so BootUI skipped this"
-                        + " PostgreSQL read to avoid touching the application's transaction state.";
-                diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
-                return errorDatabase(name, version.describe(), version.major(), reason);
-            }
             connection.setAutoCommit(false);
             autoCommitChanged = true;
             originalReadOnly = connection.isReadOnly();
@@ -370,17 +371,18 @@ public final class PostgresInsightService {
                         + limits.readBudget().toMillis() + "ms'");
         String unpinned = null;
         for (String pin : pins) {
-            String reason = READ_ONLY_TRANSACTION_PIN.equals(pin)
+            boolean transactionCharacteristic = READ_ONLY_TRANSACTION_PIN.equals(pin);
+            String reason = transactionCharacteristic
                     ? PostgresQuery.pinTransactionCharacteristics(connection, pin)
                     : PostgresQuery.pin(connection, pin);
             if (reason != null) {
                 String message = "The session could not be pinned with \"" + pin + "\": " + reason;
-                String level = READ_ONLY_TRANSACTION_PIN.equals(pin) ? "ERROR" : "WARNING";
+                String level = transactionCharacteristic ? "ERROR" : "WARNING";
                 diagnostics.add(new PostgresDiagnosticDto(name, level, message));
                 if (unpinned == null) {
                     unpinned = message;
                 }
-                if (READ_ONLY_TRANSACTION_PIN.equals(pin)) {
+                if (transactionCharacteristic) {
                     return new PinningResult(message, true);
                 }
             }

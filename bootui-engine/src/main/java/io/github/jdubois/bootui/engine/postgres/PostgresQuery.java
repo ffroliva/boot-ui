@@ -134,9 +134,8 @@ final class PostgresQuery {
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             String reason = CredentialRedaction.redact(message.strip());
             if (rollbackFailure != null) {
-                String separator = reason.endsWith(".") ? " " : ". ";
-                return reason + separator + "The transaction rollback after that failure also failed: "
-                        + rollbackFailure;
+                return appendSentence(
+                        reason, "The transaction rollback after that failure also failed: " + rollbackFailure);
             }
             return reason;
         }
@@ -176,6 +175,15 @@ final class PostgresQuery {
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             return CredentialRedaction.redact(message.strip());
         }
+    }
+
+    private static String appendSentence(String reason, String sentence) {
+        if (reason == null || reason.isBlank()) {
+            return sentence;
+        }
+        String separator =
+                reason.endsWith(".") || reason.endsWith("!") || reason.endsWith("?") ? " " : ". ";
+        return reason + separator + sentence;
     }
 
     /** Drops a savepoint that was not needed, so a long read does not accumulate subtransactions. */
