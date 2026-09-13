@@ -114,6 +114,28 @@ public final class BootUiApiContractCatalog {
             inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
             advisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
+            // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
+            // read's own outcome plus the evidence it did and did not gather.
+            read(
+                    "postgresql",
+                    "/postgresql",
+                    fields(
+                            "localOnly",
+                            JsonType.BOOLEAN,
+                            "disclaimer",
+                            JsonType.STRING,
+                            "status",
+                            JsonType.STRING,
+                            "databasesRead",
+                            JsonType.INTEGER,
+                            "truncated",
+                            JsonType.BOOLEAN,
+                            "databases",
+                            JsonType.ARRAY,
+                            "diagnostics",
+                            JsonType.ARRAY,
+                            "limitations",
+                            JsonType.ARRAY)),
             read(
                     "hibernate-statistics",
                     "/hibernate-statistics",
@@ -343,6 +365,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "hibernate.scan", "hibernate", "POST", "/hibernate/scan");
         all(actions, "hibernate-statistics.enable", "hibernate-statistics", "POST", "/hibernate-statistics/enable");
         all(actions, "database-advisor.scan", "database-advisor", "POST", "/database-advisor/scan");
+        all(actions, "postgresql.read", "postgresql", "POST", "/postgresql/read");
         all(actions, "cache.clear", "cache", "POST", "/cache/clear");
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");
