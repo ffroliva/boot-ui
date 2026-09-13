@@ -134,7 +134,9 @@ final class PostgresQuery {
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             String reason = CredentialRedaction.redact(message.strip());
             if (rollbackFailure != null) {
-                return reason + " The transaction rollback after that failure also failed: " + rollbackFailure;
+                String separator = reason.endsWith(".") ? " " : ". ";
+                return reason + separator + "The transaction rollback after that failure also failed: "
+                        + rollbackFailure;
             }
             return reason;
         }
