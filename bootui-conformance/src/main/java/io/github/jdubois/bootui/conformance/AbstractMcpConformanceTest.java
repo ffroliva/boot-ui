@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.conformance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,38 @@ public abstract class AbstractMcpConformanceTest {
         Response response =
                 probe.request("POST", "/bootui/api/mcp-server/toggle", headers, "{\"enabled\":" + enabled + "}");
         return response.status() == 200 && response.json().path("enabled").asBoolean(!enabled) == enabled;
+    }
+
+    @Test
+    void testPentestingToolsApplyLiveDismissalsToScanAndCachedRead() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try {
+            PentestingDismissalContract.verify(
+                    probe(),
+                    "/bootui/api",
+                    () -> pentestingTool("pentest_scan"),
+                    () -> pentestingTool("get_pentest_report"));
+        } finally {
+            disableMcp();
+        }
+    }
+
+    private JsonNode pentestingTool(String tool) {
+        JsonNode envelope = PentestingDismissalContract.response(probe().request(
+                        "POST",
+                        "/bootui/api/mcp",
+                        Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"" + tool
+                                + "\"}}"));
+        assertThat(envelope.has("error")).as(envelope.toString()).isFalse();
+        JsonNode result = envelope.path("result");
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        try {
+            return new ObjectMapper()
+                    .readTree(result.path("content").get(0).path("text").asText());
+        } catch (java.io.IOException ex) {
+            throw new AssertionError("Pentesting MCP content must contain the JSON report", ex);
+        }
     }
 
     @Test

@@ -1,4 +1,4 @@
-import {apiFetch} from '../api.js'
+import {ApiError, apiFetch} from '../api.js'
 import {ref} from 'vue'
 
 /**
@@ -10,19 +10,20 @@ import {ref} from 'vue'
  * restoring a rule simply POSTs/DELETEs and then reloads the panel report (passed
  * in as `reload`) to pick up the server-applied `dismissed` flags and recomputed
  * severity counts.
+ * Callers must surface rejected mutations through their panel error display.
  */
 export function useDismissedRules(reload) {
   const dismissLoading = ref(false)
 
   async function mutate(ruleId, method) {
+    if (dismissLoading.value) return
     dismissLoading.value = true
     try {
       const res = await apiFetch(`api/dismissed-rules/${encodeURIComponent(ruleId)}`, {method})
-      if (res.ok && typeof reload === 'function') {
+      if (!res.ok) throw new ApiError(res.status)
+      if (typeof reload === 'function') {
         await reload()
       }
-    } catch {
-      // Non-fatal: dismissed rules are a UI convenience; ignore errors
     } finally {
       dismissLoading.value = false
     }

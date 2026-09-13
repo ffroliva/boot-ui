@@ -1000,6 +1000,12 @@ Features:
 - Show **Findings by severity**, consistent with other advisors, instead of a separate OWASP Top 10 coverage panel.
   Category metadata is informational review guidance, never a pass. Report unavailable or truncated dependent
   evidence honestly, with detailed limitations in the panel's scan notes.
+- Apply persisted `dismissedRules` by exact `PT-*` check ID on scan responses and cached reads. Retain findings with
+  an explicit `dismissed` boolean, but exclude dismissed findings from `findingsFound`, `scan.findingsFound`,
+  `severityCounts`, and panel/Overview penalties. Offer Dismiss and a collapsed Dismissed rules list with Restore,
+  disabled under panel read-only policy. Refresh after dismissal with a cached read, never another scan.
+- Preserve scan time/status, check counts, coverage, and evidence when applying dismissals. Equivalent Security and
+  Pentesting findings remain independently dismissible; accepting a finding does not imply a completed or passing check.
 - Hand off dependency vulnerability coverage to the Vulnerabilities panel.
 - Clearly mark injection payloads and endpoint access-control probing as skipped.
 

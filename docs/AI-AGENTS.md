@@ -28,6 +28,11 @@ grounded, machine-readable context from the *actually running* application:
 Because every tool reuses the same controllers and immutable DTOs as the browser UI, the agent sees exactly the masked,
 bounded shape a human would — never raw, unfiltered internals.
 
+Pentesting's `pentest_scan` and `get_pentest_report` tools, their CLI equivalents, and the REST API retain accepted
+findings with `dismissed: true`. Their finding totals and severity counts include only active findings. Dismissals use
+the exact `PT-*` check ID from the shared local store; they do not carry over from Security rule IDs. Reading the
+cached report reflects dismiss/restore without rescanning, while scan evidence and coverage limits remain unchanged.
+
 ## MCP server or CLI?
 
 Every BootUI tool is available two ways, and both give the agent identical data: the same registry, the same panel

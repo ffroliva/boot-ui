@@ -836,6 +836,18 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void pentestingDismissalsUpdateCachedReportsWithoutChangingScanEvidence() {
+        assumeTrue(isPanelUsableInLiveManifest("pentesting"));
+        BootUiHttpProbe probe = probe();
+        PentestingDismissalContract.verify(
+                probe,
+                api(""),
+                () -> PentestingDismissalContract.response(
+                        probe.post(api("/pentesting/scan"), stateChangingHeaders(probe))),
+                () -> PentestingDismissalContract.response(probe.get(api("/pentesting"))));
+    }
+
+    @Test
     void scoredAdvisorReportsExposeConservativeEvidenceWithoutTriggeringScans() {
         for (String panel : List.of(
                 "architecture",

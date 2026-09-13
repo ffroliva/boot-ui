@@ -36,7 +36,7 @@ const panel = useAdvisorPanel(props, {
       <template #actions>
         <SpinnerButton
           :loading="panel.loading"
-          :disabled="panel.loading || panel.readOnly || !panel.manifestAvailable"
+          :disabled="panel.actionsDisabled"
           class="btn btn-primary"
           type="button"
           label="Run security checks"
@@ -165,7 +165,7 @@ const panel = useAdvisorPanel(props, {
               <button
                 class="btn btn-sm btn-outline-secondary ms-auto"
                 type="button"
-                :disabled="panel.dismissLoading"
+                :disabled="panel.actionsDisabled"
                 @click="panel.dismiss(result.id)"
                 title="Dismiss this rule"
               >
@@ -237,7 +237,7 @@ const panel = useAdvisorPanel(props, {
                 <button
                   class="btn btn-sm btn-outline-secondary ms-auto"
                   type="button"
-                  :disabled="panel.dismissLoading"
+                  :disabled="panel.actionsDisabled"
                   @click="panel.restore(result.id)"
                   title="Restore this rule"
                 >

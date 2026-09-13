@@ -36,6 +36,7 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
         @Override
         public Map<String, String> getConfigOverrides() {
             return Map.of(
+                    "bootui.overrides-file", "target/api-conformance/application-bootui.properties",
                     "bootui.panels.copilot.enabled", "false",
                     "bootui.panels.heap-dump.read-only", "true",
                     "bootui.heap-dump.capture-enabled", "false",

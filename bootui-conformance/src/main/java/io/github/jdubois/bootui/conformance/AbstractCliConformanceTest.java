@@ -43,6 +43,15 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testPentestingToolsApplyLiveDismissalsToScanAndCachedRead() {
+        PentestingDismissalContract.verify(
+                probe(),
+                "/bootui/api",
+                () -> PentestingDismissalContract.response(invoke("pentest_scan", "{}")),
+                () -> PentestingDismissalContract.response(invoke("get_pentest_report", "{}")));
+    }
+
+    @Test
     void testCliCatalogDescribesTheToolsThisInstanceExposes() {
         Response response = probe().get(CLI);
 

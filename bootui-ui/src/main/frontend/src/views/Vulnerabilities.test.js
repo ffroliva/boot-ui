@@ -175,6 +175,26 @@ describe('Vulnerabilities', () => {
     expect(fetchMock.mock.calls.some(([url]) => url.includes('/scan'))).toBe(false)
   })
 
+  it.each([false, true])(
+    'surfaces persistence failures without losing accepted dependencies (dismissed %s)',
+    async (dismissed) => {
+      document.cookie = 'XSRF-TOKEN=test-token; path=/'
+      const current = dependency('org.example:sample', '1.0', [vulnerability('GHSA-test', 'HIGH', dismissed)], 'HIGH')
+      const {wrapper, fetchMock} = await mountWithReports([report([current])])
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === (dismissed ? 'Restore' : 'Dismiss'))
+        .trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[role="alert"]').text()).toContain('Server unreachable')
+      expect(wrapper.text()).toContain('org.example:sample')
+      const action = wrapper.findAll('button').find((button) => button.text() === (dismissed ? 'Restore' : 'Dismiss'))
+      expect(action.element.disabled).toBe(false)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    }
+  )
+
   it('retains dependency results and shows a warning when an OSV scan is already active', async () => {
     const existing = report([dependency('org.example:sample', '1.0.0', [], 'NONE')])
     const busy = {

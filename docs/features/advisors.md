@@ -89,6 +89,10 @@ Overview dashboard reads cached reports on initial navigation and when you retur
 panel-originated scan, dismissal, or restore updates both the score and eligibility in both places.
 Rules can be restored at any time from that list.
 
+Architecture, REST API, Spring/Quarkus, Database, Hibernate, Memory, Security, and Pentesting disable scan, dismiss,
+and restore controls while a scan or dismissal request is pending, or when the panel is read-only or unavailable.
+A failed dismissal leaves the last accepted report visible and displays an error.
+
 ::: details Where dismissals are stored
 Dismissals are applied server-side and persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file
 (next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Overview
@@ -571,11 +575,17 @@ proof of exploitability or a replacement for a full security assessment.
 
 The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
-matrix. Severity bars summarize retained findings; category metadata is not a passing-check count.
+matrix. Severity bars summarize active, non-dismissed findings; category metadata is not a passing-check count.
 Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared
 eligibility policy, with limits in **Scan notes**; skipped, failed, or unknown-only evidence cannot establish a score.
 See [PENTEST-CHECKS.md](../PENTEST-CHECKS.md) for the
 full catalogue, limits, mappings, and retired IDs.
+
+Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings) by exact `PT-*` check ID. Accepted
+findings remain in the JSON with `dismissed: true` and in a collapsed **Dismissed rules** list, but leave the finding
+counts, severity bars, and panel/Overview penalties. Restoring updates the cached report without another scan.
+Dismissal preserves observed evidence and coverage limits, and does not automatically dismiss an equivalent Security
+advisor finding.
 
 ### Per-stack coverage
 

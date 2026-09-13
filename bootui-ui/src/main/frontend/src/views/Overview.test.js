@@ -745,6 +745,59 @@ describe('Overview', () => {
     expect(wrapper.text()).not.toContain('1 high')
   })
 
+  it.each([
+    ['SCANNED', true],
+    ['PARTIAL', true],
+    ['PARTIAL', false]
+  ])(
+    'refreshes Pentesting dismissals from cached GETs without changing %s eligibility (%s)',
+    async (status, usable) => {
+      let dismissed = false
+      const fetchMock = vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              severityCounts: [
+                {severity: 'HIGH', count: dismissed ? 0 : 1},
+                {severity: 'MEDIUM', count: 1}
+              ],
+              scan: {status, scannedAt: 1700000000000, findingsFound: dismissed ? 1 : 2},
+              evidence: {
+                usable,
+                coverageComplete: status === 'SCANNED',
+                limitations: status === 'PARTIAL' ? ['Bounded inspection.'] : []
+              },
+              findingsFound: dismissed ? 1 : 2,
+              findings: [
+                {id: 'PT-A07-006', severity: 'HIGH', dismissed},
+                {id: 'PT-A05-040', severity: 'MEDIUM', dismissed: false}
+              ]
+            })
+          )
+        )
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const {wrapper, show} = mountKeptAlive(onlyPanels('pentesting'))
+      await flushPromises()
+      for (const next of [false, true, false]) {
+        show.value = false
+        await flushPromises()
+        dismissed = next
+        show.value = true
+        await flushPromises()
+        const card = scannerCard(wrapper, 'Pentesting')
+        expect(card.find('.scanner-score').exists()).toBe(usable)
+        if (usable) expect(card.get('.scanner-score').text()).toBe(next ? '97' : '87')
+        else expect(card.text()).toContain('Not scored')
+        expect(card.text().includes('1 high')).toBe(!next)
+        expect(card.text()).toContain('1 medium')
+        if (status === 'PARTIAL') expect(wrapper.text()).toContain('1 advisor has scan notes')
+      }
+      expect(fetchMock.mock.calls.every(([url, init]) => url === 'api/pentesting' && !init?.method)).toBe(true)
+      wrapper.unmount()
+    }
+  )
+
   it('runs GitHub alone and displays actual counts and unknown signals without scoring them', async () => {
     stubFetch({
       'api/github/refresh': {

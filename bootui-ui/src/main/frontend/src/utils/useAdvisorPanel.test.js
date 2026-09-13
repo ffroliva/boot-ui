@@ -80,4 +80,39 @@ describe('advisor panel scoring', () => {
     expect(panel.noFindingsLabel).toBe('No findings in the assessed evidence')
     wrapper.unmount()
   })
+
+  it.each(['dismiss', 'restore'])('surfaces %s failures without rejecting the panel action', async (action) => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(report('SCANNED'))))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Host)
+    await flushPromises()
+    fetchMock.mockResolvedValueOnce(new Response('{}', {status: 403}))
+    await expect(panel[action]('TEST-1')).resolves.toBeUndefined()
+    expect(panel.score).toBe(90)
+    expect(panel.visibleResults).toEqual([finding])
+    expect(panel.error.message).toBe(`Unable to ${action} rule: HTTP 403`)
+    expect(panel.dismissLoading).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
+    wrapper.unmount()
+  })
+
+  it('prevents mutations while a scan is running', async () => {
+    document.cookie = 'XSRF-TOKEN=test-token; path=/'
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(report('SCANNED'))))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Host)
+    await flushPromises()
+    let finish
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const scan = panel.runScan()
+    await panel.dismiss('TEST-1')
+    await panel.restore('TEST-1')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    finish(new Response(JSON.stringify(report('SCANNED'))))
+    await scan
+    document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
+    wrapper.unmount()
+  })
 })
