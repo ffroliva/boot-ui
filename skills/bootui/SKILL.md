@@ -161,6 +161,43 @@ before the application is stopped.
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior.
 
+### Read retained advisor violations
+
+The Architecture, Hibernate, Spring/Quarkus application, REST API, Memory, Security, and Database advisors report
+true `violationCount` values but only bounded `sampleViolations` previews (ten, or twenty for Quarkus application
+and Security). Never treat the preview as the full affected-target list. Read the cached report first:
+
+```bash
+scan_id=$(bootui architecture report --json | jq -er '.violationDetails.scanId')
+bootui architecture violations ARCH-SPRING-004 --scan-id "$scan_id" --offset 0 --limit 100 --json
+```
+
+Equivalent commands are `hibernate violations`, `spring violations`, `rest-api violations`, `memory violations`,
+`security violations`, and `db violations`, each with positional rule ID and required `--scan-id`.
+The seven MCP tools are `get_architecture_rule_violations`, `get_hibernate_rule_violations`,
+`get_spring_rule_violations`, `get_rest_api_rule_violations`, `get_memory_rule_violations`,
+`get_security_rule_violations`, and `get_database_advisor_rule_violations`. Their arguments are required
+`id` and `scanId`, optional integer `offset` (default zero, nonnegative) and `limit` (default 100, positive,
+capped at `min(1000, transport max-results)`). Obtain `scanId` from `get_<advisor>_report` first.
+
+Keep the rule and scan ID fixed, advance the offset by `page.returned`, and stop when `page.hasMore` is false.
+`page.total` and `page.matched` count retained entries, not the full `violationCount`. Inspect rule/report
+`truncated`: retention overflow means even a terminal page is incomplete. Report `violationDetails` contains
+`scanId`, `total`, `retained`, `retentionLimit`, and `truncated`; the default is 10,000 sanitized details per
+advisor scan (`bootui.advisors.max-retained-violations`). Raising it cannot recover already discarded details
+without an explicitly authorized new scan. Detail completeness is not the same as evidence coverage.
+Truncation can also reflect upstream observations that count affected targets without supplying every identity.
+Preserve that diagnostic instead of inventing details or assuming a larger retention budget will recover them.
+Paging does not expand existing observation bounds, such as Memory rules that inspect only their top-five inputs.
+
+Detail reads never rerun checks or query a database and remain permitted in read-only mode. Only the latest
+completed snapshot is kept; dismissal preserves its ID and details. On stale/no-snapshot client error 409,
+**reread the cached report, not the scan tool**, and restart pages using its ID. An unknown/non-finding rule
+is REST/MCP client error 404 (CLI facade 400 by its existing unavailable-tool distinction). On MCP rendered-byte
+refusal `-32003`, retry the same scan ID and offset with a smaller limit; never advance after a failure or treat
+it as an empty page. Stop rather than retry indefinitely when one detail cannot fit. Verify every finding against
+source and effective configuration before proposing a fix; do not claim complete coverage when truncated.
+
 ## Use BootUI on a running application
 
 Prefer BootUI's CLI, MCP tools, or browser panels over raw framework internals because BootUI returns bounded, masked

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,6 +49,14 @@ final class SpringRuleSupport {
     static SpringRuleResultDto violation(
             SpringRuleDefinition definition, String severityOverride, List<String> details) {
         return result(definition, VIOLATION, severityOverride, details.size(), samples(details));
+    }
+
+    static SpringRuleResultDto violation(
+            SpringRuleDefinition definition, List<String> details, AdvisorViolationCollector collector) {
+        if (collector != null) {
+            collector.record(definition.id(), details.size(), details, SpringRuleSupport::detail);
+        }
+        return violation(definition, details);
     }
 
     static SpringRuleResultDto result(

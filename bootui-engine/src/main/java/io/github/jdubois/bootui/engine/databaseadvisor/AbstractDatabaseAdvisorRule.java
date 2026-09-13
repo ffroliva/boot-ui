@@ -36,8 +36,8 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
         return DatabaseAdvisorRuleSupport.skipped(definition, reason);
     }
 
-    DatabaseAdvisorRuleResultDto violation(List<String> details) {
-        return details.isEmpty() ? pass() : DatabaseAdvisorRuleSupport.violation(definition, details);
+    DatabaseAdvisorRuleResultDto violation(DatabaseAdvisorContext context, List<String> details) {
+        return details.isEmpty() ? pass() : DatabaseAdvisorRuleSupport.violation(context, definition, details);
     }
 
     void unknown(DatabaseAdvisorContext context, String reason) {
@@ -47,6 +47,6 @@ abstract class AbstractDatabaseAdvisorRule implements DatabaseAdvisorRule {
     DatabaseAdvisorRuleResultDto assessed(DatabaseAdvisorContext context, int eligible, List<String> details) {
         return eligible == 0 && details.isEmpty()
                 ? skipped("No applicable targets were available for this check.")
-                : violation(details);
+                : violation(context, details);
     }
 }

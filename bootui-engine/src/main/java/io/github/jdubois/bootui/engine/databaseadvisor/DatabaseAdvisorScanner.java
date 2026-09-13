@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDataSourceDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
@@ -10,6 +11,8 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorSeverityCountDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
@@ -22,6 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -56,6 +60,8 @@ public final class DatabaseAdvisorScanner {
     private final Clock clock;
     private final DatabaseAdvisorLimits limits;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<DatabaseAdvisorReport> state =
+            new AdvisorScanState<>(DatabaseAdvisorReport::withViolationDetails);
 
     public static DatabaseAdvisorScanner using(
             Supplier<List<NamedDataSource>> dataSourceSupplier,
@@ -143,10 +149,25 @@ public final class DatabaseAdvisorScanner {
     }
 
     public DatabaseAdvisorReport scan() {
-        return singleFlight.run(ActionOperations.DATABASE_ADVISOR_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.DATABASE_ADVISOR_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private DatabaseAdvisorReport doScan() {
+    public DatabaseAdvisorReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private DatabaseAdvisorReport doScan(AdvisorViolationCollector collector) {
         DatabaseAdvisorDataSourceDiscovery discovery = discoverDataSources();
         List<NamedDataSource> dataSources = discovery.dataSources();
         if (dataSources.isEmpty() && discovery.failures().isEmpty()) {
@@ -199,7 +220,7 @@ public final class DatabaseAdvisorScanner {
         for (DatabaseAdvisorRule rule : DatabaseAdvisorRuleRegistry.activeRules()) {
             // Each rule gets its own gap journal: a bounded shared journal cannot prove later rules completed.
             DatabaseAdvisorContext evaluation = new DatabaseAdvisorContext(
-                    schemas, hibernateAvailable, mappedEntities, context.observedStatements());
+                    schemas, hibernateAvailable, mappedEntities, context.observedStatements(), List.of(), collector);
             DatabaseAdvisorRuleResultDto result = rule.evaluate(evaluation);
             results.add(result);
             usable |= isViolation(result)
@@ -308,7 +329,8 @@ public final class DatabaseAdvisorScanner {
                 updatedScan,
                 marked,
                 report.diagnostics(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     private List<DatabaseAdvisorDiagnosticDto> schemaDiagnostics(List<SchemaSnapshot> schemas) {

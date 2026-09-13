@@ -55,7 +55,7 @@ class ArchitectureControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         ArchitectureReport initial = report("NOT_SCANNED", 0);
         ArchitectureReport dismissedView = report("NOT_SCANNED", 0);
-        when(scanner.initialReport()).thenReturn(initial);
+        when(scanner.lastReport()).thenReturn(initial);
         when(dismissedRules.load()).thenReturn(Set.of("ARCH-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("ARCH-IGNORED")))).thenReturn(dismissedView);
 
@@ -72,7 +72,6 @@ class ArchitectureControllerTests {
     void scanRefreshesCachedReportAndAppliesDismissals() throws Exception {
         ArchitectureScanner scanner = mock(ArchitectureScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         ArchitectureReport scanned = report("SCANNED", 3);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());
@@ -117,7 +116,7 @@ class ArchitectureControllerTests {
                 base.results(),
                 List.of(error),
                 base.evidence());
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
+        when(scanner.lastReport()).thenReturn(scanned);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());
         when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);

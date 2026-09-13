@@ -10,6 +10,38 @@ import org.junit.jupiter.api.Test;
 class McpToolDescriptionsTests {
 
     @Test
+    void advisorDescriptionsDistinguishSamplesRetentionAndCachedPagination() {
+        for (String advisor :
+                List.of("architecture", "hibernate", "spring", "rest_api", "memory", "security", "database_advisor")) {
+            for (Function<String, String> provider :
+                    List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+                assertThat(provider.apply("get_" + advisor + "_report"))
+                        .contains(
+                                "sampleViolations",
+                                "violationDetails.scanId",
+                                "get_" + advisor + "_rule_violations",
+                                "truncated",
+                                "Verify each finding");
+                assertThat(provider.apply(advisor + "_scan"))
+                        .contains("bounded previews", "page cached retained", "retention overflow");
+                assertThat(provider.apply("get_" + advisor + "_rule_violations"))
+                        .contains(
+                                "page.hasMore",
+                                "violationCount",
+                                "404",
+                                "409",
+                                "cached report, not a new scan",
+                                "-32003",
+                                "same scanId and offset",
+                                "smaller limit");
+            }
+        }
+        assertThat(McpToolDescriptions.spring("get_spring_report")).contains("up to 10");
+        assertThat(McpToolDescriptions.quarkus("get_spring_report")).contains("up to 20");
+        assertThat(McpToolDescriptions.quarkus("get_security_report")).contains("up to 20");
+    }
+
+    @Test
     void everySpringToolHasAgentOrientedGuidance() {
         assertDescriptions(McpToolCatalog.namesFor(McpToolCatalog.Stack.SPRING_MVC), McpToolDescriptions::spring);
     }

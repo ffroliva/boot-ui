@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.quarkussecurity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
@@ -16,6 +17,141 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class QuarkusSecurityScannerTest {
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 4, 10000})
+    void baseIntegrationPostureExcludesUnknownDocumentChecksBeforeCountingAndRetaining(int retentionLimit) {
+        Snap snap = new Snap();
+        snap.basic = false;
+        snap.authenticated = 0;
+        snap.denyUnannotated = false;
+        snap.endpoints = 2;
+        snap.secured = 0;
+        snap.insecure = "enabled";
+        snap.ssl = false;
+        snap.hsts = false;
+        snap.csp = false;
+        snap.xFrame = false;
+        snap.xContentType = false;
+        snap.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-HDR-003", "QS-HDR-004", "QS-HDR-005"),
+                List.of("document applicability is not established"),
+                List.of(),
+                List.of(
+                        new QuarkusSecurityEndpoint(
+                                "/api/items", "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false),
+                        new QuarkusSecurityEndpoint(
+                                "/api/status", "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false)),
+                true);
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK);
+        scanner.setViolationRetentionLimit(() -> retentionLimit);
+        SecurityReport report = scanner.scan();
+        assertThat(report.results())
+                .extracting(SecurityRuleResultDto::id)
+                .containsExactlyInAnyOrder("QS-AUTH-001", "QS-TLS-001", "QS-TLS-002", "QS-HDR-006");
+        assertCountedMetadata(report);
+        assertThat(report.violationDetails().total()).isEqualTo(4);
+        assertThat(report.violationDetails().retained()).isEqualTo(Math.min(4, retentionLimit));
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        String scanId = report.violationDetails().scanId();
+        for (String unknown : snap.evidence.unknownRules()) {
+            assertThatThrownBy(() -> scanner.ruleViolations(unknown, scanId, 0, null))
+                    .isInstanceOfSatisfying(
+                            io.github.jdubois.bootui.engine.advisor.AdvisorViolationException.class,
+                            failure -> assertThat(failure.status()).isEqualTo(404));
+        }
+        var headers = scanner.ruleViolations("QS-HDR-006", scanId, 0, null);
+        assertThat(headers.violationCount()).isOne();
+        if (retentionLimit >= 4) {
+            assertThat(headers.violations())
+                    .containsExactly("quarkus.http.header.\"X-Content-Type-Options\".value absent");
+            assertThat(headers.truncated()).isFalse();
+        }
+    }
+
+    @Test
+    void retainsAllCountedSecurityDetailsBeforeTwentySampleLimitWithoutCollectingAgain() {
+        Snap snap = new Snap();
+        snap.secrets = java.util.stream.IntStream.range(0, 35)
+                .mapToObj(index -> "application.credential-" + index)
+                .toList();
+        java.util.concurrent.atomic.AtomicInteger collections = new java.util.concurrent.atomic.AtomicInteger();
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(
+                () -> {
+                    collections.incrementAndGet();
+                    return snap.build();
+                },
+                CLOCK);
+        SecurityReport report = scanner.scan();
+        String scanId = report.violationDetails().scanId();
+        String id = "QS-CFG-001";
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals(id))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(35);
+                    assertThat(result.sampleViolations()).containsExactlyElementsOf(snap.secrets.subList(0, 20));
+                });
+        var first = scanner.ruleViolations(id, scanId, 0, 21);
+        assertThat(first.violations()).containsExactlyElementsOf(snap.secrets.subList(0, 21));
+        assertThat(first.page().hasMore()).isTrue();
+        var last = scanner.ruleViolations(id, scanId, 21, 21);
+        assertThat(last.violations()).containsExactlyElementsOf(snap.secrets.subList(21, 35));
+        assertThat(last.page().hasMore()).isFalse();
+        assertThat(last.truncated()).isFalse();
+        assertThat(scanner.applyDismissals(report, Set.of(id)).violationDetails())
+                .isEqualTo(report.violationDetails());
+        assertThat(scanner.lastReport()).isSameAs(report);
+        assertThat(collections).hasValue(1);
+
+        scanner.setViolationRetentionLimit(() -> 7);
+        SecurityReport bounded = scanner.scan();
+        assertThat(bounded.results()).isEqualTo(report.results());
+        assertThat(bounded.evidence()).isEqualTo(report.evidence());
+        var truncated = scanner.ruleViolations(id, bounded.violationDetails().scanId(), 0, null);
+        assertThat(truncated.truncated()).isTrue();
+        assertThat(truncated.violationCount()).isEqualTo(35);
+        assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+    }
+
+    @Test
+    void endpointCountKeepsAggregatePreviewButRetainsOnlyKnownEndpointIdentities() {
+        Snap snap = new Snap();
+        snap.denyUnannotated = false;
+        snap.endpoints = 25;
+        snap.secured = 0;
+        List<QuarkusSecurityEndpoint> endpoints = java.util.stream.IntStream.range(0, 25)
+                .mapToObj(index -> new QuarkusSecurityEndpoint(
+                        "/resource-" + index, "GET", QuarkusSecurityEndpoint.Access.UNANNOTATED, false))
+                .toList();
+        snap.evidence = new QuarkusSecurityEvidence(Set.of(), List.of(), List.of(), endpoints, true);
+        QuarkusSecurityScanner scanner = QuarkusSecurityScanner.usingSnapshot(snap::build, CLOCK);
+        SecurityReport report = scanner.scan();
+        String id = "QS-AUTHZ-004";
+        assertThat(report.results())
+                .filteredOn(result -> result.id().equals(id))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.violationCount()).isEqualTo(25);
+                    assertThat(result.sampleViolations())
+                            .containsExactly("25 declared endpoint(s) without a supported restriction");
+                });
+        var page = scanner.ruleViolations(id, report.violationDetails().scanId(), 0, null);
+        assertThat(page.violations())
+                .containsExactlyElementsOf(endpoints.stream()
+                        .map(endpoint ->
+                                "GET " + endpoint.path() + " — declared endpoint without a supported restriction")
+                        .toList());
+        assertThat(page.truncated()).isFalse();
+
+        snap.evidence = QuarkusSecurityEvidence.LEGACY;
+        SecurityReport legacy = scanner.scan();
+        var unknown = scanner.ruleViolations(id, legacy.violationDetails().scanId(), 0, null);
+        assertThat(unknown.violationCount()).isEqualTo(25);
+        assertThat(unknown.violations()).isEmpty();
+        assertThat(unknown.truncated()).isTrue();
+        assertThat(unknown.page().hasMore()).isFalse();
+    }
 
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
 
@@ -183,7 +319,17 @@ class QuarkusSecurityScannerTest {
     }
 
     private static SecurityReport scan(Snap s) {
-        return QuarkusSecurityScanner.usingSnapshot(s::build, CLOCK).scan();
+        SecurityReport report =
+                QuarkusSecurityScanner.usingSnapshot(s::build, CLOCK).scan();
+        assertCountedMetadata(report);
+        return report;
+    }
+
+    private static void assertCountedMetadata(SecurityReport report) {
+        assertThat(report.violationDetails().total())
+                .isEqualTo(report.results().stream()
+                        .mapToInt(SecurityRuleResultDto::violationCount)
+                        .sum());
     }
 
     private static SecurityRuleResultDto find(SecurityReport r, String id) {

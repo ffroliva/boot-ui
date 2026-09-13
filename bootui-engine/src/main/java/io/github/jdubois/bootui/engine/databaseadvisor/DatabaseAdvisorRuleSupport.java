@@ -35,7 +35,12 @@ final class DatabaseAdvisorRuleSupport {
         return result(definition, ERROR, 0, List.of(detail(reason)));
     }
 
-    static DatabaseAdvisorRuleResultDto violation(DatabaseAdvisorRuleDefinition definition, List<String> details) {
+    static DatabaseAdvisorRuleResultDto violation(
+            DatabaseAdvisorContext context, DatabaseAdvisorRuleDefinition definition, List<String> details) {
+        if (context.violationCollector() != null) {
+            context.violationCollector()
+                    .record(definition.id(), details.size(), details, DatabaseAdvisorRuleSupport::detail);
+        }
         return result(definition, VIOLATION, details.size(), samples(details));
     }
 

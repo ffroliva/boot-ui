@@ -153,6 +153,59 @@ name matching that lets `bootui config --query bootui.mcp.enabled` find a value 
 Auto-detection is a convenience, not a contract: on a JDK 22 or later runtime a redirected stream can still
 report a console. Pass `--json` explicitly in scripts.
 
+### Retrieve more than the advisor preview
+
+Architecture, Hibernate, Spring (the Quarkus application advisor on Quarkus), REST API, Memory, Security, and
+Database Advisor reports contain compact `sampleViolations`, not all `violationCount` details. Samples remain
+bounded at ten per result, or twenty for the Quarkus application and Security advisors. Page the retained details
+with `architecture violations`, `hibernate violations`, `spring violations`, `rest-api violations`,
+`memory violations`, `security violations`, or `db violations`:
+
+```bash
+# Read the existing snapshot; this does not start a scan.
+scan_id=$(bootui architecture report --json | jq -er '.violationDetails.scanId')
+bootui architecture violations ARCH-SPRING-004 --scan-id "$scan_id" --offset 0 --limit 100 --json
+```
+
+The rule ID is positional and `--scan-id` is required. `--offset` defaults to zero; `--limit` defaults to 100
+and is capped at `min(1000, bootui.cli.max-results)`. Nonblank IDs, nonnegative integer offsets, and positive
+integer limits are required. JSON null, fractional or overflowing numbers, and unknown arguments are rejected.
+These are read commands and remain available on read-only panels.
+
+A script can visit the retained pages without starting a new scan:
+
+```bash
+offset=0
+while :; do
+  page=$(bootui architecture violations ARCH-SPRING-004 --scan-id "$scan_id" \
+    --offset "$offset" --limit 100 --json) || break
+  printf '%s\n' "$page" | jq '{violationCount, retainedCount, truncated, violations, page}'
+  [ "$(printf '%s\n' "$page" | jq -r '.page.hasMore')" = true ] || break
+  returned=$(printf '%s\n' "$page" | jq -r '.page.returned')
+  [ "$returned" -gt 0 ] || break
+  offset=$((offset + returned))
+done
+```
+
+`page.total` and `page.matched` both count retained details for this rule; `violationCount` remains the real count.
+Always inspect `truncated`: a terminal page is not proof that all counted details were retained. Reports expose
+`violationDetails` with `scanId`, `total`, `retained`, `retentionLimit`, and `truncated`. The default retention
+budget is 10,000 sanitized details per advisor scan (`bootui.advisors.max-retained-violations`). Raising the
+budget only affects an explicitly requested new scan. Retention completeness is separate from evidence coverage;
+verify every finding before changing code.
+`truncated` can also indicate counted identities unavailable from upstream observations, not only retention overflow.
+Such gaps remain explicit in diagnostics; increasing the retention budget does not manufacture missing identities.
+
+Only the latest completed snapshot is kept. A stale ID or no completed snapshot is HTTP 409: reread the
+cached `… report`, obtain its ID, and restart detail paging, **not** `… scan`. An unknown/non-finding rule
+is REST/MCP client error 404; the CLI facade preserves its existing mapping to HTTP 400 so an unknown rule is
+not mistaken for an unavailable command. Both exit `1` with the application's message. A missing scan ID is
+rejected before a detail read. Dismissal leaves the snapshot ID and its details intact.
+
+MCP also has a rendered-byte limit: `-32003` means retry the same offset and scan ID with a smaller limit,
+not that the page was empty. The CLI's own result, timeout, and concurrency budgets still apply; do not advance
+the offset after any failure or silently rescan to recover. See [agent pagination guidance](AI-AGENTS.md#reading-retained-advisor-violations).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -278,6 +331,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui activity` | `get_live_activity` | `--limit` | read | all |
 | `bootui ai overview` | `get_ai_overview` | — | read | all |
 | `bootui architecture report` | `get_architecture_report` | — | read | all |
+| `bootui architecture violations` | `get_architecture_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui architecture scan` | `architecture_scan` | — | action | all |
 | `bootui beans` | `get_beans` | `--query`, `--limit` | read | all |
 | `bootui cache` | `get_cache_stats` | — | read | all |
@@ -289,6 +343,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui db liquibase` | `get_liquibase_changesets` | — | read | all |
 | `bootui db pools` | `get_database_connection_pools` | — | read | all |
 | `bootui db report` | `get_database_advisor_report` | — | read | all |
+| `bootui db violations` | `get_database_advisor_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui db scan` | `database_advisor_scan` | — | action | all |
 | `bootui dev-services` | `get_dev_services` | — | read | all |
 | `bootui devtools livereload` | `trigger_devtools_livereload` | — | action | Spring MVC, WebFlux |
@@ -302,6 +357,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui graalvm scan` | `graalvm_scan` | — | action | Spring MVC, WebFlux |
 | `bootui health` | `get_health` | — | read | all |
 | `bootui hibernate report` | `get_hibernate_report` | — | read | all |
+| `bootui hibernate violations` | `get_hibernate_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui hibernate scan` | `hibernate_scan` | — | action | all |
 | `bootui http exchanges` | `get_http_exchanges` | `--limit` | read | all |
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
@@ -316,6 +372,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui memory heap report` | `get_heap_dump_report` | — | read | all |
 | `bootui memory live` | `get_live_memory` | — | read | all |
 | `bootui memory report` | `get_memory_report` | — | read | all |
+| `bootui memory violations` | `get_memory_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui memory scan` | `memory_scan` | — | action | all |
 | `bootui metrics` | `get_metrics` | `--query`, `--limit` | read | all |
 | `bootui overview` | `get_overview` | — | read | all |
@@ -325,6 +382,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui rabbitmq` | `get_rabbitmq_activity` | — | read | all |
 | `bootui repositories` | `get_spring_data_repositories` | — | read | Spring MVC, WebFlux |
 | `bootui rest-api report` | `get_rest_api_report` | — | read | all |
+| `bootui rest-api violations` | `get_rest_api_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui rest-api scan` | `rest_api_scan` | — | action | all |
 | `bootui rest-client clear` | `clear_rest_client_traces` | — | action | all |
 | `bootui rest-client pause` | `pause_rest_client_recording` | — | action | all |
@@ -334,10 +392,12 @@ exposes a tool is still what `bootui tools` says.
 | `bootui security config` | `get_spring_security` | — | read | Spring MVC, WebFlux |
 | `bootui security logs` | `get_security_logs` | `--limit` | read | all |
 | `bootui security report` | `get_security_report` | — | read | all |
+| `bootui security violations` | `get_security_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui security scan` | `security_scan` | — | action | all |
 | `bootui sessions claude` | `get_claude_code_sessions` | — | read | all |
 | `bootui sessions copilot` | `get_copilot_sessions` | — | read | all |
 | `bootui spring report` | `get_spring_report` | — | read | all |
+| `bootui spring violations` | `get_spring_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui spring scan` | `spring_scan` | — | action | all |
 | `bootui sql clear` | `clear_sql_traces` | — | action | all |
 | `bootui sql pause` | `pause_sql_trace_recording` | — | action | all |

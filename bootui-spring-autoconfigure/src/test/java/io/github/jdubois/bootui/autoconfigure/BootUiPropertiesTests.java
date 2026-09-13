@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import java.nio.file.Path;
@@ -15,6 +16,21 @@ import org.springframework.mock.env.MockEnvironment;
  * properties using {@link Binder}.
  */
 class BootUiPropertiesTests {
+
+    @Test
+    void advisorRetentionDefaultsBindsAndRejectsInvalidValuesImmediately() {
+        assertThat(new BootUiProperties().getAdvisors().getMaxRetainedViolations())
+                .isEqualTo(10_000);
+        assertThat(bind(new MockEnvironment().withProperty("bootui.advisors.max-retained-violations", "42"))
+                        .getAdvisors()
+                        .getMaxRetainedViolations())
+                .isEqualTo(42);
+        for (String invalid : new String[] {"0", "-1", "1.5", "2147483648", "invalid", ""}) {
+            assertThatThrownBy(() -> bind(
+                            new MockEnvironment().withProperty("bootui.advisors.max-retained-violations", invalid)))
+                    .isInstanceOf(RuntimeException.class);
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Defaults (no properties set)

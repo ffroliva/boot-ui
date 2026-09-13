@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
+import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpFailureReporter;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
@@ -21,6 +23,125 @@ import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 class BootUiMcpServiceTests {
+
+    @Test
+    void advisorSchemaAndCodecProjectAllRequiredAndOptionalPageArguments() {
+        AtomicReference<McpArguments> received = new AtomicReference<>();
+        BootUiMcpService pages = advisorService(args -> {
+            received.set(args);
+            return java.util.Map.of("scanId", args.scanId(), "offset", args.offset());
+        });
+        JsonNode listed = pages.handle(request("tools/list", 1, null));
+        JsonNode schema = listed.path("result").path("tools").get(0).path("inputSchema");
+        assertThat(schema.path("required").toString()).isEqualTo("[\"id\",\"scanId\"]");
+        assertThat(schema.path("properties").propertyNames()).containsExactly("id", "scanId", "offset", "limit");
+        assertThat(schema.path("properties").path("offset").path("minimum").asInt())
+                .isZero();
+        assertThat(schema.path("properties").path("limit").path("minimum").asInt())
+                .isEqualTo(1);
+        assertThat(schema.path("additionalProperties").asBoolean()).isFalse();
+        pages.handle(advisorRequest("{\"id\":\" RULE-1 \",\"scanId\":\" scan-1 \"}"));
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 100, "RULE-1", "scan-1", 0));
+        pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22,\"limit\":7}"));
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 7, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void advisorCodecRejectsMalformedMissingNullUnknownAndOverflowingPageArguments() {
+        AtomicInteger invoked = new AtomicInteger();
+        BootUiMcpService pages = advisorService(args -> invoked.incrementAndGet());
+        for (String arguments : List.of(
+                "null",
+                "[]",
+                "{}",
+                "{\"id\":\"RULE-1\"}",
+                "{\"scanId\":\"scan-1\"}",
+                "{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"extra\":1}",
+                "{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"query\":\"x\"}")) {
+            assertThat(pages.handle(advisorRequest(arguments))
+                            .path("error")
+                            .path("code")
+                            .asInt())
+                    .as(arguments)
+                    .isEqualTo(McpProtocol.INVALID_PARAMS);
+        }
+        for (String field : List.of("id", "scanId", "offset", "limit")) {
+            List<String> invalid = field.equals("id") || field.equals("scanId")
+                    ? List.of("null", "3", "true", "\"\"", "\" \"")
+                    : List.of("null", "\"3\"", "true", "1.5", "2147483648", "-2147483649", "-1");
+            for (String value : invalid) {
+                ObjectNode arguments =
+                        objectMapper.createObjectNode().put("id", "RULE-1").put("scanId", "scan-1");
+                arguments.set(field, objectMapper.readTree(value));
+                assertThat(pages.handle(advisorRequest(arguments.toString()))
+                                .path("error")
+                                .path("code")
+                                .asInt())
+                        .as("%s=%s", field, value)
+                        .isEqualTo(McpProtocol.INVALID_PARAMS);
+            }
+        }
+        assertThat(pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan\",\"limit\":0}"))
+                        .path("error")
+                        .path("message")
+                        .asString())
+                .isEqualTo("Argument 'limit' must be at least 1");
+        assertThat(invoked).hasValue(0);
+    }
+
+    @Test
+    void advisorByteBudgetRefusalAllowsSmallerPageAtTheSameOffsetAndScan() {
+        properties.getMcp().setMaxResponseBytes(2048);
+        AtomicReference<McpArguments> received = new AtomicReference<>();
+        BootUiMcpService pages = advisorService(args -> {
+            received.set(args);
+            return java.util.Map.of("violations", java.util.Collections.nCopies(args.limit(), "x".repeat(256)));
+        });
+        assertThat(pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22}"))
+                        .path("error")
+                        .path("code")
+                        .asInt())
+                .isEqualTo(McpProtocol.RESPONSE_TOO_LARGE);
+        JsonNode retry =
+                pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"scan-1\",\"offset\":22,\"limit\":1}"));
+        assertThat(retry.path("result").path("isError").asBoolean()).isFalse();
+        assertThat(retry.has("error")).isFalse();
+        assertThat(received.get()).isEqualTo(new McpArguments(null, 1, "RULE-1", "scan-1", 22));
+    }
+
+    @Test
+    void advisorStaleSnapshotIsAnInBandClientErrorNotAnInternalFailure() {
+        BootUiMcpService pages = advisorService(args -> {
+            throw new AdvisorViolationException(409, "Reread the cached report.");
+        });
+        JsonNode response = pages.handle(advisorRequest("{\"id\":\"RULE-1\",\"scanId\":\"old\"}"));
+        assertThat(response.has("error")).isFalse();
+        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(response.path("result").path("content").get(0).path("text").asString())
+                .isEqualTo("Reread the cached report.");
+    }
+
+    private BootUiMcpService advisorService(java.util.function.Function<McpArguments, Object> handler) {
+        return new BootUiMcpService(
+                List.of(new McpTool(
+                        "get_architecture_rule_violations",
+                        "Read retained violations.",
+                        McpToolSchema.RULE_VIOLATIONS,
+                        BootUiPanels.ARCHITECTURE,
+                        false,
+                        handler)),
+                properties,
+                objectMapper,
+                "1.2.3",
+                (operation, failure) -> {
+                    throw new AssertionError("Unexpected server failure: " + operation, failure);
+                });
+    }
+
+    private JsonNode advisorRequest(String arguments) {
+        return objectMapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+                + "{\"name\":\"get_architecture_rule_violations\",\"arguments\":" + arguments + "}}");
+    }
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private BootUiProperties properties;

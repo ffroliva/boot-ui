@@ -76,12 +76,14 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         return ReactiveSecuritySupport.skipped(definition, reason);
     }
 
-    SecurityRuleResultDto violation(List<String> details) {
-        return details.isEmpty() ? pass() : ReactiveSecuritySupport.violation(definition, details);
+    SecurityRuleResultDto violation(ReactiveSecurityContext context, List<String> details) {
+        return details.isEmpty() ? pass() : ReactiveSecuritySupport.violation(context, definition, details);
     }
 
-    SecurityRuleResultDto violation(String severityOverride, List<String> details) {
-        return details.isEmpty() ? pass() : ReactiveSecuritySupport.violation(definition, severityOverride, details);
+    SecurityRuleResultDto violation(ReactiveSecurityContext context, String severityOverride, List<String> details) {
+        return details.isEmpty()
+                ? pass()
+                : ReactiveSecuritySupport.violation(context, definition, severityOverride, details);
     }
 
     SecurityRuleResultDto filterViolation(ReactiveSecurityContext context, List<String> details) {
@@ -96,7 +98,7 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
             }
             return skipped("Web filters could not be observed for every reactive security chain.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 
     SecurityRuleResultDto corsViolation(ReactiveSecurityContext context, List<String> details) {
@@ -105,7 +107,7 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         if (details.isEmpty() && !complete) {
             return skipped("Reactive CORS sources are present but could not all be inspected.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 
     SecurityRuleResultDto headerViolation(ReactiveSecurityContext context, List<String> details) {
@@ -116,6 +118,6 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         if (details.isEmpty() && incomplete) {
             return skipped("Header-writer details could not be fully observed.");
         }
-        return violation(details);
+        return violation(context, details);
     }
 }

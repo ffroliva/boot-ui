@@ -1,12 +1,15 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.core.dto.HibernateSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -17,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -48,6 +52,8 @@ public final class HibernateScanner {
     private final HibernateAdvisorObservationSource observationSource;
     private final List<HibernateRule> rules;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<HibernateReport> violationState =
+            new AdvisorScanState<>(HibernateReport::withViolationDetails);
 
     /**
      * Compatibility factory for declaration-only discovery. The property callback is retained for
@@ -122,10 +128,25 @@ public final class HibernateScanner {
     }
 
     public HibernateReport scan() {
-        return singleFlight.run(ActionOperations.HIBERNATE_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.HIBERNATE_SCAN, () -> {
+            AdvisorViolationCollector collector = violationState.collector();
+            return violationState.publish(doScan(collector), collector);
+        });
     }
 
-    private HibernateReport doScan() {
+    public HibernateReport lastReport() {
+        return violationState.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return violationState.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        violationState.setRetentionLimit(limit);
+    }
+
+    private HibernateReport doScan(AdvisorViolationCollector collector) {
         HibernateAdvisorObservation observation = safeObservation();
         List<HibernateEntityModel> entities = observation.units().stream()
                 .flatMap(unit -> unit.entities().stream())
@@ -184,8 +205,8 @@ public final class HibernateScanner {
                             .map(unit -> HibernateContext.observed(unit, app))
                             .toList();
             for (int i = 0; i < contexts.size(); i++) {
-                HibernateContext context = contexts.get(i);
                 String label = units.isEmpty() ? "application" : units.get(i).label();
+                HibernateContext context = contexts.get(i).withViolationCollector(collector, label);
                 String identity = rule.definition().id() + " [" + label + "]";
                 context.evidence().reset();
                 attempts++;
@@ -375,7 +396,8 @@ public final class HibernateScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     private EntityDiscovery safeEntityDiscovery() {

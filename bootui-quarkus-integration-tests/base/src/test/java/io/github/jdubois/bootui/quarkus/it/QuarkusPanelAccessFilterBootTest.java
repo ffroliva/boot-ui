@@ -56,6 +56,13 @@ class QuarkusPanelAccessFilterBootTest {
     }
 
     @Test
+    void disabledPanelDetailsAreRejectedBeforeSnapshotLookup() {
+        Response response = probe().get("/bootui/api/memory/rules/RULE/violations?scanId=stale");
+        assertThat(response.status()).isEqualTo(403);
+        assertThat(response.json().path("panel").asText()).isEqualTo("memory");
+    }
+
+    @Test
     void overviewBypassesPanelGatingEvenWhenAnotherPanelIsDisabled() {
         // The Overview shell-chrome endpoint is never gated by any panel's toggle (BootUiPanels.OVERVIEW
         // registers no API prefix), regardless of other panels being disabled.

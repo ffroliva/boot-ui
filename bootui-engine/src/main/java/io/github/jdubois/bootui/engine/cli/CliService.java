@@ -155,7 +155,9 @@ public final class CliService {
                 parsed.limit,
                 parsed.id,
                 body.keySet(),
-                parsed.error);
+                parsed.error,
+                parsed.scanId,
+                parsed.offset);
         McpDispatchOutcome outcome = dispatcher.dispatch(request);
         return CliOutcomes.toResponse(outcome);
     }
@@ -191,6 +193,8 @@ public final class CliService {
         String query = null;
         Integer limit = null;
         String id = null;
+        String scanId = null;
+        Integer offset = null;
         if (arguments.containsKey("query")) {
             Object value = arguments.get("query");
             if (!(value instanceof String)) {
@@ -216,7 +220,24 @@ public final class CliService {
             }
             limit = integral.intValue();
         }
-        return new ParsedArguments(query, limit, id, null);
+        if (arguments.containsKey("scanId")) {
+            Object value = arguments.get("scanId");
+            if (!(value instanceof String)) {
+                return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage("scanId", "a string"));
+            }
+            scanId = (String) value;
+        }
+        if (arguments.containsKey("offset")) {
+            Long integral = asIntegral(arguments.get("offset"));
+            if (integral == null || integral < Integer.MIN_VALUE || integral > Integer.MAX_VALUE) {
+                return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage("offset", "an integer"));
+            }
+            if (integral < 0) {
+                return ParsedArguments.error(McpProtocol.invalidArgumentMinimumMessage("offset", 0));
+            }
+            offset = integral.intValue();
+        }
+        return new ParsedArguments(query, limit, id, null, scanId, offset);
     }
 
     /** The value as a whole number, or {@code null} when it is not an integral JSON number. */
@@ -237,16 +258,20 @@ public final class CliService {
         private final Integer limit;
         private final String id;
         private final String error;
+        private final String scanId;
+        private final Integer offset;
 
-        private ParsedArguments(String query, Integer limit, String id, String error) {
+        private ParsedArguments(String query, Integer limit, String id, String error, String scanId, Integer offset) {
             this.query = query;
             this.limit = limit;
             this.id = id;
             this.error = error;
+            this.scanId = scanId;
+            this.offset = offset;
         }
 
         private static ParsedArguments error(String error) {
-            return new ParsedArguments(null, null, null, error);
+            return new ParsedArguments(null, null, null, error, null, null);
         }
     }
 }

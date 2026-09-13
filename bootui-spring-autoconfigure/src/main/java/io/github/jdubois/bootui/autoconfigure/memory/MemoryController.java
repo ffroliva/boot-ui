@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.memory;
 
+import io.github.jdubois.bootui.autoconfigure.web.AdvisorViolationsEndpoint;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
@@ -24,30 +26,31 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/memory")
-public class MemoryController {
+public class MemoryController implements AdvisorViolationsEndpoint {
 
     private final MemoryScanner scanner;
 
     private final DismissedRulesStore dismissedRules;
 
-    private volatile MemoryReport lastReport;
-
     @Autowired
     public MemoryController(MemoryScanner scanner, DismissedRulesStore dismissedRules) {
         this.scanner = scanner;
         this.dismissedRules = dismissedRules;
-        this.lastReport = scanner.initialReport();
     }
 
     @GetMapping
     public MemoryReport memory() {
-        return scanner.applyDismissals(lastReport, dismissedRules.load());
+        return scanner.applyDismissals(scanner.lastReport(), dismissedRules.load());
     }
 
     @PostMapping("/scan")
     public MemoryReport scan() {
         MemoryReport report = scanner.scan();
-        lastReport = report;
         return scanner.applyDismissals(report, dismissedRules.load());
+    }
+
+    @Override
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return scanner.ruleViolations(ruleId, scanId, offset, limit);
     }
 }

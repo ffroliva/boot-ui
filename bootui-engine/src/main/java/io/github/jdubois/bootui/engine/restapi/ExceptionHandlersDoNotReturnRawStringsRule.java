@@ -31,7 +31,7 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
                         + " returns a raw String error body");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {

@@ -69,7 +69,7 @@ abstract class AbstractRestApiRule implements RestApiRule {
                 violations.add(handler.describe() + (suffix.isEmpty() ? "" : " — " + suffix));
             }
         }
-        return RestApiRuleSupport.fromViolations(definition, violations);
+        return RestApiRuleSupport.fromViolations(context, definition, violations);
     }
 
     RestApiRuleResultDto missingEvidence(RestApiContext context, String reason) {
@@ -505,7 +505,7 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
                         + " with matching dispatch conditions handled by " + String.join(", ", entry.getValue()));
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private record RouteKey(RestApiModel.Framework framework, String method, String path, String conditions) {}
@@ -601,7 +601,7 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                         + "' on every method but has no class-level @RequestMapping");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String sharedLeadingSegment(List<HandlerMethodModel> handlers) {
@@ -670,7 +670,7 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static boolean hasIrregularSlash(String path) {
@@ -741,7 +741,7 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -801,7 +801,7 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -880,7 +880,7 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -910,7 +910,7 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -1284,7 +1284,7 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
                         handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -1393,6 +1393,7 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         return RestApiRuleSupport.fromViolations(
+                context,
                 definition(),
                 List.of("Mixed pagination parameter vocabularies detected: " + families
                         + ". Review whether different workloads justify these vocabularies."));
@@ -1444,6 +1445,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
         }
         if (unversioned.size() == versionable.size()) {
             return RestApiRuleSupport.fromViolations(
+                    context,
                     definition(),
                     List.of("No API version signal (no /vN path, version header/param, or versioned media type) was"
                             + " detected across " + versionable.size() + " handler(s)."));
@@ -1451,6 +1453,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
         List<String> examples =
                 unversioned.stream().limit(5).map(HandlerMethodModel::describe).toList();
         return RestApiRuleSupport.fromViolations(
+                context,
                 definition(),
                 List.of("Versioning is applied inconsistently: " + unversioned.size() + " of " + versionable.size()
                         + " API handler(s) have no version signal while others do. Unversioned example(s): "
@@ -1538,7 +1541,7 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
                 violations.add(handler.describe() + " — PATCH declares no positive concrete consumes media type");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static boolean isConcreteMediaType(String mediaType) {
@@ -1593,6 +1596,7 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         return RestApiRuleSupport.fromViolations(
+                context,
                 definition(),
                 List.of("No application-wide advice or registered exception mapper was found in the imported model for "
                         + context.controllers().size() + " controller/resource declaration(s)."));
@@ -1659,7 +1663,7 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
                         + simpleName(handler.bodyTypeName()) + "' instead of ProblemDetail");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {
@@ -1708,7 +1712,7 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
                         + " declares a body without explicit status selection; review the Spring default status");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {
@@ -1781,7 +1785,7 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
                 violations.add(controller.simpleName() + " has no explicit tag/operation-tag grouping");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 }
 
@@ -1870,7 +1874,7 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
                 violations.add(handler.describe() + " — serializes a body but declares no produces media type");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static boolean serializesRepresentation(HandlerMethodModel handler) {
@@ -1910,7 +1914,7 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
                 }
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static List<String> duplicateTokens(String path) {
@@ -2066,6 +2070,7 @@ final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
             return RestApiRuleSupport.pass(definition());
         }
         return RestApiRuleSupport.fromViolations(
+                context,
                 definition(),
                 List.of("Mixed versioning strategies detected: " + strategies
                         + ". Standardise on one strategy across all API handlers."));
@@ -2113,7 +2118,7 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
                         + handler.responseStatusValue() + ")");
             }
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {
@@ -2174,7 +2179,7 @@ final class ResponseStatusOnExceptionRule extends AbstractRestApiRule {
             violations.add(simpleName(className)
                     + " declares @ResponseStatus alongside typed problem declarations; optionally review migration");
         }
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {
@@ -2325,7 +2330,7 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
             }
         }
 
-        return RestApiRuleSupport.fromViolations(definition(), violations);
+        return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private static String simpleName(String fullName) {

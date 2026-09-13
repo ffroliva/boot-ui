@@ -49,7 +49,7 @@ class ArchitectureResourceTests {
                 List.of(),
                 List.of(error),
                 AdvisorEvidenceDto.unknown());
-        when(scanner.initialReport()).thenReturn(report);
+        when(scanner.lastReport()).thenReturn(report);
         when(scanner.scan()).thenReturn(report);
         when(scanner.applyDismissals(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(dismissedRules.load()).thenReturn(Set.of());

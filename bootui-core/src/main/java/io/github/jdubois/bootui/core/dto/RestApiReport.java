@@ -17,12 +17,57 @@ public record RestApiReport(
         List<RestApiSeverityCountDto> severityCounts,
         RestApiScanStatusDto scan,
         List<RestApiRuleResultDto> results,
-        AdvisorEvidenceDto evidence) {
+        AdvisorEvidenceDto evidence,
+        AdvisorViolationDetailsDto violationDetails) {
 
     public RestApiReport {
         evidence = evidence == null ? AdvisorEvidenceDto.unknown() : evidence;
+        violationDetails = violationDetails == null ? AdvisorViolationDetailsDto.unknown() : violationDetails;
         basePackages = DtoCollections.immutableCopy(basePackages);
         severityCounts = DtoCollections.immutableCopy(severityCounts);
         results = DtoCollections.immutableCopy(results);
+    }
+
+    public RestApiReport(
+            boolean localOnly,
+            String disclaimer,
+            List<String> basePackages,
+            int controllersAnalyzed,
+            int handlersAnalyzed,
+            int rulesEvaluated,
+            int violationsFound,
+            List<RestApiSeverityCountDto> severityCounts,
+            RestApiScanStatusDto scan,
+            List<RestApiRuleResultDto> results,
+            AdvisorEvidenceDto evidence) {
+        this(
+                localOnly,
+                disclaimer,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                evidence,
+                null);
+    }
+
+    public RestApiReport withViolationDetails(AdvisorViolationDetailsDto violationDetails) {
+        return new RestApiReport(
+                localOnly,
+                disclaimer,
+                basePackages,
+                controllersAnalyzed,
+                handlersAnalyzed,
+                rulesEvaluated,
+                violationsFound,
+                severityCounts,
+                scan,
+                results,
+                evidence,
+                violationDetails);
     }
 }

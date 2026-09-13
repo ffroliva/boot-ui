@@ -1,18 +1,22 @@
 package io.github.jdubois.bootui.engine.reactivesecurity;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.SecurityReport;
 import io.github.jdubois.bootui.core.dto.SecurityRuleResultDto;
 import io.github.jdubois.bootui.core.dto.SecurityScanStatusDto;
 import io.github.jdubois.bootui.core.dto.SecuritySeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -47,8 +51,7 @@ public final class ReactiveSecurityScanner {
     private final Supplier<ReactiveSecurityObservation> observationSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
-
-    private volatile ReactiveSecurityContext lastContext;
+    private final AdvisorScanState<SecurityReport> state = new AdvisorScanState<>(SecurityReport::withViolationDetails);
 
     private ReactiveSecurityScanner(Supplier<ReactiveSecurityObservation> observationSupplier, Clock clock) {
         this.observationSupplier = observationSupplier;
@@ -78,12 +81,27 @@ public final class ReactiveSecurityScanner {
 
     /** Performs the full scan and returns the result. */
     public SecurityReport scan() {
-        return singleFlight.run(ActionOperations.SECURITY_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.SECURITY_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private SecurityReport doScan() {
+    public SecurityReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private SecurityReport doScan(AdvisorViolationCollector collector) {
         ReactiveSecurityObservation observation = safeObservation();
-        ReactiveSecurityContext context = ReactiveSecurityContext.from(observation);
+        ReactiveSecurityContext context = ReactiveSecurityContext.from(observation, collector);
         if (context.chains().isEmpty()) {
             String message = observation.errors().isEmpty()
                     ? "No Spring Security SecurityWebFilterChain beans were found to inspect."
@@ -112,7 +130,8 @@ public final class ReactiveSecurityScanner {
         if (!analysisErrors(results).isEmpty()) {
             message += " Some checks failed; see analysis errors.";
         }
-        return report(status, message, clock.millis(), chains, results.size(), results, evidence);
+        return report(
+                status, message, clock.millis(), chains, results.size(), results, evidence, chainDescriptions(context));
     }
 
     private static AdvisorEvidenceDto evidence(
@@ -155,19 +174,18 @@ public final class ReactiveSecurityScanner {
                 updatedScan,
                 marked,
                 report.analysisErrors(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────────
 
     private ReactiveSecurityObservation safeObservation() {
-        lastContext = null;
         try {
             ReactiveSecurityObservation observation = observationSupplier.get();
             if (observation == null) {
                 return emptyObservation("No reactive security observation is available.");
             }
-            lastContext = ReactiveSecurityContext.from(observation);
             return observation;
         } catch (RuntimeException | LinkageError ex) {
             return emptyObservation(safeMessage(ex));
@@ -204,7 +222,8 @@ public final class ReactiveSecurityScanner {
                 filterChainsAnalyzed,
                 rulesEvaluated,
                 results,
-                AdvisorEvidenceDto.unknown());
+                AdvisorEvidenceDto.unknown(),
+                List.of());
     }
 
     private SecurityReport report(
@@ -214,7 +233,8 @@ public final class ReactiveSecurityScanner {
             int filterChainsAnalyzed,
             int rulesEvaluated,
             List<SecurityRuleResultDto> results,
-            AdvisorEvidenceDto evidence) {
+            AdvisorEvidenceDto evidence,
+            List<String> filterChains) {
         List<SecurityRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
         SecurityScanStatusDto scan = new SecurityScanStatusDto(
@@ -222,7 +242,7 @@ public final class ReactiveSecurityScanner {
         return new SecurityReport(
                 true,
                 DISCLAIMER,
-                chainDescriptions(lastContext),
+                filterChains,
                 filterChainsAnalyzed,
                 rulesEvaluated,
                 violationsFound,

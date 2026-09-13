@@ -201,7 +201,9 @@ public class BootUiMcpService {
                 parsedArguments.limit(),
                 parsedArguments.id(),
                 parsedArguments.names(),
-                parsedArguments.error());
+                parsedArguments.error(),
+                parsedArguments.scanId(),
+                parsedArguments.offset());
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {
@@ -228,21 +230,35 @@ public class BootUiMcpService {
         if (limit != null && limit.asInt() < 1) {
             return ParsedArguments.error(McpProtocol.invalidArgumentMinimumMessage("limit", 1));
         }
+        JsonNode scanId = arguments.get("scanId");
+        if (scanId != null && !scanId.isString()) {
+            return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage("scanId", "a string"));
+        }
+        JsonNode offset = arguments.get("offset");
+        if (offset != null && (!offset.isIntegralNumber() || !offset.canConvertToInt())) {
+            return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage("offset", "an integer"));
+        }
+        if (offset != null && offset.asInt() < 0) {
+            return ParsedArguments.error(McpProtocol.invalidArgumentMinimumMessage("offset", 0));
+        }
         return new ParsedArguments(
                 query == null ? null : query.asString(),
                 limit == null ? null : limit.asInt(),
                 id == null ? null : id.asString(),
                 names,
-                null);
+                null,
+                scanId == null ? null : scanId.asString(),
+                offset == null ? null : offset.asInt());
     }
 
-    private record ParsedArguments(String query, Integer limit, String id, Set<String> names, String error) {
+    private record ParsedArguments(
+            String query, Integer limit, String id, Set<String> names, String error, String scanId, Integer offset) {
         private static ParsedArguments empty() {
-            return new ParsedArguments(null, null, null, Set.of(), null);
+            return new ParsedArguments(null, null, null, Set.of(), null, null, null);
         }
 
         private static ParsedArguments error(String error) {
-            return new ParsedArguments(null, null, null, Set.of(), error);
+            return new ParsedArguments(null, null, null, Set.of(), error, null, null);
         }
     }
 
@@ -411,6 +427,7 @@ public class BootUiMcpService {
             case LIMIT -> limitSchema();
             case QUERY_LIMIT -> querySchema();
             case ID -> idSchema();
+            case RULE_VIOLATIONS -> ruleViolationsSchema();
         };
     }
 
@@ -469,6 +486,28 @@ public class BootUiMcpService {
         required.add("id");
         schema.set("required", required);
         schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    private static ObjectNode ruleViolationsSchema() {
+        ObjectNode schema = idSchema();
+        ObjectNode properties = (ObjectNode) schema.get("properties");
+        ((ObjectNode) properties.get("id")).put("minLength", 1);
+        ObjectNode scanId = JsonNodeFactory.instance.objectNode();
+        scanId.put("type", "string");
+        scanId.put("minLength", 1);
+        scanId.put("description", "The cached report's violationDetails.scanId. Never starts a scan.");
+        properties.set("scanId", scanId);
+        ((ArrayNode) schema.get("required")).add("scanId");
+        ObjectNode offset = JsonNodeFactory.instance.objectNode();
+        offset.put("type", "integer");
+        offset.put("minimum", 0);
+        offset.put("default", 0);
+        properties.set("offset", offset);
+        ObjectNode limit = limitProperty();
+        limit.put("default", 100);
+        limit.put("description", "Page size, default 100, capped at min(1000, bootui.mcp.max-results).");
+        properties.set("limit", limit);
         return schema;
     }
 }

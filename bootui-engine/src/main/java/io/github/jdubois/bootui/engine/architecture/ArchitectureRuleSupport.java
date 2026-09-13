@@ -81,6 +81,7 @@ final class ArchitectureRuleSupport {
             return pass(definition);
         }
         List<String> details = evaluation.getFailureReport().getDetails();
+        context.violationCollector().record(definition.id(), details.size(), details, ArchitectureRuleSupport::detail);
         List<String> samples = details.stream()
                 .limit(MAX_SAMPLE_VIOLATIONS)
                 .map(ArchitectureRuleSupport::detail)

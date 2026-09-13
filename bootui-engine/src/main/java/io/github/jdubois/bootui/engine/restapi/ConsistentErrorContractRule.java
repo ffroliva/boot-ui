@@ -60,15 +60,15 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
             }
             if (handler.produces().isEmpty()) {
                 if (!bodyCategory(first).equals(bodyCategory(handler))) {
-                    return disagreement(first, handler);
+                    return disagreement(context, first, handler);
                 }
                 if (different != null) {
-                    return disagreement(different, handler);
+                    return disagreement(context, different, handler);
                 }
                 unspecified = handler;
             } else {
                 if (unspecified != null && !bodyCategory(unspecified).equals(bodyCategory(handler))) {
-                    return disagreement(unspecified, handler);
+                    return disagreement(context, unspecified, handler);
                 }
                 for (String value : handler.produces()) {
                     String media = RestApiRuleHelp.normalizeMediaType(value);
@@ -77,7 +77,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
                     }
                     ExceptionHandlerModel other = firstByMedia.putIfAbsent(media, handler);
                     if (other != null && !bodyCategory(other).equals(bodyCategory(handler))) {
-                        return disagreement(other, handler);
+                        return disagreement(context, other, handler);
                     }
                 }
             }
@@ -85,8 +85,10 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
         return RestApiRuleSupport.pass(definition());
     }
 
-    private RestApiRuleResultDto disagreement(ExceptionHandlerModel first, ExceptionHandlerModel second) {
+    private RestApiRuleResultDto disagreement(
+            RestApiContext context, ExceptionHandlerModel first, ExceptionHandlerModel second) {
         return RestApiRuleSupport.fromViolations(
+                context,
                 definition(),
                 List.of("Exception handlers have different error body declaration categories: "
                         + bodyCategory(first) + " (" + simpleName(first.declaringClassName()) + "#" + first.methodName()

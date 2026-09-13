@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.memory;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
 import io.github.jdubois.bootui.core.dto.MemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryRuleResultDto;
 import io.github.jdubois.bootui.core.dto.MemoryScanStatusDto;
@@ -8,6 +9,8 @@ import io.github.jdubois.bootui.core.dto.MemorySeverityCountDto;
 import io.github.jdubois.bootui.core.dto.MemorySummaryDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import java.time.Clock;
@@ -16,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -30,7 +34,7 @@ import java.util.function.Supplier;
  * <p>Framework-neutral: it reads only JMX management beans plus the shared engine
  * {@link ThreadDumpService}, so both the Spring {@code MemoryController} and the Quarkus
  * {@code MemoryResource} build it through {@link #create(ThreadDumpService, Clock)} and hold the
- * cached report themselves. The collector, rules, and context stay package-private; only the scanner
+ * cached report through the scanner. The collector, rules, and context stay package-private; only the scanner
  * is the adapter-facing surface.</p>
  */
 public final class MemoryScanner {
@@ -49,6 +53,7 @@ public final class MemoryScanner {
     private final Supplier<MemoryContext> contextSupplier;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private final AdvisorScanState<MemoryReport> state = new AdvisorScanState<>(MemoryReport::withViolationDetails);
 
     /**
      * Post-histogram GC counters from the previous scan, used as the lower bound of the recent-GC
@@ -112,10 +117,25 @@ public final class MemoryScanner {
     }
 
     public MemoryReport scan() {
-        return singleFlight.run(ActionOperations.MEMORY_SCAN, this::doScan);
+        return singleFlight.run(ActionOperations.MEMORY_SCAN, () -> {
+            AdvisorViolationCollector collector = state.collector();
+            return state.publish(doScan(collector), collector);
+        });
     }
 
-    private MemoryReport doScan() {
+    public MemoryReport lastReport() {
+        return state.currentReport(this::initialReport);
+    }
+
+    public AdvisorRuleViolationsDto ruleViolations(String ruleId, String scanId, Integer offset, Integer limit) {
+        return state.ruleViolations(ruleId, scanId, offset, limit);
+    }
+
+    public void setViolationRetentionLimit(IntSupplier limit) {
+        state.setRetentionLimit(limit);
+    }
+
+    private MemoryReport doScan(AdvisorViolationCollector collector) {
         MemoryContext context;
         try {
             context = contextSupplier.get();
@@ -145,7 +165,8 @@ public final class MemoryScanner {
         MemoryContext evaluated = context.withGcTrend(trend)
                 .withLatestGcEvent(latestGcEvent)
                 .withBufferPoolTrend(bufferPoolTrend)
-                .withOldGenTrend(oldGenTrend);
+                .withOldGenTrend(oldGenTrend)
+                .withViolationCollector(collector);
 
         List<MemoryEvaluation> evaluations = MemoryRuleRegistry.activeRules().stream()
                 .map(rule -> rule.evaluateWithEvidence(evaluated))
@@ -308,7 +329,8 @@ public final class MemoryScanner {
                 updatedScan,
                 marked,
                 report.analysisErrors(),
-                report.evidence());
+                report.evidence(),
+                report.violationDetails());
     }
 
     static AdvisorEvidenceDto evidence(List<MemoryEvaluation> evaluations) {

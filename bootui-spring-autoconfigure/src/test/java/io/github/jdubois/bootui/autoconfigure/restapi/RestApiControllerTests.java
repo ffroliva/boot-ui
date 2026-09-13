@@ -52,7 +52,7 @@ class RestApiControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         RestApiReport initial = report("NOT_SCANNED", 0);
         RestApiReport dismissedView = report("NOT_SCANNED", 0);
-        when(scanner.initialReport()).thenReturn(initial);
+        when(scanner.lastReport()).thenReturn(initial);
         when(dismissedRules.load()).thenReturn(Set.of("RAPI-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("RAPI-IGNORED")))).thenReturn(dismissedView);
 
@@ -69,7 +69,6 @@ class RestApiControllerTests {
     void scanRefreshesCachedReportAndAppliesDismissals() throws Exception {
         RestApiScanner scanner = mock(RestApiScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         RestApiReport scanned = report("SCANNED", 3);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());

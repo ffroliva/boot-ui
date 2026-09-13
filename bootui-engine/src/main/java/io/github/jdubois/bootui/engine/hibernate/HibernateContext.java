@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
@@ -16,7 +17,55 @@ record HibernateContext(
         HibernateFactorySettings factorySettings,
         HibernateApplicationFacts applicationFacts,
         Boolean enhancementVerified,
-        HibernateEvaluationEvidence evidence) {
+        HibernateEvaluationEvidence evidence,
+        AdvisorViolationCollector violationCollector,
+        String unitLabel) {
+
+    HibernateContext(
+            List<HibernateEntityModel> entities,
+            List<HibernateRepositoryModel> repositories,
+            Function<String, String> propertyLookup,
+            List<String> activeProfiles,
+            HibernateRuntimeVersion hibernateVersion,
+            HibernateFactorySettings factorySettings,
+            HibernateApplicationFacts applicationFacts,
+            Boolean enhancementVerified,
+            HibernateEvaluationEvidence evidence) {
+        this(
+                entities,
+                repositories,
+                propertyLookup,
+                activeProfiles,
+                hibernateVersion,
+                factorySettings,
+                applicationFacts,
+                enhancementVerified,
+                evidence,
+                new AdvisorViolationCollector(10000),
+                null);
+    }
+
+    HibernateContext withViolationCollector(AdvisorViolationCollector collector, String label) {
+        return new HibernateContext(
+                entities,
+                repositories,
+                propertyLookup,
+                activeProfiles,
+                hibernateVersion,
+                factorySettings,
+                applicationFacts,
+                enhancementVerified,
+                evidence,
+                collector,
+                label);
+    }
+
+    void retainViolations(String ruleId, List<String> details) {
+        violationCollector.record(ruleId, details.size(), details, value -> {
+            String detail = HibernateRuleSupport.detail(value);
+            return unitLabel == null ? detail : HibernateRuleSupport.detail("[" + unitLabel + "] " + detail);
+        });
+    }
 
     HibernateContext(
             List<HibernateEntityModel> entities,

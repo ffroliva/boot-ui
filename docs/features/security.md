@@ -6,6 +6,12 @@ with secondary **Scan notes** in the panel and a notes hint in Overview. A parti
 unchecked controls passed. Failed, skipped, or UNKNOWN-only evidence cannot establish a score, including after
 dismissal. See [Score eligibility](advisors.md#score-eligibility) for completion and vulnerability query/detail semantics.
 
+The rule-based **Security advisor** (MVC, WebFlux, and Quarkus) supports on-demand **View violations** and bounded
+REST/MCP/CLI pages from its latest scan. Counts remain complete even when only a preview is shown; retained-detail
+truncation is explicit and separate from evidence coverage. Reading details never reruns checks or changes security
+configuration. See [advisor violation retrieval](advisors.md#reading-every-retained-violation). This does not change
+the distinct Pentesting or Vulnerabilities models, or the raw Spring Security panel.
+
 ## Spring Security
 
 ![BootUI Spring Security panel](../images/bootui-spring-security.webp)

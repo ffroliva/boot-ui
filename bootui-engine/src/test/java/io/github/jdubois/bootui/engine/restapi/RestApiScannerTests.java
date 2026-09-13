@@ -27,6 +27,64 @@ import org.springframework.web.bind.annotation.RestController;
 
 class RestApiScannerTests {
 
+    @Test
+    void retainedViolationsKeepMultiplicityAndSamplesAcrossPagesAndDismissalWithoutRescanning() {
+        List<String> details = java.util.stream.IntStream.range(0, 16)
+                .mapToObj(index -> "handler\n" + index + " " + "detail".repeat(60))
+                .toList();
+        List<String> expected = details.stream().map(RestApiRuleSupport::detail).toList();
+        AtomicInteger evaluations = new AtomicInteger();
+        RestApiRule rule =
+                new AbstractRestApiRule(new RestApiRuleDefinition(
+                        "RAPI-TEST-DETAILS", "Details", RestApiCategory.ROUTING, "LOW", "Test", "Review", "")) {
+                    @Override
+                    RestApiRuleResultDto doEvaluate(RestApiContext context) {
+                        evaluations.incrementAndGet();
+                        context.evidence().markApplicable();
+                        return RestApiRuleSupport.fromViolations(context, definition(), details);
+                    }
+                };
+        RestApiScanner scanner = fixtureScanner(() -> false, () -> false, List.of(rule));
+        assertThat(scanner.lastReport().violationDetails().scanId()).isNull();
+        RestApiReport report = scanner.scan();
+        String scanId = report.violationDetails().scanId();
+        assertThat(report.violationDetails().total()).isEqualTo(16);
+        assertThat(report.violationDetails().retained()).isEqualTo(16);
+        assertThat(report.violationDetails().truncated()).isFalse();
+        assertThat(report.results()).singleElement().satisfies(result -> {
+            assertThat(result.violationCount()).isEqualTo(16);
+            assertThat(result.sampleViolations()).containsExactlyElementsOf(expected.subList(0, 10));
+        });
+        var first = scanner.ruleViolations(rule.definition().id(), scanId, 0, 11);
+        var last = scanner.ruleViolations(rule.definition().id(), scanId, 11, 11);
+        assertThat(first.violations()).containsExactlyElementsOf(expected.subList(0, 11));
+        assertThat(first.page().hasMore()).isTrue();
+        assertThat(last.violations()).containsExactlyElementsOf(expected.subList(11, 16));
+        assertThat(last.page().hasMore()).isFalse();
+        assertThat(scanner.lastReport()).isSameAs(report);
+        assertThat(scanner.applyDismissals(report, Set.of(rule.definition().id()))
+                        .violationDetails())
+                .isEqualTo(report.violationDetails());
+        assertThat(evaluations).hasValue(1);
+
+        scanner.setViolationRetentionLimit(() -> 7);
+        RestApiReport bounded = scanner.scan();
+        assertThat(bounded.results()).isEqualTo(report.results());
+        assertThat(bounded.evidence()).isEqualTo(report.evidence());
+        assertThat(bounded.violationDetails().retained()).isEqualTo(7);
+        assertThat(bounded.violationDetails().truncated()).isTrue();
+        assertThat(bounded.violationDetails().scanId()).isNotEqualTo(scanId);
+        assertThat(scanner.ruleViolations(
+                                rule.definition().id(),
+                                bounded.violationDetails().scanId(),
+                                0,
+                                null)
+                        .violations())
+                .containsExactlyElementsOf(expected.subList(0, 7));
+        assertThatThrownBy(() -> scanner.ruleViolations(rule.definition().id(), scanId, 0, 10))
+                .hasMessageContaining("replaced");
+    }
+
     private static final String FIXTURES = "io.github.jdubois.bootui.engine.restapi.fixtures";
     private static final Clock CLOCK = Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC);
     private static final String SENSITIVE_FAILURE = "password=do-not-publish\n" + "sensitive".repeat(200);
@@ -505,7 +563,20 @@ class RestApiScannerTests {
     }
 
     private static RestApiRule findingRule(String id) {
-        return rule(id, definition -> RestApiRuleSupport.fromViolations(definition, List.of("Reliable finding")));
+        return new RestApiRule() {
+            private final RestApiRuleDefinition definition =
+                    new RestApiRuleDefinition(id, "Test rule", RestApiCategory.ROUTING, "LOW", "Test", "Review", "");
+
+            @Override
+            public RestApiRuleDefinition definition() {
+                return definition;
+            }
+
+            @Override
+            public RestApiRuleResultDto evaluate(RestApiContext context) {
+                return RestApiRuleSupport.fromViolations(context, definition, List.of("Reliable finding"));
+            }
+        };
     }
 
     private static RestApiRule rule(String id, Function<RestApiRuleDefinition, RestApiRuleResultDto> evaluation) {

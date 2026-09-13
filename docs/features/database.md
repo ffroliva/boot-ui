@@ -1,5 +1,10 @@
 # Database
 
+Hibernate and Database Advisor keep compact rule samples separately from the latest scan's retained details.
+Use their **View violations** control or paginated per-rule REST/MCP/CLI reads to inspect more findings without
+executing SQL or running another scan. Retrieval ranges and retention warnings are separate from schema/observation
+coverage; see [advisor violation retrieval](advisors.md#reading-every-retained-violation).
+
 ## Database Connection Pools
 
 ![BootUI Database Connection Pools panel](../images/bootui-database-connection-pools.webp)

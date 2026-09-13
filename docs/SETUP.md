@@ -120,6 +120,12 @@ contract.
 
 You are done — everything below is optional, and only when you need it.
 
+Advisor reports keep compact previews. To inspect more findings, use **View violations** without rescanning.
+The latest scan retains up to `bootui.advisors.max-retained-violations=10000` details per advisor by default;
+this positive limit is shared by Spring MVC, WebFlux, and Quarkus. See
+[retention settings](PROPERTIES.md#advisor-violation-retention) and
+[paged REST/MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+
 | If you want to                                                     | Read                                                             |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | Understand when BootUI turns on, or keep it out of your prod build | [Activation and safety](setup/activation.md)                     |

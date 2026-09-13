@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationException;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.InitializeResult;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.NoResponse;
 import io.github.jdubois.bootui.engine.mcp.McpDispatchOutcome.PingResult;
@@ -27,6 +28,91 @@ import org.junit.jupiter.api.Test;
 class McpDispatcherTests {
 
     private static final String JSONRPC = "2.0";
+
+    @Test
+    void advisorPagesDefaultToOneHundredAndRespectBothCapsWithoutChangingExistingTools() {
+        for (int cap : List.of(7, 250, 2000)) {
+            McpDispatcher dispatcher = advisorDispatcher(cap, args -> args);
+            assertThat(dispatcher.dispatch(advisorRequest(" RULE-1 ", " scan-1 ", null, null)))
+                    .isEqualTo(new ToolCallResult(new McpArguments(null, Math.min(100, cap), "RULE-1", "scan-1", 0)));
+            assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan-1", 22, 5000)))
+                    .isEqualTo(new ToolCallResult(new McpArguments(null, Math.min(1000, cap), "RULE-1", "scan-1", 22)));
+        }
+        assertThat(McpArguments.normalize(null, null, null, 2000).limit()).isEqualTo(2000);
+    }
+
+    @Test
+    void advisorPagesRejectMissingRequiredArgumentsAndInvalidTypedBoundsBeforeInvocation() {
+        AtomicInteger invocations = new AtomicInteger();
+        McpDispatcher dispatcher = advisorDispatcher(250, args -> invocations.incrementAndGet());
+        assertThat(dispatcher.dispatch(advisorRequest(" ", "scan", 0, 10)))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE));
+        for (String scanId : new String[] {null, "", " "}) {
+            assertThat(dispatcher.dispatch(advisorRequest("RULE-1", scanId, 0, 10)))
+                    .isEqualTo(new ProtocolError(
+                            McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_SCAN_ID_ARGUMENT_MESSAGE));
+        }
+        assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", -1, 10)))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Argument 'offset' must be at least 0"));
+        assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", 0, 0)))
+                .isEqualTo(new ProtocolError(McpProtocol.INVALID_PARAMS, "Argument 'limit' must be at least 1"));
+        assertThat(invocations).hasValue(0);
+    }
+
+    @Test
+    void advisorReadsRemainAvailableInReadOnlyModeButRespectDisabledPanels() {
+        policy.readOnly.add("architecture");
+        McpDispatcher dispatcher = advisorDispatcher(250, args -> "page");
+        assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", 0, 10))).isEqualTo(new ToolCallResult("page"));
+        policy.disabled.add("architecture");
+        assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", 0, 10))).isInstanceOf(ToolCallError.class);
+    }
+
+    @Test
+    void advisorSnapshotClientFailuresKeepTheirSafeStatusAndDoNotReportServerFaults() {
+        for (int status : List.of(400, 404, 409)) {
+            McpDispatcher dispatcher = advisorDispatcher(250, args -> {
+                throw new AdvisorViolationException(status, "Reread the cached report.");
+            });
+            assertThat(dispatcher.dispatch(advisorRequest("RULE-1", "scan", 0, 10)))
+                    .isEqualTo(new ToolCallError("Reread the cached report.", status));
+        }
+        assertThat(diagnostics.count()).isZero();
+    }
+
+    private McpDispatcher advisorDispatcher(int cap, java.util.function.Function<McpArguments, Object> handler) {
+        return new McpDispatcher(
+                List.of(new McpTool(
+                        "get_architecture_rule_violations",
+                        "Read retained violations.",
+                        McpToolSchema.RULE_VIOLATIONS,
+                        "architecture",
+                        false,
+                        handler)),
+                List.of(),
+                policy,
+                "1.2.3",
+                "",
+                cap,
+                20,
+                diagnostics);
+    }
+
+    private static McpRequest advisorRequest(String id, String scanId, Integer offset, Integer limit) {
+        return new McpRequest(
+                JSONRPC,
+                "tools/call",
+                false,
+                null,
+                "get_architecture_rule_violations",
+                null,
+                limit,
+                id,
+                Set.of("id", "scanId", "offset", "limit"),
+                null,
+                scanId,
+                offset);
+    }
 
     private final McpTool overview = new McpTool(
             "get_overview",

@@ -59,7 +59,7 @@ class DatabaseAdvisorControllerTests {
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
         DatabaseAdvisorReport initial = report("NOT_SCANNED", 0);
         DatabaseAdvisorReport dismissedView = report("NOT_SCANNED", 0);
-        when(scanner.initialReport()).thenReturn(initial);
+        when(scanner.lastReport()).thenReturn(initial);
         when(dismissedRules.load()).thenReturn(Set.of("DB-IGNORED"));
         when(scanner.applyDismissals(eq(initial), eq(Set.of("DB-IGNORED")))).thenReturn(dismissedView);
 
@@ -76,7 +76,6 @@ class DatabaseAdvisorControllerTests {
     void scanRefreshesCachedReportAndAppliesDismissals() throws Exception {
         DatabaseAdvisorScanner scanner = mock(DatabaseAdvisorScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         DatabaseAdvisorReport scanned = report("SCANNED", 2);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());
@@ -96,8 +95,8 @@ class DatabaseAdvisorControllerTests {
     void getReturnsTheLastScannedReportAfterAScan() throws Exception {
         DatabaseAdvisorScanner scanner = mock(DatabaseAdvisorScanner.class);
         DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
-        when(scanner.initialReport()).thenReturn(report("NOT_SCANNED", 0));
         DatabaseAdvisorReport scanned = report("SCANNED", 1);
+        when(scanner.lastReport()).thenReturn(scanned);
         when(scanner.scan()).thenReturn(scanned);
         when(dismissedRules.load()).thenReturn(Set.of());
         when(scanner.applyDismissals(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
