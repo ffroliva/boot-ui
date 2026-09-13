@@ -48,6 +48,8 @@ import java.util.function.Supplier;
  */
 public final class PostgresInsightService {
 
+    private static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
+
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
                     + "wall-clock budget. The session list is a live snapshot; every other number is cumulative "
@@ -270,7 +272,6 @@ public final class PostgresInsightService {
                 String reason = "The datasource connection is already in a transaction, so BootUI skipped this"
                         + " PostgreSQL read to avoid touching the application's transaction state.";
                 diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
-                data.markSessionUnpinned(reason);
                 return errorDatabase(name, version.describe(), version.major(), reason);
             }
             connection.setAutoCommit(false);
@@ -362,21 +363,23 @@ public final class PostgresInsightService {
 
     private PinningResult pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
         List<String> pins = List.of(
-                PostgresQuery.READ_ONLY_TRANSACTION_PIN,
+                READ_ONLY_TRANSACTION_PIN,
                 "set local statement_timeout = '" + limits.statementTimeout().toMillis() + "ms'",
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
                 "set local idle_in_transaction_session_timeout = '"
                         + limits.readBudget().toMillis() + "ms'");
         String unpinned = null;
         for (String pin : pins) {
-            String reason = PostgresQuery.pin(connection, pin);
+            String reason = READ_ONLY_TRANSACTION_PIN.equals(pin)
+                    ? PostgresQuery.pinTransactionCharacteristics(connection, pin)
+                    : PostgresQuery.pin(connection, pin);
             if (reason != null) {
                 String message = "The session could not be pinned with \"" + pin + "\": " + reason;
                 diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
                 if (unpinned == null) {
                     unpinned = message;
                 }
-                if (PostgresQuery.READ_ONLY_TRANSACTION_PIN.equals(pin)) {
+                if (READ_ONLY_TRANSACTION_PIN.equals(pin)) {
                     return new PinningResult(message, true);
                 }
             }

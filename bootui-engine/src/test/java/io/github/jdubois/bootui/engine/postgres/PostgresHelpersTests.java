@@ -215,7 +215,8 @@ class PostgresHelpersTests {
                     };
                 }));
 
-        assertThat(PostgresQuery.pin(connection, "set transaction read only")).isNull();
+        assertThat(PostgresQuery.pinTransactionCharacteristics(connection, "set transaction read only"))
+                .isNull();
         assertThat(savepointCreated.get()).isFalse();
     }
 

@@ -27,8 +27,6 @@ import java.util.List;
  */
 final class PostgresQuery {
 
-    static final String READ_ONLY_TRANSACTION_PIN = "set transaction read only";
-
     @FunctionalInterface
     interface RowMapper<T> {
         /** Maps the current row, or returns {@code null} to skip it. */
@@ -106,23 +104,10 @@ final class PostgresQuery {
      * this isolation one rejected {@code SET} would make every section report a transaction error instead of
      * its own content — the exact failure the per-query savepoints exist to prevent.</p>
      *
-     * <p>{@code set transaction read only} is the first pin and runs without a savepoint because PostgreSQL
-     * rejects transaction-characteristic changes after any savepoint exists. If it fails, the whole
-     * transaction is rolled back.</p>
+     * <p>Use {@link #pinTransactionCharacteristics(Connection, String)} for transaction-characteristic pins
+     * such as {@code set transaction read only}. PostgreSQL rejects those after any savepoint exists.</p>
      */
     static String pin(Connection connection, String sql) {
-        if (isTransactionReadOnlyPin(sql)) {
-            try (Statement statement = connection.createStatement()) {
-                statement.execute(sql);
-                return null;
-            } catch (SQLException | RuntimeException ex) {
-                // A caller that cannot pin read-only must stop the read: this rollback clears any aborted
-                // state but does not re-pin a replacement transaction.
-                rollback(connection);
-                String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-                return CredentialRedaction.redact(message.strip());
-            }
-        }
         Savepoint savepoint = savepoint(connection);
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
@@ -135,8 +120,21 @@ final class PostgresQuery {
         return null;
     }
 
-    private static boolean isTransactionReadOnlyPin(String sql) {
-        return READ_ONLY_TRANSACTION_PIN.equalsIgnoreCase(sql == null ? null : sql.strip());
+    /**
+     * Executes one transaction-characteristic pin without a savepoint.
+     *
+     * <p>PostgreSQL requires this before any savepoint exists; if it fails, the whole transaction is rolled
+     * back. A caller that cannot pin read-only must stop the read.</p>
+     */
+    static String pinTransactionCharacteristics(Connection connection, String sql) {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        } catch (SQLException | RuntimeException ex) {
+            rollback(connection);
+            String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            return CredentialRedaction.redact(message.strip());
+        }
+        return null;
     }
 
     /**
