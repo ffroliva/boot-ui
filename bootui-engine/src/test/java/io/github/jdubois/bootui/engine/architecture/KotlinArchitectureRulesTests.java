@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.LegacyDateParameterMapper;
+import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.LegacyTicketMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Pins the Kotlin-awareness of the Architecture rules against bytecode a real Kotlin compiler
@@ -25,6 +29,34 @@ class KotlinArchitectureRulesTests {
 
     private ArchitectureRuleResultDto evaluate(ArchitectureRule rule) {
         return rule.evaluate(context());
+    }
+
+    @ParameterizedTest
+    @EnumSource(ArchitecturePlatform.class)
+    void convertingExternalDatePropertiesDoesNotCountAsLegacyUse(ArchitecturePlatform platform) {
+        JavaClasses classes = new ClassFileImporter().importClasses(LegacyTicketMapper.class);
+        ArchitectureRuleResultDto result = new NoLegacyDateTimeRule()
+                .evaluate(new ArchitectureContext(classes, List.of(KOTLIN_FIXTURES), platform));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(result.violationCount()).isZero();
+        assertThat(result.sampleViolations()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(ArchitecturePlatform.class)
+    void aLegacyParameterRemainsAFindingEvenWhenImmediatelyConverted(ArchitecturePlatform platform) {
+        JavaClasses classes = new ClassFileImporter().importClasses(LegacyDateParameterMapper.class);
+        ArchitectureRuleResultDto result = new NoLegacyDateTimeRule()
+                .evaluate(new ArchitectureContext(classes, List.of(KOTLIN_FIXTURES), platform));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("has parameter of type <java.util.Date>")
+                .contains("LegacyDateTimeFixtures.kt");
     }
 
     @Test

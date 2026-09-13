@@ -224,11 +224,31 @@ Dismissed rules remove all of their instances from the score.
 ### ARCH-CODE-008 - Classes should not use legacy date and time classes
 
 - **Severity**: INFO
-- **Inspects**: use of legacy date/time classes such as `java.util.Date`, `Calendar`, `GregorianCalendar`, or
-  `java.sql` date types (via ArchUnit's `GeneralCodingRules`).
-- **Fires when**: a class references one of the legacy date/time types instead of `java.time`.
+- **Inspects**: dependencies on `java.util.Date`, `java.util.Calendar`, `java.sql.Date`, `java.sql.Time`, and
+  `java.sql.Timestamp`.
+- **Fires when**: a class declares legacy field, parameter, or return types, constructs legacy values (including
+  `Calendar.getInstance()`), or uses legacy operations. Generic and array dependencies are also checked.
+  Calls and method references to standard `java.time` conversion bridges are exempt:
+
+  | Legacy type | Exempt bridges |
+  | --- | --- |
+  | `java.util.Date` | `toInstant()`, `from(Instant)` |
+  | `java.util.Calendar` | `toInstant()` |
+  | `java.sql.Date` | `toLocalDate()`, `valueOf(LocalDate)` |
+  | `java.sql.Time` | `toLocalTime()`, `valueOf(LocalTime)` |
+  | `java.sql.Timestamp` | `toInstant()`, `toLocalDateTime()`, `from(Instant)`, `valueOf(LocalDateTime)` |
+
+  For example, a Java or Kotlin mapper that receives a third-party ticket and immediately calls
+  `ticket.createdAt.toInstant()` is not flagged for that conversion. A legacy field or method parameter in the same
+  mapper remains a finding: the exemption applies to the bridge access, not the whole class. Supported inherited
+  bridges are recognized when their JDK declaration can be resolved.
+  The string-taking `valueOf` overloads and the unsupported `java.sql.Date.toInstant()` /
+  `java.sql.Time.toInstant()` methods remain findings.
+  `TimeZone` and `GregorianCalendar` are outside this rule's checked type set, so their bridges, including
+  `TimeZone.toZoneId()`, do not introduce findings.
 - **Recommendation**: prefer the `java.time` API (`LocalDate`, `Instant`, `ZonedDateTime`, ...) for clearer, immutable
-  date/time handling.
+  date/time handling. Use the standard bridges at legacy API boundaries rather than retaining legacy types in
+  application fields and signatures.
 
 ### ARCH-CODE-009 - Classes should not use deprecated APIs
 

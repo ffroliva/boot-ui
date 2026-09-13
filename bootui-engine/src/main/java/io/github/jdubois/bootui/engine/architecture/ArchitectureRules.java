@@ -9,6 +9,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureRuleSupport.observed;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
@@ -21,6 +22,7 @@ import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaFieldAccess;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaMethodReference;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.properties.CanBeAnnotated;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -36,6 +38,7 @@ import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -514,9 +517,25 @@ final class NoJdkInternalApiRule extends AbstractArchitectureRule {
 
 /**
  * Flags use of the legacy {@code java.util.Date} / {@code Calendar} family instead of
- * {@code java.time}.
+ * {@code java.time}, except for the standard conversion bridges between the two APIs.
  */
 final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
+
+    private static final Set<String> LEGACY_TYPES =
+            Set.of("java.util.Date", "java.util.Calendar", "java.sql.Date", "java.sql.Time", "java.sql.Timestamp");
+
+    private static final Map<String, String> JAVA_TIME_BRIDGES = Map.ofEntries(
+            Map.entry("java.util.Date.toInstant()", "java.time.Instant"),
+            Map.entry("java.util.Date.from(java.time.Instant)", "java.util.Date"),
+            Map.entry("java.util.Calendar.toInstant()", "java.time.Instant"),
+            Map.entry("java.sql.Date.toLocalDate()", "java.time.LocalDate"),
+            Map.entry("java.sql.Date.valueOf(java.time.LocalDate)", "java.sql.Date"),
+            Map.entry("java.sql.Time.toLocalTime()", "java.time.LocalTime"),
+            Map.entry("java.sql.Time.valueOf(java.time.LocalTime)", "java.sql.Time"),
+            Map.entry("java.sql.Timestamp.toInstant()", "java.time.Instant"),
+            Map.entry("java.sql.Timestamp.toLocalDateTime()", "java.time.LocalDateTime"),
+            Map.entry("java.sql.Timestamp.from(java.time.Instant)", "java.sql.Timestamp"),
+            Map.entry("java.sql.Timestamp.valueOf(java.time.LocalDateTime)", "java.sql.Timestamp"));
 
     NoLegacyDateTimeRule() {
         super(new ArchitectureRuleDefinition(
@@ -524,17 +543,48 @@ final class NoLegacyDateTimeRule extends AbstractArchitectureRule {
                 "Classes should not use legacy date and time classes",
                 ArchitectureCategory.CODING_PRACTICES,
                 "INFO",
-                "Detects use of legacy date/time classes such as java.util.Date, Calendar, GregorianCalendar, or"
-                        + " java.sql date types.",
+                "Detects dependencies on java.util.Date, java.util.Calendar, java.sql.Date, java.sql.Time, and"
+                        + " java.sql.Timestamp, except calls and method references to their standard java.time"
+                        + " conversion bridges. Legacy declarations, construction, and other operations remain findings.",
                 "Prefer the java.time API (LocalDate, Instant, ZonedDateTime, ...) for clearer, immutable date/time"
-                        + " handling.",
+                        + " handling. Convert values at legacy API boundaries with the standard java.time bridges"
+                        + " rather than keeping legacy types in application fields or signatures.",
                 "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html"));
     }
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        if (!context.classes().isEmpty()) context.evidence().observed();
-        return GeneralCodingRules.OLD_DATE_AND_TIME_CLASSES_SHOULD_NOT_BE_USED;
+        return classes()
+                .that(observed(DescribedPredicate.alwaysTrue(), context))
+                .should(new ArchCondition<>("avoid legacy date/time dependencies except java.time conversion bridges") {
+                    @Override
+                    public void check(JavaClass javaClass, ConditionEvents events) {
+                        for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                            if (LEGACY_TYPES.contains(
+                                            dependency.getTargetClass().getName())
+                                    && !isJavaTimeBridge(dependency)) {
+                                events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                            }
+                        }
+                    }
+                });
+    }
+
+    private static boolean isJavaTimeBridge(Dependency dependency) {
+        return dependency.convertTo(JavaMethodCall.class).stream().anyMatch(call -> isJavaTimeBridge(call.getTarget()))
+                || dependency.convertTo(JavaMethodReference.class).stream()
+                        .anyMatch(reference -> isJavaTimeBridge(reference.getTarget()));
+    }
+
+    private static boolean isJavaTimeBridge(CodeUnitAccessTarget target) {
+        String returnType = target.getRawReturnType().getName();
+        if (returnType.equals(JAVA_TIME_BRIDGES.get(target.getFullName()))) {
+            return true;
+        }
+        // The bytecode owner can be a subclass, e.g. java.sql.Date.from(Instant) inherited from java.util.Date.
+        return target.resolveMember()
+                .filter(method -> returnType.equals(JAVA_TIME_BRIDGES.get(method.getFullName())))
+                .isPresent();
     }
 }
 
