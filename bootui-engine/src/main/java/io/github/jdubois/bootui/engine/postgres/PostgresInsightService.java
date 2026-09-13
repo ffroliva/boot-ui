@@ -248,26 +248,7 @@ public final class PostgresInsightService {
             String reason = CredentialRedaction.redact(
                     ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
             diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "ERROR", reason));
-            return new PostgresDatabaseDto(
-                    dataSource.name(),
-                    null,
-                    null,
-                    -1,
-                    null,
-                    false,
-                    "ERROR",
-                    reason,
-                    null,
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    null,
-                    List.of(),
-                    List.of(),
-                    false);
+            return errorDatabase(dataSource.name(), null, reason);
         }
     }
 
@@ -292,35 +273,16 @@ public final class PostgresInsightService {
                         + " PostgreSQL read to avoid touching the application's transaction state.";
                 diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
                 data.markSessionUnpinned(reason);
-                return new PostgresDatabaseDto(
-                        name,
-                        null,
-                        version.describe(),
-                        version.major(),
-                        null,
-                        false,
-                        "ERROR",
-                        reason,
-                        null,
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        null,
-                        List.of(),
-                        List.of(),
-                        false);
+                return errorDatabase(name, version, reason);
             }
             connection.setAutoCommit(false);
             autoCommitChanged = true;
             originalReadOnly = connection.isReadOnly();
             connection.setReadOnly(true);
             readOnlyChanged = true;
-            String pinFailure = pinSession(connection, name, diagnostics);
-            data.markSessionUnpinned(pinFailure);
-            if (pinFailure == null || !pinFailure.contains("\"" + READ_ONLY_TRANSACTION_PIN + "\"")) {
+            PinningResult pinning = pinSession(connection, name, diagnostics);
+            data.markSessionUnpinned(pinning.reason());
+            if (!pinning.readOnlyPinFailed()) {
                 role = readRole(context);
                 data.markStatisticsRestricted(!role.monitoring());
                 for (PostgresCollector collector : COLLECTORS) {
@@ -400,7 +362,7 @@ public final class PostgresInsightService {
         return complete && !data.truncated() && data.readCaveat() == null ? "READ" : "PARTIAL";
     }
 
-    private String pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
+    private PinningResult pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
         List<String> pins = List.of(
                 READ_ONLY_TRANSACTION_PIN,
                 "set local statement_timeout = '" + limits.statementTimeout().toMillis() + "ms'",
@@ -417,11 +379,11 @@ public final class PostgresInsightService {
                     unpinned = message;
                 }
                 if (READ_ONLY_TRANSACTION_PIN.equals(pin)) {
-                    return message;
+                    return new PinningResult(message, true);
                 }
             }
         }
-        return unpinned;
+        return new PinningResult(unpinned, false);
     }
 
     private Role readRole(PostgresReadContext context) {
@@ -651,6 +613,31 @@ public final class PostgresInsightService {
             return null;
         }
     }
+
+    private static PostgresDatabaseDto errorDatabase(String name, DatabaseVersion version, String reason) {
+        return new PostgresDatabaseDto(
+                name,
+                null,
+                version == null ? null : version.describe(),
+                version == null ? -1 : version.major(),
+                null,
+                false,
+                "ERROR",
+                reason,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                List.of(),
+                List.of(),
+                false);
+    }
+
+    private record PinningResult(String reason, boolean readOnlyPinFailed) {}
 
     private record Role(String name, boolean monitoring) {}
 }

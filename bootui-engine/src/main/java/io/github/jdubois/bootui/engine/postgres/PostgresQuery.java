@@ -103,6 +103,10 @@ final class PostgresQuery {
      * fails aborts that transaction, and an aborted transaction refuses even {@code SAVEPOINT}, so without
      * this isolation one rejected {@code SET} would make every section report a transaction error instead of
      * its own content — the exact failure the per-query savepoints exist to prevent.</p>
+     *
+     * <p>{@code set transaction read only} is the first pin and runs without a savepoint because PostgreSQL
+     * rejects transaction-characteristic changes after any savepoint exists. If it fails, the whole
+     * transaction is rolled back.</p>
      */
     static String pin(Connection connection, String sql) {
         if (isTransactionReadOnlyPin(sql)) {
