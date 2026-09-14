@@ -398,6 +398,8 @@ The existing safety bounds stay fixed: a 5-second statement timeout, a 2-second 
 read budget, and a 400-character statement-text limit. Raising row limits can increase read cost and does not
 guarantee a complete result before these deadlines. Row-limit omissions retain `PARTIAL` / `truncated=true` and name
 the affected sections; timeouts and permission failures remain distinct explanations.
+In the UI, a statement-ranking cap alone is an informational note inside that section, not a page-wide warning.
+Other capped sections and actual read problems still produce visible warnings.
 See [PostgreSQL](features/database.md#postgresql) for read behavior and availability.
 
 ### Memory

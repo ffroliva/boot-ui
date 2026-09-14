@@ -342,18 +342,62 @@ describe('PostgreSql', () => {
     expect(wrapper.text()).toContain("Additional rows are not shown because this section reached BootUI's row limit.")
   })
 
-  it('names a capped ranking without describing it as a failed read', async () => {
-    const {wrapper, fetchMock} = await mountWith(limitedReport())
-
-    const warning = wrapper.find('[role="status"]')
-    expect(warning.text()).toContain('Limited results.')
-    expect(warning.text()).toContain(
-      'default / Statement ranking: Showing the top 25 statements by total execution time. Additional statements are not shown.'
+  it.each([1, 25, 100, 250])('explains a top-%i ranking once in the section without warning chrome', async (count) => {
+    const note = `Showing the top ${count} ${count === 1 ? 'statement' : 'statements'} by total execution time. Additional statements are not shown.`
+    const body = limitedReport(
+      {sections: [section('statements', 'Statement ranking', 'AVAILABLE', {rowCount: count, truncated: true})]},
+      {
+        message: 'Some results are incomplete; see the section details and diagnostics.',
+        limitations: [`default / Statement ranking: ${note}`]
+      }
     )
-    expect(warning.text()).not.toContain('Incomplete read')
-    expect(warning.text()).not.toContain('read only partially')
-    expect(wrapper.find('[role="tabpanel"]').text()).toContain('Showing the top 25 statements')
+    const {wrapper, fetchMock} = await mountWith(body)
+
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('.alert-warning').exists()).toBe(false)
+    expect(wrapper.find('.text-bg-warning').exists()).toBe(false)
+    expect(wrapper.find('.postgres-tabs__count--partial').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(body.message)
+    expect(wrapper.text()).not.toContain('What this read does not cover')
+    expect(wrapper.text()).not.toContain('Truncated')
+    expect(wrapper.text()).not.toContain('Partly read')
+    expect(wrapper.text().split(note)).toHaveLength(2)
+    expect(wrapper.find('[role="tabpanel"]').text()).toContain(note)
+    expect(wrapper.find('.card-header .badge').text()).toBe('Read')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(body.status).toBe('PARTIAL')
+    expect(body.truncated).toBe(true)
+  })
+
+  it('keeps ranking notes local when multiple datasources have only statement caps', async () => {
+    const body = limitedReport()
+    body.databases.push({...body.databases[0], name: 'analytics'})
+    const {wrapper} = await mountWith(body)
+
+    expect(wrapper.find('.alert-warning').exists()).toBe(false)
+    expect(wrapper.find('.text-bg-warning').exists()).toBe(false)
+    expect(wrapper.findAll('[role="tabpanel"]')).toHaveLength(2)
+    for (const panel of wrapper.findAll('[role="tabpanel"]')) {
+      expect(panel.text()).toContain('Showing the top 25 statements')
+    }
+  })
+
+  it('shows the statement note only when its tab is open and preserves normal read statuses', async () => {
+    const body = limitedReport({
+      sections: [
+        section('sessions', 'Sessions', 'AVAILABLE'),
+        section('statements', 'Statement ranking', 'AVAILABLE', {rowCount: 100, truncated: true})
+      ]
+    })
+    body.databases.push(database({name: 'analytics', sections: [section('sessions', 'Sessions', 'AVAILABLE')]}))
+    const {wrapper} = await mountWith(body)
+
+    expect(wrapper.text()).not.toContain('Showing the top')
+    expect(wrapper.find('.alert-warning').exists()).toBe(false)
+    await openTab(wrapper, 'Statement ranking')
+    expect(wrapper.text()).toContain('Showing the top 100 statements')
+    await openTab(wrapper, 'Sessions')
+    expect(wrapper.text()).not.toContain('Showing the top')
   })
 
   it('names every capped section and datasource with its own retained count', async () => {
@@ -424,6 +468,16 @@ describe('PostgreSql', () => {
     expect(wrapper.find('[role="status"]').text()).toContain('Incomplete read.')
   })
 
+  it('keeps a failed datasource visible when another datasource has only a statement cap', async () => {
+    const body = limitedReport()
+    body.databases.push(database({name: 'offline', status: 'ERROR', message: 'Connection refused.'}))
+    const {wrapper} = await mountWith(body)
+
+    expect(wrapper.find('[role="status"]').text()).toContain('1 datasource could not be read')
+    expect(wrapper.text()).toContain('Connection refused.')
+    expect(wrapper.text()).toContain('Unreadable')
+  })
+
   it('keeps connection-restoration failures visible alongside a row cap', async () => {
     const {wrapper} = await mountWith(limitedReport({message: 'The connection could not be restored.'}))
 
@@ -442,6 +496,8 @@ describe('PostgreSql', () => {
     const panel = wrapper.find('[role="tabpanel"]')
     expect(panel.text()).toContain(reason)
     expect(panel.text()).toContain('Showing the top 25 statements')
+    expect(panel.text()).toContain('PARTIAL')
+    expect(panel.text()).toContain('Truncated')
     expect(wrapper.find('[role="status"]').text()).toContain('Incomplete read.')
   })
 
