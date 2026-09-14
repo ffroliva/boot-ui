@@ -188,14 +188,14 @@ Indexes, Tables, InnoDB, Replication, and Settings tabs. Counts and local filter
 
 | Area | Evidence and limits |
 | --- | --- |
-| Vital signs | Server-wide uptime, connections, buffer-pool and lock/log counters, with selected-schema storage where readable. These are not this JVM's pool metrics. |
+| Vital signs | Server-wide uptime, connections, buffer-pool and lock/log counters. These are not this JVM's pool metrics; table storage estimates are in Tables, not a schema-size vital sign. |
 | Sessions and blocking | Default-schema-associated sessions, state age, optional transaction age, bounded row-lock relationships, and separately identified metadata waits. A sleeping session can still hold a transaction; state age is not transaction age. |
 | Statements | Normalized digests ranked by total execution time, with calls, durations, rows examined/sent, errors, and temporary-table evidence where collected. No raw or sampled SQL. |
 | Indexes | Selected-schema handler-operation statistics, not query counts or physical disk reads. The null-index bucket includes inserts; no recorded reads is not advice to drop an index. |
 | Tables | Selected-schema engine, estimated rows/storage, and available table I/O. InnoDB estimates can be cached; BootUI does not run `COUNT(*)`, refresh statistics, or sum shared tablespace free space as reclaimable bytes. |
 | InnoDB | Allow-listed buffer/dirty-page, log-wait, lock/deadlock, and history-list evidence where available and enabled. This is not PostgreSQL autovacuum. |
-| Basic replication | The connected server's receiver/applier channel state and bounded worker/error summaries. No precise end-to-end lag, downstream topology discovery, or Group Replication administration. |
-| Settings | A fixed safe allow-list with global/session provenance, not a variable dump. Values changed for BootUI's inspection session are not presented as application defaults. |
+| Basic replication | The connected server's receiver/applier channel state, coordinator errors, and bounded worker/error summaries. No precise end-to-end lag, downstream topology discovery, or Group Replication administration. |
+| Settings | A fixed safe allow-list of global settings, not a variable dump. Values changed for BootUI's inspection session are not presented as application defaults. |
 
 ### Read and report contract
 
@@ -238,6 +238,9 @@ exposure. Collection is an interval, not an atomic cross-table snapshot, and the
 - The first read has no invented rates. Later comparisons need compatible datasource, server identity, scope, and
   counter provenance, with their own observation interval. Restart/reset or server-change evidence invalidates a
   baseline; a partial read does not turn an older valid observation into a fresh one. Nothing is persisted to disk.
+  Counter comparisons use the status query's own observation window, not the later completion of all collectors.
+  Restart detection accounts for that window and integer-second uptime, so a slow subsequent section does not
+  masquerade as a restarted database.
 
 ### Availability and permissions
 
@@ -258,12 +261,12 @@ state, and timing availability are separate evidence.
 
 | Optional visibility | What to authorize and what it unlocks |
 | --- | --- |
-| Status and settings | Probe readability of `performance_schema.global_status` and `global_variables` before requesting additional permissions. An explicit table grant is not universally required for `global_status`: the restricted MySQL 8.4.6 fixture reads it without one. An unreadable status source can fall back to fixed-name `SHOW GLOBAL STATUS`. |
-| Session state / normalized current statement | `SELECT` on `performance_schema.threads` / `events_statements_current`, respectively. Reading `threads` exposes other users' thread rows **without `PROCESS`**; this is a meaningful permission decision. |
+| Status and settings | Probe readability of `performance_schema.global_status` before requesting additional permissions. An explicit table grant is not universally required for it: the restricted MySQL 8.4.6 fixture reads it without one. An unreadable status source can fall back to fixed-name `SHOW GLOBAL STATUS`. Settings use fixed `@@global` expressions, not a `global_variables` table read. |
+| Session state | `SELECT` on `performance_schema.threads`. Reading `threads` exposes other users' thread rows **without `PROCESS`**; this is a meaningful permission decision. Current statement text is not selected, and `events_statements_current` is not required. |
 | Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks` for the corresponding wait evidence. |
 | Statement ranking | `SELECT` on `performance_schema.events_statements_summary_by_digest`, with the relevant collection and timing enabled. Global digest collection depends on `global_instrumentation` and `statements_digest`, not `thread_instrumentation`. |
-| Table/index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`. Information Schema object visibility still follows application-object permissions. |
-| Instrumentation explanation | `SELECT` on the setup tables used by capability probes, such as `performance_schema.setup_consumers` and `setup_instruments`. Denied probes leave collection state unknown, not enabled. |
+| Table/index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`, with enabled global, handler, and matching object instrumentation. Information Schema object visibility still follows application-object permissions. |
+| Instrumentation explanation | `SELECT` on `performance_schema.setup_consumers`, `setup_instruments`, and `setup_objects`. Denied probes leave collection state unknown, not enabled. |
 | Replication | Table-specific `SELECT` on the receiver/applier status tables actually read: `replication_connection_status`, `replication_applier_status`, `replication_applier_status_by_coordinator`, and `replication_applier_status_by_worker` in `performance_schema`. No replication administration is needed. |
 | Additional InnoDB detail | Optional global `PROCESS` for `information_schema.innodb_trx` and `innodb_metrics`. Other readable sections remain useful without it. |
 
@@ -271,6 +274,21 @@ This is a capability map, not a blanket minimum-grant script: inspect the report
 application connection before changing permissions. Do not grant `SUPER`, use an administrative account, or grant all of
 `performance_schema.*` merely to make the panel complete. BootUI never enables consumers, instruments, or InnoDB
 metrics and never resets statistics.
+
+Table/index activity respects MySQL's effective object configuration: exact table, schema wildcard, then global
+wildcard. Object matching uses MySQL's identifier normalization; `%` is a whole-name wildcard, not a SQL `LIKE`
+pattern. At most 1,024 relevant table rules are inspected. Missing or bounded configuration evidence remains
+unknown rather than falling back to an assumed enabled rule. Uninstrumented/unknown objects retain readable
+catalog metadata, but affected activity counters are withheld; untimed objects retain counts but not durations.
+These limitations are explained per section rather than displayed as zero activity or `0 ms`.
+
+Metadata-lock evidence separately checks `wait/lock/metadata/sql/mdl`; an empty list with disabled or unknown
+instrumentation cannot establish absence. Like table I/O, metadata-lock collection needs global instrumentation,
+not the per-thread consumer. Sessions and independently read row-lock waits remain visible.
+
+Replication state/error tables remain readable when Performance Schema is disabled; BootUI does not use the
+transaction-timing columns that disappear in that mode. Coordinator-only errors are included, and an unread
+error source produces partial coverage rather than certifying zero errors.
 
 ### Safety and bounds
 

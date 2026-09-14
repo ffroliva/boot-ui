@@ -424,6 +424,18 @@ public class PanelsController {
         return "No PostgreSQL datasource is configured";
     }
 
+    /**
+     * Whether the Database Connection Pools panel has anything to show.
+     *
+     * <p>Answered from objects that already exist, never by creating one: the manifest renders on page load, so
+     * it may not instantiate a lazy {@code DataSource} bean, resolve a dynamic proxy target, or borrow a
+     * connection. That makes "no Hikari pool" undecidable in three real configurations — a lazy or not-yet-created
+     * datasource bean, a wrapper hidden behind a dynamic AOP target source, and a pool that will not answer the
+     * JDBC wrapper query. Each of those stays a <em>candidate</em>: the panel's own read resolves beans and
+     * reports honestly, whereas hiding a configured pool leaves no way to find out. Only a pool that positively
+     * declares it is not Hikari (and an application with no {@code DataSource} bean at all) makes the panel
+     * unavailable.</p>
+     */
     private boolean hikariAvailable() {
         if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
             return false;
@@ -431,15 +443,35 @@ public class PanelsController {
         if (applicationContext.getBeanNamesForType(com.zaxxer.hikari.HikariDataSource.class, true, false).length > 0) {
             return true;
         }
-        return DataSourceDeclarations.inspect(applicationContext).sources().stream()
-                .anyMatch(source -> HikariDataSourceDiscovery.existingHikariTarget(source) != null);
+        DataSourceDeclarations.Snapshot declarations = DataSourceDeclarations.inspect(applicationContext);
+        if (!declarations.present()) {
+            return false;
+        }
+        // A declaration that could not be observed at all — a lazy bean, or a wrapper that would not describe
+        // its target — is exactly the case that cannot be ruled out without constructing something.
+        boolean undecided = declarations.incomplete();
+        for (javax.sql.DataSource source : declarations.sources()) {
+            switch (HikariDataSourceDiscovery.inspectExisting(source)) {
+                case PRESENT -> {
+                    return true;
+                }
+                case UNKNOWN -> undecided = true;
+                case ABSENT -> {
+                    // A pool that declares it neither is nor wraps Hikari is proven absent.
+                }
+            }
+        }
+        return undecided;
     }
 
     private String hikariUnavailableReason() {
         if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
             return "No supported JDBC connection pool implementation is available";
         }
-        return "No database connection pool beans are available";
+        if (applicationContext.getBeanNamesForType(javax.sql.DataSource.class, true, false).length == 0) {
+            return "No database connection pool beans are available";
+        }
+        return "The configured DataSource beans are not backed by a supported connection pool";
     }
 
     private boolean flywayAvailable() {

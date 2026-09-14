@@ -2,13 +2,33 @@ package io.github.jdubois.bootui.engine.mysql;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.core.dto.MySqlDataSourceDto;
 import io.github.jdubois.bootui.core.dto.MySqlMetricDto;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class MySqlComparisonTests {
+    @Test
+    void aSlowStatusQueryDoesNotMistakeSamplingUncertaintyForARestart() {
+        MySqlComparisons comparisons = new MySqlComparisons();
+        comparisons.observe("pool", "server", sample(100_000, 100_100, "100", "10"));
+        assertThat(comparisons.observe("pool", "server", sample(200_000, 206_000, "200", "20")))
+                .singleElement()
+                .satisfies(change -> {
+                    assertThat(change.delta()).isEqualTo("10");
+                    assertThat(change.previousReadAt()).isEqualTo(100_100);
+                    assertThat(change.readAt()).isEqualTo(206_000);
+                });
+    }
+
+    @Test
+    void detectsAChangedBootWindowEvenWhenUptimeAndCountersIncreased() {
+        MySqlComparisons comparisons = new MySqlComparisons();
+        comparisons.observe("pool", "server", report(100_000, "100", "10"));
+        assertThat(comparisons.observe("pool", "server", report(300_000, "150", "20")))
+                .isEmpty();
+    }
+
     @Test
     void exactDeltasUseEachMetricsActualIntervalAcrossPartialReads() {
         MySqlComparisons comparisons = new MySqlComparisons();
@@ -51,32 +71,14 @@ class MySqlComparisonTests {
                 .isEmpty();
     }
 
-    private static MySqlDataSourceDto report(long at, String uptime, String count) {
+    private static MySqlCounterSample report(long at, String uptime, String count) {
+        return sample(at, at, uptime, count);
+    }
+
+    private static MySqlCounterSample sample(long startedAt, long observedAt, String uptime, String count) {
         List<MySqlMetricDto> metrics = List.of(
                 new MySqlMetricDto("Uptime", "Uptime", uptime, "seconds", "SERVER", "global_status"),
                 new MySqlMetricDto("Connections", "Connections", count, "count", "SERVER", "global_status"));
-        return new MySqlDataSourceDto(
-                "pool",
-                "fixture",
-                "8.4.6",
-                "ORACLE_MYSQL",
-                null,
-                "PARTIAL",
-                null,
-                at,
-                at,
-                List.of(),
-                List.of(),
-                metrics,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                false);
+        return new MySqlCounterSample("fixture", startedAt, observedAt, metrics);
     }
 }

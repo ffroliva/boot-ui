@@ -418,13 +418,45 @@ class QuarkusPanelAvailabilityTest {
                         "quarkus.datasource.jdbc.url",
                         "jdbc:mariadb://localhost/demo"),
                 Map.of("quarkus.datasource.jdbc.url", "jdbc:unknown://localhost/demo"),
-                Map.of("quarkus.datasource.db-kind", "mysql", "quarkus.datasource.active", "false"),
-                Map.of("quarkus.datasource.db-kind", "mysql", "quarkus.datasource.jdbc.enabled", "false"))) {
+                Map.of("quarkus.datasource.jdbc.url", "jdbc:h2:mem:mysql"),
+                Map.of("quarkus.datasource.db-kind", "mysql", "quarkus.datasource.active", "false"))) {
             Map<String, String> properties = new java.util.HashMap<>(declaration);
             properties.put(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true");
             assertThat(mysqlPanel(new StubConfig(properties), true).available())
                     .as("%s", declaration)
                     .isFalse();
+        }
+    }
+
+    /**
+     * {@code DataSourceJdbcBuildTimeConfig.enabled()} carries {@code @WithParentName}, so the key that switches
+     * a JDBC datasource off is {@code quarkus.datasource[."name"].jdbc}. BootUI previously read
+     * {@code ....jdbc.enabled}, a key Quarkus does not define, so a datasource explicitly declared without a
+     * JDBC pool still advertised the MySQL panel.
+     */
+    @Test
+    void mysqlHonoursTheRealJdbcToggleForDefaultNamedAndQuotedNamedDatasources() {
+        for (String prefix :
+                List.of("quarkus.datasource", "quarkus.datasource.reporting", "quarkus.datasource.\"my.reporting\"")) {
+            Map<String, String> disabled = new java.util.HashMap<>();
+            disabled.put(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true");
+            disabled.put(prefix + ".db-kind", "mysql");
+            disabled.put(prefix + ".jdbc.url", "jdbc:mysql://localhost/demo");
+            Map<String, String> enabled = new java.util.HashMap<>(disabled);
+            disabled.put(prefix + ".jdbc", "false");
+
+            assertThat(mysqlPanel(new StubConfig(enabled), true).available())
+                    .as("%s declares a MySQL JDBC datasource", prefix)
+                    .isTrue();
+            assertThat(mysqlPanel(new StubConfig(disabled), true).available())
+                    .as("%s.jdbc=false removes the JDBC pool the panel would read", prefix)
+                    .isFalse();
+
+            Map<String, String> unknownKey = new java.util.HashMap<>(enabled);
+            unknownKey.put(prefix + ".jdbc.enabled", "false");
+            assertThat(mysqlPanel(new StubConfig(unknownKey), true).available())
+                    .as("%s.jdbc.enabled is not a Quarkus key and must not hide a declared datasource", prefix)
+                    .isTrue();
         }
     }
 

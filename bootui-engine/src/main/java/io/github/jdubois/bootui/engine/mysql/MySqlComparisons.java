@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.mysql;
 
 import io.github.jdubois.bootui.core.dto.MySqlChangeDto;
-import io.github.jdubois.bootui.core.dto.MySqlDataSourceDto;
 import io.github.jdubois.bootui.core.dto.MySqlMetricDto;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -23,12 +22,12 @@ final class MySqlComparisons {
             "Innodb_log_waits");
     private final Map<String, Baseline> baselines = new HashMap<>();
 
-    List<MySqlChangeDto> observe(String key, String server, MySqlDataSourceDto report) {
-        if (server == null || report.readAt() == null) {
+    List<MySqlChangeDto> observe(String key, String server, MySqlCounterSample sample) {
+        if (server == null || sample == null || sample.observedAt() < sample.startedAt()) {
             return List.of();
         }
-        long now = report.readAt();
-        String uptimeText = report.vitalSigns().stream()
+        long now = sample.observedAt();
+        String uptimeText = sample.metrics().stream()
                 .filter(metric -> "Uptime".equals(metric.id()))
                 .map(MySqlMetricDto::value)
                 .filter(java.util.Objects::nonNull)
@@ -38,15 +37,20 @@ final class MySqlComparisons {
             return List.of();
         }
         BigInteger uptime = new BigInteger(uptimeText);
-        BigInteger bootTime = BigInteger.valueOf(now).subtract(uptime.multiply(BigInteger.valueOf(1000)));
+        BigInteger elapsed = uptime.multiply(BigInteger.valueOf(1000));
+        // Uptime is integer seconds and may be sampled anywhere during the status query.
+        BigInteger earliestBoot =
+                BigInteger.valueOf(sample.startedAt()).subtract(elapsed).subtract(BigInteger.valueOf(999));
+        BigInteger latestBoot = BigInteger.valueOf(now).subtract(elapsed);
         Baseline baseline = baselines.get(key);
-        String identity = server + "\u0000" + report.schemaName();
+        String identity = server + "\u0000" + sample.schemaName();
         boolean reset = baseline == null
                 || !identity.equals(baseline.server)
                 || uptime.compareTo(baseline.uptime) < 0
-                || bootTime.subtract(baseline.bootTime).abs().compareTo(BigInteger.valueOf(3000)) > 0;
+                || earliestBoot.compareTo(baseline.latestBoot.add(BigInteger.valueOf(3000))) > 0
+                || latestBoot.compareTo(baseline.earliestBoot.subtract(BigInteger.valueOf(3000))) < 0;
         if (!reset) {
-            for (MySqlMetricDto metric : report.vitalSigns()) {
+            for (MySqlMetricDto metric : sample.metrics()) {
                 Observation old = baseline.metrics.get(metric.id());
                 if (old != null
                         && metric.value() != null
@@ -58,11 +62,11 @@ final class MySqlComparisons {
             }
         }
         if (reset) {
-            baseline = new Baseline(identity, uptime, bootTime);
+            baseline = new Baseline(identity, uptime, earliestBoot, latestBoot);
             baselines.put(key, baseline);
         }
         List<MySqlChangeDto> changes = new ArrayList<>();
-        for (MySqlMetricDto metric : report.vitalSigns()) {
+        for (MySqlMetricDto metric : sample.metrics()) {
             if (!COUNTERS.contains(metric.id()) || metric.value() == null) {
                 continue;
             }
@@ -76,8 +80,8 @@ final class MySqlComparisons {
                         current.subtract(old.value).toString(),
                         old.at,
                         now,
-                        "Same observed server and no detected restart/counter decrease; independent resets"
-                                + " remain possible."));
+                        "Status-query observation times, same observed server and no detected restart/counter"
+                                + " decrease; independent resets remain possible."));
             }
             baseline.metrics.put(metric.id(), new Observation(current, now));
         }
@@ -96,13 +100,15 @@ final class MySqlComparisons {
     private static final class Baseline {
         final String server;
         BigInteger uptime;
-        final BigInteger bootTime;
+        final BigInteger earliestBoot;
+        final BigInteger latestBoot;
         final Map<String, Observation> metrics = new HashMap<>();
 
-        Baseline(String server, BigInteger uptime, BigInteger bootTime) {
+        Baseline(String server, BigInteger uptime, BigInteger earliestBoot, BigInteger latestBoot) {
             this.server = server;
             this.uptime = uptime;
-            this.bootTime = bootTime;
+            this.earliestBoot = earliestBoot;
+            this.latestBoot = latestBoot;
         }
     }
 

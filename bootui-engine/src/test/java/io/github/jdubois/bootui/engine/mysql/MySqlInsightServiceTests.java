@@ -23,8 +23,77 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class MySqlInsightServiceTests {
+    @ParameterizedTest
+    @ValueSource(strings = {" AS select_timeout", " AS enforced", "@@version AS version"})
+    void requiredMetadataBudgetExpiryKeepsTheTimeoutReasonAndRestoresTheConnection(String marker) throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        AtomicLong time = new AtomicLong();
+        fixture.beforeQuery = () -> {
+            if (fixture.sql.get(fixture.sql.size() - 1).contains(marker)) {
+                time.set(11_000_000);
+            }
+        };
+        MySqlInsightService service = new MySqlInsightService(
+                () -> inventory(fixture),
+                null,
+                Clock.systemUTC(),
+                MySqlRowLimits.defaults(),
+                time::get,
+                Duration.ofMillis(10));
+        var report = service.read();
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.dataSources()).singleElement().satisfies(source -> {
+            assertThat(source.message()).contains("Time budget").doesNotContain("Collection failed");
+            assertThat(source.sections()).isEmpty();
+        });
+        assertThat(fixture.networkTimeout).isEqualTo(12000);
+        assertThat(fixture.autoCommit).isTrue();
+        verify(fixture.connection).close();
+        verify(fixture.connection, never()).commit();
+        if (marker.equals(" AS select_timeout")) {
+            verify(fixture.connection, never()).rollback();
+            assertThat(fixture.sql).noneMatch(sql -> sql.startsWith("SET SESSION"));
+        } else {
+            verify(fixture.connection).rollback();
+        }
+    }
+
+    @Test
+    void laterCollectorsDoNotChangeStatusObservationTimesOrDiscardValidDeltas() throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        AtomicLong wallTime = new AtomicLong(100_000);
+        AtomicInteger read = new AtomicInteger();
+        Clock clock = org.mockito.Mockito.mock(Clock.class);
+        when(clock.millis()).thenAnswer(ignored -> wallTime.get());
+        fixture.results = sql -> sql.contains("FROM performance_schema.global_status")
+                ? List.of(
+                        MySqlJdbcFixture.row("name", "Uptime", "value", read.get() == 0 ? "100" : "200"),
+                        MySqlJdbcFixture.row("name", "Connections", "value", read.get() == 0 ? "10" : "20"))
+                : fixture.defaults(sql);
+        fixture.beforeQuery = () -> {
+            if (read.get() == 1
+                    && fixture.sql.get(fixture.sql.size() - 1).contains("FROM performance_schema.threads")) {
+                wallTime.set(206_000);
+            }
+        };
+        var service = MySqlInsightService.using(() -> inventory(fixture), null, clock);
+        assertThat(service.read().dataSources().get(0).changes()).isEmpty();
+        read.set(1);
+        wallTime.set(200_000);
+        var report = service.read();
+        assertThat(report.readAt()).isEqualTo(206_000);
+        assertThat(report.dataSources().get(0).changes()).singleElement().satisfies(change -> {
+            assertThat(change.metric()).isEqualTo("Connections");
+            assertThat(change.delta()).isEqualTo("10");
+            assertThat(change.previousReadAt()).isEqualTo(100_000);
+            assertThat(change.readAt()).isEqualTo(200_000);
+        });
+    }
+
     @Test
     void restorationFailureAbortsUnwrappedPhysicalConnectionBeforeReleasingPoolHandle() throws Exception {
         MySqlJdbcFixture fixture = new MySqlJdbcFixture();

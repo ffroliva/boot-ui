@@ -38,15 +38,12 @@ final class MySqlReadContext {
         connection.setNetworkTimeout(Runnable::run, networkMillis);
         // Do not use the JDBC read-only hint: it can reroute a replication connection and need not
         // propagate to the server. Pin the actual selected server using SQL and restore its exact state.
-        Map<String, String> variables = MySqlQuery.read(
-                        connection,
-                        budget,
-                        "SELECT @@session.max_execution_time AS select_timeout,"
-                                + " @@session.lock_wait_timeout AS lock_timeout,"
-                                + " @@session.transaction_read_only AS transaction_read_only LIMIT ?",
-                        1)
-                .values()
-                .get(0);
+        Map<String, String> variables = MySqlQuery.requiredRow(
+                connection,
+                budget,
+                "SELECT @@session.max_execution_time AS select_timeout,"
+                        + " @@session.lock_wait_timeout AS lock_timeout,"
+                        + " @@session.transaction_read_only AS transaction_read_only LIMIT ?");
         originalSelectTimeout = Long.parseLong(variables.get("select_timeout"));
         originalLockTimeout = Long.parseLong(variables.get("lock_timeout"));
         originalTransactionReadOnly = "1".equals(variables.get("transaction_read_only"));
@@ -57,10 +54,8 @@ final class MySqlReadContext {
         transactionOwned = true;
         connection.setAutoCommit(false);
         execute("START TRANSACTION READ ONLY");
-        Map<String, String> enforced = MySqlQuery.read(
-                        connection, budget, "SELECT @@session.transaction_read_only AS enforced LIMIT ?", 1)
-                .values()
-                .get(0);
+        Map<String, String> enforced = MySqlQuery.requiredRow(
+                connection, budget, "SELECT @@session.transaction_read_only AS enforced LIMIT ?");
         if (!"1".equals(enforced.get("enforced"))) {
             throw new SQLException("READ_ONLY_NOT_ENFORCED", "BUI02");
         }

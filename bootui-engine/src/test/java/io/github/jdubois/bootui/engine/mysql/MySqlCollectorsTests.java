@@ -9,6 +9,53 @@ import org.junit.jupiter.api.Test;
 
 class MySqlCollectorsTests {
     @Test
+    void coordinatorOnlyErrorsSurviveTheChannelProjection() throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.results = sql -> {
+            if (sql.contains("FROM performance_schema.replication_connection_status")) {
+                return List.of(MySqlJdbcFixture.row("channel", "fixture", "state", "ON", "error", "0"));
+            }
+            if (sql.contains("FROM performance_schema.replication_applier_status_by_coordinator")) {
+                return List.of(MySqlJdbcFixture.row("channel", "fixture", "error", "1756"));
+            }
+            if (sql.contains("FROM performance_schema.replication_applier_status_by_worker")) {
+                return List.of(MySqlJdbcFixture.row("channel", "fixture", "workers", "4", "errors", "0", "error", "0"));
+            }
+            if (sql.contains("FROM performance_schema.replication_applier_status ORDER")) {
+                return List.of(MySqlJdbcFixture.row("channel", "fixture", "state", "OFF"));
+            }
+            return fixture.defaults(sql);
+        };
+        var source =
+                MySqlInsightServiceTests.service(fixture).read().dataSources().get(0);
+        assertThat(source.replication()).singleElement().satisfies(channel -> {
+            assertThat(channel.applierState()).isEqualTo("OFF");
+            assertThat(channel.lastErrorNumber()).isEqualTo(1756);
+            assertThat(channel.errorCount()).isEqualTo("0");
+        });
+    }
+
+    @Test
+    void deniedCoordinatorEvidenceIsPartialAndDoesNotCertifyZeroErrors() throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.deniedSource = "FROM performance_schema.replication_applier_status_by_coordinator";
+        fixture.results = sql -> sql.contains("FROM performance_schema.replication_connection_status")
+                ? List.of(MySqlJdbcFixture.row("channel", "fixture", "state", "ON", "error", "0"))
+                : fixture.defaults(sql);
+        var source =
+                MySqlInsightServiceTests.service(fixture).read().dataSources().get(0);
+        assertThat(source.replication()).singleElement().satisfies(channel -> {
+            assertThat(channel.receiverState()).isEqualTo("ON");
+            assertThat(channel.lastErrorNumber()).isNull();
+        });
+        assertThat(source.sections()).anySatisfy(section -> {
+            assertThat(section.id()).isEqualTo("replication");
+            assertThat(section.status()).isEqualTo("AVAILABLE");
+            assertThat(section.reason()).contains("replication_applier_status_by_coordinator", "cannot read");
+        });
+    }
+
+    @Test
     void globalDigestCollectionDoesNotDependOnThreadInstrumentation() throws Exception {
         MySqlJdbcFixture fixture = new MySqlJdbcFixture();
         fixture.results = sql -> sql.contains("setup_consumers")

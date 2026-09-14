@@ -56,6 +56,7 @@ public final class MySqlLiveResource implements QuarkusTestResourceLifecycleMana
                     "global_status",
                     "setup_consumers",
                     "setup_instruments",
+                    "setup_objects",
                     "threads",
                     "events_statements_summary_by_digest",
                     "table_io_waits_summary_by_table",
@@ -65,6 +66,7 @@ public final class MySqlLiveResource implements QuarkusTestResourceLifecycleMana
                     "metadata_locks",
                     "replication_connection_status",
                     "replication_applier_status",
+                    "replication_applier_status_by_coordinator",
                     "replication_applier_status_by_worker")) {
                 statement.execute("GRANT SELECT ON performance_schema." + table + " TO 'bootui_reader'@'%'");
             }

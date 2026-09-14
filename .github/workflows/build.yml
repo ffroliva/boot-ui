@@ -82,7 +82,7 @@ jobs:
           bootui-spring-autoconfigure/target/surefire-reports
           MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests
           MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests
-          MySqlHttpLiveTests
+          MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
 
       - name: Run MySQL Quarkus HTTP contract
         run: >

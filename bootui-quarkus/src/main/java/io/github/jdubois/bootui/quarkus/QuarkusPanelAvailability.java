@@ -655,8 +655,11 @@ public class QuarkusPanelAvailability {
                 continue;
             }
             String prefix = name.substring(0, name.length() - (dbKind ? ".db-kind".length() : ".jdbc.url".length()));
+            // quarkus.datasource[."name"].jdbc is the JDBC-datasource toggle: DataSourceJdbcBuildTimeConfig
+            // declares enabled() with @WithParentName, so the key is the group's own name, not ".jdbc.enabled"
+            // (which Quarkus does not define at all). A datasource turned off there has no pool to read.
             if ("false".equalsIgnoreCase(configValue(config, prefix + ".active"))
-                    || "false".equalsIgnoreCase(configValue(config, prefix + ".jdbc.enabled"))) {
+                    || "false".equalsIgnoreCase(configValue(config, prefix + ".jdbc"))) {
                 continue;
             }
             String kind = configValue(config, prefix + ".db-kind");

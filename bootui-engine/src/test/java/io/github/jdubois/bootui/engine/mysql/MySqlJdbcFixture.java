@@ -118,7 +118,9 @@ final class MySqlJdbcFixture {
                     "connection_id",
                     "9",
                     "performance_schema",
-                    "1"));
+                    "1",
+                    "lower_case_table_names",
+                    "0"));
         }
         if (query.contains("setup_consumers")) {
             return List.of(
@@ -129,7 +131,11 @@ final class MySqlJdbcFixture {
         if (query.contains("setup_instruments")) {
             return List.of(
                     row("category", "statement", "instruments", "1", "enabled", "1", "timed", "1"),
-                    row("category", "table", "instruments", "1", "enabled", "1", "timed", "1"));
+                    row("category", "table", "instruments", "1", "enabled", "1", "timed", "1"),
+                    row("category", "metadata-lock", "instruments", "1", "enabled", "1", "timed", "1"));
+        }
+        if (query.contains("setup_objects")) {
+            return List.of(row("schema_name", "%", "object_name", "%", "enabled", "YES", "timed", "YES"));
         }
         if (query.contains("global_status")) {
             return List.of(row("name", "Uptime", "value", "100"), row("name", "Connections", "value", "10"));

@@ -114,4 +114,111 @@ class QuarkusDatabaseAdvisorDataSourceProviderTest {
         verify(defaultPool, never()).getConnection();
         verify(namedPool, never()).getConnection();
     }
+
+    /**
+     * With SQL Trace off, the unqualified pass already sees every named pool, and the qualifier pass then
+     * selects the same beans again. Resolving them twice invoked the producer twice — which a
+     * {@code @Dependent} producer answers with a second pool that identity de-duplication can no longer
+     * collapse — so each bean is now resolved exactly once, by Arc identifier.
+     */
+    @Test
+    void resolvesEachBeanOnceWhenTheQualifierPassReselectsAnAlreadyVisitedNamedPool() {
+        InjectableInstance<DataSource> beans = mock();
+        InjectableInstance<DataSource> namedSelection = mock();
+        BeanManager manager = mock();
+        InjectableBean<DataSource> defaultBean = mock();
+        InjectableBean<DataSource> namedBean = mock();
+        InstanceHandle<DataSource> defaultHandle = mock();
+        InstanceHandle<DataSource> namedHandle = mock();
+        InstanceHandle<DataSource> reselectedHandle = mock();
+        DataSource defaultPool = mock();
+        var qualifier = new io.quarkus.agroal.DataSource.DataSourceLiteral("reporting");
+        when(defaultBean.getIdentifier()).thenReturn("bean-default");
+        when(namedBean.getIdentifier()).thenReturn("bean-reporting");
+        when(namedBean.getQualifiers()).thenReturn(Set.of(qualifier));
+        when(defaultHandle.getBean()).thenReturn(defaultBean);
+        when(defaultHandle.get()).thenReturn(defaultPool);
+        when(namedHandle.getBean()).thenReturn(namedBean);
+        // A dependent producer answers every resolution with a fresh pool, so a repeated pass would be visible.
+        when(namedHandle.get()).thenAnswer(invocation -> mock(DataSource.class));
+        when(reselectedHandle.getBean()).thenReturn(namedBean);
+        when(reselectedHandle.get()).thenAnswer(invocation -> mock(DataSource.class));
+        when(beans.handles()).thenReturn(List.of(defaultHandle, namedHandle));
+        when(manager.getBeans(DataSource.class, Any.Literal.INSTANCE)).thenReturn(Set.of(defaultBean, namedBean));
+        when(beans.select(qualifier)).thenReturn(namedSelection);
+        when(namedSelection.handles()).thenReturn(List.of(reselectedHandle));
+
+        var discovery = new QuarkusDatabaseAdvisorDataSourceProvider(beans, manager).discover();
+
+        assertThat(discovery.dataSources()).extracting(NamedDataSource::name).containsExactly("default", "reporting");
+        assertThat(discovery.failures()).isEmpty();
+        verify(namedHandle).get();
+        verify(reselectedHandle, never()).get();
+    }
+
+    /** A producer that keeps failing must be reported once, under one name, not once per resolution pass. */
+    @Test
+    void reportsARepeatedlySelectedFailingBeanExactlyOnce() {
+        InjectableInstance<DataSource> beans = mock();
+        InjectableInstance<DataSource> namedSelection = mock();
+        BeanManager manager = mock();
+        InjectableBean<DataSource> brokenBean = mock();
+        InstanceHandle<DataSource> brokenHandle = mock();
+        InstanceHandle<DataSource> reselectedHandle = mock();
+        var qualifier = new io.quarkus.agroal.DataSource.DataSourceLiteral("reporting");
+        when(brokenBean.getIdentifier()).thenReturn("bean-reporting");
+        when(brokenBean.getQualifiers()).thenReturn(Set.of(qualifier));
+        when(brokenHandle.getBean()).thenReturn(brokenBean);
+        when(brokenHandle.get()).thenThrow(new IllegalStateException("producer failed"));
+        when(reselectedHandle.getBean()).thenReturn(brokenBean);
+        when(reselectedHandle.get()).thenThrow(new IllegalStateException("producer failed"));
+        when(beans.handles()).thenReturn(List.of(brokenHandle));
+        when(manager.getBeans(DataSource.class, Any.Literal.INSTANCE)).thenReturn(Set.of(brokenBean));
+        when(beans.select(qualifier)).thenReturn(namedSelection);
+        when(namedSelection.handles()).thenReturn(List.of(reselectedHandle));
+
+        var discovery = new QuarkusDatabaseAdvisorDataSourceProvider(beans, manager).discover();
+
+        assertThat(discovery.dataSources()).isEmpty();
+        assertThat(discovery.failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.name()).isEqualTo("reporting");
+            assertThat(failure.message()).contains("producer failed");
+        });
+        verify(reselectedHandle, never()).get();
+    }
+
+    /**
+     * A bean the qualifier pass reaches first still continues the positional numbering instead of restarting at
+     * {@code default}, so two distinct beans can never be published under the same arbitrary name.
+     */
+    @Test
+    void positionalNamingContinuesAcrossPassesForAQualifierThatCarriesNoName() {
+        InjectableInstance<DataSource> beans = mock();
+        InjectableInstance<DataSource> namedSelection = mock();
+        BeanManager manager = mock();
+        InjectableBean<DataSource> anonymousBean = mock();
+        InjectableBean<DataSource> tracedBean = mock();
+        InstanceHandle<DataSource> anonymousHandle = mock();
+        InstanceHandle<DataSource> tracedHandle = mock();
+        DataSource tracedPool = mock();
+        DataSource otherPool = mock();
+        var qualifier = new io.quarkus.agroal.DataSource.DataSourceLiteral("");
+        when(tracedBean.getIdentifier()).thenReturn("bean-traced");
+        when(tracedHandle.getBean()).thenReturn(tracedBean);
+        when(tracedHandle.get()).thenReturn(tracedPool);
+        when(anonymousBean.getIdentifier()).thenReturn("bean-anonymous");
+        when(anonymousBean.getQualifiers()).thenReturn(Set.of(qualifier));
+        when(anonymousHandle.getBean()).thenReturn(anonymousBean);
+        when(anonymousHandle.get()).thenReturn(otherPool);
+        when(beans.handles()).thenReturn(List.of(tracedHandle));
+        when(manager.getBeans(DataSource.class, Any.Literal.INSTANCE)).thenReturn(Set.of(anonymousBean));
+        when(beans.select(qualifier)).thenReturn(namedSelection);
+        when(namedSelection.handles()).thenReturn(List.of(anonymousHandle));
+
+        var discovery = new QuarkusDatabaseAdvisorDataSourceProvider(beans, manager).discover();
+
+        assertThat(discovery.dataSources())
+                .extracting(NamedDataSource::name)
+                .containsExactly("default", "datasource-2");
+    }
 }

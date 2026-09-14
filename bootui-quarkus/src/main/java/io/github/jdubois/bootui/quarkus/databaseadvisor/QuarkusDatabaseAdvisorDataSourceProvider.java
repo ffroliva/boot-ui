@@ -39,6 +39,10 @@ import javax.sql.DataSource;
  *       safe to produce unconditionally (see {@code BootUiEngineProducer#databaseAdvisorScanner}) in an
  *       application with no JDBC datasource extension at all. When no qualifier is present the previous
  *       positional naming ({@code default}, {@code datasource-2}, ...) is used as the fallback.</li>
+ *   <li><strong>One resolution per bean.</strong> The qualifier pass re-selects beans the unqualified pass can
+ *       already have resolved. Each bean is resolved at most once, tracked by its Arc identifier, so a
+ *       {@code @Dependent} producer is not invoked twice and a failing producer is reported once instead of
+ *       once per pass.</li>
  * </ul>
  *
  * <p>With no datasource extension present {@code Instance<DataSource>} is simply unsatisfied and this provider
@@ -92,7 +96,8 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
 
     private List<Candidate> candidates(List<Failure> failures) {
         List<Candidate> candidates = new ArrayList<>();
-        appendCandidates(dataSources, candidates, failures);
+        Set<String> resolvedBeans = new java.util.HashSet<>();
+        appendCandidates(dataSources, candidates, failures, resolvedBeans);
         if (beanManager != null) {
             // @Any Instance iteration still applies CDI alternative priority: the default SQL Trace
             // alternative can suppress every named pool. Enumerate only qualifier metadata through
@@ -109,18 +114,37 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
             }
             qualifiers.stream()
                     .sorted(java.util.Comparator.comparing(Annotation::toString))
-                    .forEach(qualifier -> appendCandidates(dataSources.select(qualifier), candidates, failures));
+                    .forEach(qualifier ->
+                            appendCandidates(dataSources.select(qualifier), candidates, failures, resolvedBeans));
         }
         return candidates;
     }
 
-    private void appendCandidates(Instance<DataSource> selection, List<Candidate> candidates, List<Failure> failures) {
+    /**
+     * Appends one CDI selection, skipping any bean an earlier selection already resolved.
+     *
+     * <p>The qualifier pass deliberately re-selects beans the unqualified pass may already have seen. Resolving
+     * such a bean a second time is not free: a {@code @Dependent} producer would build a second pool that
+     * identity de-duplication can no longer collapse, and a producer that fails would be reported twice under
+     * two different names. Beans are therefore tracked by their Arc identifier — stable per bean, and distinct
+     * for two beans that happen to share a positional name.</p>
+     */
+    private void appendCandidates(
+            Instance<DataSource> selection,
+            List<Candidate> candidates,
+            List<Failure> failures,
+            Set<String> resolvedBeans) {
         if (selection instanceof InjectableInstance<DataSource> injectable) {
-            int position = candidates.size() + failures.size();
             for (InstanceHandle<DataSource> handle : injectable.handles()) {
-                String name = positionalName(++position);
+                InjectableBean<DataSource> bean = beanOf(handle);
+                String identifier = beanIdentifier(bean);
+                if (identifier != null && !resolvedBeans.add(identifier)) {
+                    continue;
+                }
+                // Numbered across every pass, so two distinct beans never share a positional name.
+                String name = positionalName(candidates.size() + failures.size() + 1);
                 try {
-                    String qualifiedName = datasourceName(handle.getBean());
+                    String qualifiedName = datasourceName(bean);
                     if (qualifiedName != null) {
                         name = qualifiedName;
                     }
@@ -140,6 +164,28 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
             if (dataSource != null) {
                 candidates.add(new Candidate(dataSource, null));
             }
+        }
+    }
+
+    /** The handle's bean metadata, or {@code null} when the container will not describe it. */
+    private static InjectableBean<DataSource> beanOf(InstanceHandle<DataSource> handle) {
+        try {
+            return handle.getBean();
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    /** Arc's stable per-bean identifier, or {@code null} when there is none to de-duplicate on. */
+    private static String beanIdentifier(InjectableBean<DataSource> bean) {
+        if (bean == null) {
+            return null;
+        }
+        try {
+            String identifier = bean.getIdentifier();
+            return identifier == null || identifier.isBlank() ? null : identifier;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
         }
     }
 

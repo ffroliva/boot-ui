@@ -8,6 +8,7 @@ GRANT SELECT ON bootui_fixture.* TO 'reader'@'%';
 GRANT SELECT ON bootui_fixture.* TO 'metadata_reader'@'%';
 GRANT SELECT ON performance_schema.global_status TO 'reader'@'%';
 GRANT SELECT ON performance_schema.setup_consumers TO 'reader'@'%';
+GRANT SELECT ON performance_schema.setup_objects TO 'reader'@'%';
 GRANT SELECT ON performance_schema.setup_instruments TO 'reader'@'%';
 GRANT SELECT ON performance_schema.threads TO 'reader'@'%';
 GRANT SELECT ON performance_schema.data_lock_waits TO 'reader'@'%';
@@ -19,3 +20,4 @@ GRANT SELECT ON performance_schema.table_io_waits_summary_by_index_usage TO 'rea
 GRANT SELECT ON performance_schema.replication_connection_status TO 'reader'@'%';
 GRANT SELECT ON performance_schema.replication_applier_status TO 'reader'@'%';
 GRANT SELECT ON performance_schema.replication_applier_status_by_worker TO 'reader'@'%';
+GRANT SELECT ON performance_schema.replication_applier_status_by_coordinator TO 'reader'@'%';

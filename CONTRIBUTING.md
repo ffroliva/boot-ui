@@ -318,7 +318,8 @@ The Spring wildcard deliberately includes the full real-server suite set, not on
 | --- | --- |
 | `MySqlExecutionLiveTests`, `MySqlPermissionsLiveTests` | Transaction/timeout/cleanup safety and restricted-account/active-role behavior. |
 | `MySqlCollectorsLiveTests`, `MySqlPerformanceSchemaOffLiveTests` | All eight collectors and independently readable evidence with Performance Schema disabled. |
-| `MySqlDigestOverflowLiveTests`, `MySqlReplicationLiveTests` | Real digest-capacity overflow and running/stopped/errored source/replica channels. |
+| `MySqlDigestOverflowLiveTests`, `MySqlReplicationLiveTests` | Real digest-capacity overflow, running/stopped/errored channels, and channel visibility with Performance Schema disabled. |
+| `MySqlInstrumentationLiveTests`, `MySqlIdentifierCaseLiveTests` | Global/handler/object collection and timing, denied configuration, real metadata waits, and server-side identifier case normalization. |
 | `MySqlHttpLiveTests` | Four MVC/WebFlux × default/custom-mount live HTTP cases. |
 
 Do not infer minimum grants from the status-fallback fixture: MySQL 8.4.6 lets its restricted account read

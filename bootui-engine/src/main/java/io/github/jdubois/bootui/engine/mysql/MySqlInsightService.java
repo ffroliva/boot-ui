@@ -267,15 +267,13 @@ public final class MySqlInsightService {
                 throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
             }
             context.open();
-            identity = MySqlQuery.read(
-                            connection,
-                            budget,
-                            "SELECT @@version AS version,@@version_comment AS flavor,DATABASE() AS schema_name,"
-                                    + " CURRENT_USER() AS account,@@server_uuid AS server_id,CONNECTION_ID() AS"
-                                    + " connection_id, @@global.performance_schema AS performance_schema LIMIT ?",
-                            1)
-                    .values()
-                    .get(0);
+            identity = MySqlQuery.requiredRow(
+                    connection,
+                    budget,
+                    "SELECT @@version AS version,@@version_comment AS flavor,DATABASE() AS schema_name,"
+                            + " CURRENT_USER() AS account,@@server_uuid AS server_id,CONNECTION_ID() AS"
+                            + " connection_id, @@global.performance_schema AS performance_schema,"
+                            + " @@lower_case_table_names AS lower_case_table_names LIMIT ?");
             String version = identity.getOrDefault("version", "").toLowerCase(Locale.ROOT);
             String flavor = identity.getOrDefault("flavor", "").toLowerCase(Locale.ROOT);
             if (!version.startsWith("8.4.")
@@ -283,6 +281,23 @@ public final class MySqlInsightService {
                     || !(flavor.contains("mysql community") || flavor.contains("mysql enterprise"))) {
                 throw new SQLException("UNVERIFIED_SERVER", "BUI03");
             }
+            String caseMode = identity.get("lower_case_table_names");
+            if (!"0".equals(caseMode) && !"1".equals(caseMode) && !"2".equals(caseMode)) {
+                throw new SQLException("Identifier matching mode was not reported.", "BUI04");
+            }
+            identity = new java.util.LinkedHashMap<>(identity);
+            String instrumentationSchema = "0".equals(caseMode)
+                    ? identity.get("schema_name")
+                    : MySqlQuery.requiredRow(
+                                    connection,
+                                    budget,
+                                    "SELECT LOWER(CONVERT(DATABASE() USING utf8mb4) COLLATE utf8mb4_0900_bin)"
+                                            + " AS instrumentation_schema LIMIT ?")
+                            .get("instrumentation_schema");
+            if (identity.get("schema_name") != null && instrumentationSchema == null) {
+                throw new SQLException("Normalized schema identity was not reported.", "BUI04");
+            }
+            identity.put("instrumentation_schema", instrumentationSchema);
             collector = new MySqlCollectors(
                     connection, budget, limits, policy, clock, MySqlValues.text(named.name()), identity);
             result = collector.collect();
@@ -329,7 +344,8 @@ public final class MySqlInsightService {
             result = failed(named.name(), "No observation was produced.");
         }
         if (!"ERROR".equals(result.status())) {
-            List<MySqlChangeDto> changes = comparisons.observe(named.name(), identity.get("server_id"), result);
+            List<MySqlChangeDto> changes = comparisons.observe(
+                    named.name(), identity.get("server_id"), collector == null ? null : collector.counterSample());
             result = withChanges(result, changes);
         }
         return result;

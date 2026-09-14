@@ -30,10 +30,16 @@ class MySqlReplicationLiveTests {
     static MySQLContainer replica =
             MySqlLiveFixture.container().withNetwork(network).withCommand("--performance-schema=ON", "--server-id=102");
 
+    @Container
+    static MySQLContainer uninstrumentedReplica = MySqlLiveFixture.container()
+            .withNetwork(network)
+            .withCommand("--performance-schema=OFF", "--server-id=103");
+
     @BeforeAll
     static void initialize() throws Exception {
         MySqlLiveFixture.initialize(source);
         MySqlLiveFixture.initialize(replica);
+        MySqlLiveFixture.initialize(uninstrumentedReplica);
         String file;
         String position;
         try (Connection admin = MySqlLiveFixture.admin(source);
@@ -46,21 +52,44 @@ class MySqlReplicationLiveTests {
                 position = rows.getString("Position");
             }
         }
-        try (Connection admin = MySqlLiveFixture.admin(replica);
-                Statement sql = admin.createStatement()) {
-            sql.execute("CHANGE REPLICATION SOURCE TO SOURCE_HOST='bootui-mysql-source',SOURCE_PORT=3306,"
-                    + "SOURCE_USER='replicator',SOURCE_PASSWORD='synthetic-replication-only',"
-                    + "SOURCE_LOG_FILE='" + file + "',SOURCE_LOG_POS=" + position
-                    + ",GET_SOURCE_PUBLIC_KEY=1,SOURCE_CONNECT_RETRY=1 FOR CHANNEL 'bootui_fixture_channel'");
-            sql.execute("START REPLICA FOR CHANNEL 'bootui_fixture_channel'");
+        for (MySQLContainer target : java.util.List.of(replica, uninstrumentedReplica)) {
+            try (Connection admin = MySqlLiveFixture.admin(target);
+                    Statement sql = admin.createStatement()) {
+                sql.execute("CHANGE REPLICATION SOURCE TO SOURCE_HOST='bootui-mysql-source',SOURCE_PORT=3306,"
+                        + "SOURCE_USER='replicator',SOURCE_PASSWORD='synthetic-replication-only',"
+                        + "SOURCE_LOG_FILE='" + file + "',SOURCE_LOG_POS=" + position
+                        + ",GET_SOURCE_PUBLIC_KEY=1,SOURCE_CONNECT_RETRY=1 FOR CHANNEL 'bootui_fixture_channel'");
+                sql.execute("START REPLICA FOR CHANNEL 'bootui_fixture_channel'");
+            }
         }
     }
 
     @AfterAll
     static void cleanupNetwork() {
         replica.stop();
+        uninstrumentedReplica.stop();
         source.stop();
         network.close();
+    }
+
+    @Test
+    void replicationRemainsObservableWhenPerformanceSchemaIsDisabled() throws Exception {
+        try (HikariDataSource pool = MySqlLiveFixture.pool(uninstrumentedReplica, "reader")) {
+            var service = MySqlLiveFixture.service(pool);
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+                var report = service.read().dataSources().get(0);
+                assertThat(report.replication()).singleElement().satisfies(channel -> {
+                    assertThat(channel.receiverState()).isEqualTo("ON");
+                    assertThat(channel.applierState()).isEqualTo("ON");
+                    assertThat(channel.lastErrorNumber()).isZero();
+                });
+                assertThat(report.sections()).anySatisfy(section -> {
+                    assertThat(section.id()).isEqualTo("replication");
+                    assertThat(section.status()).isEqualTo("AVAILABLE");
+                    assertThat(section.reason()).isNull();
+                });
+            });
+        }
     }
 
     @Test

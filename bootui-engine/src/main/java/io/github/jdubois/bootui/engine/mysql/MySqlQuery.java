@@ -43,6 +43,18 @@ final class MySqlQuery {
         }
     }
 
+    static Map<String, String> requiredRow(Connection connection, MySqlReadBudget budget, String sql)
+            throws SQLException {
+        Rows rows = read(connection, budget, sql, 1);
+        if (rows.reason() != null) {
+            throw new SQLTimeoutException(rows.reason(), "HYT00");
+        }
+        if (rows.values().size() != 1 || rows.truncated()) {
+            throw new SQLException("Required server metadata did not contain exactly one row.", "BUI04");
+        }
+        return rows.values().get(0);
+    }
+
     /** Fixed 17-name SHOW fallback; output is intrinsically bounded, and the JDBC network guard applies. */
     static Rows status(Connection connection, MySqlReadBudget budget) throws SQLException {
         budget.selectMillis();
@@ -81,6 +93,9 @@ final class MySqlQuery {
     }
 
     static String reason(SQLException error) {
+        if ("BUI04".equals(error.getSQLState())) {
+            return "Required server metadata was not reported; no safety or identity value was inferred.";
+        }
         if (error instanceof SQLTimeoutException
                 || error.getErrorCode() == 3024
                 || error.getErrorCode() == 1205

@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- MySQL diagnostics now qualify disabled or unreadable table/object and metadata-lock instrumentation instead
+  of implying zero activity, include replication-coordinator errors, and preserve status-counter comparison
+  intervals independently of later collector latency. Required-metadata deadline expiry reports an explicit
+  timeout rather than an incidental indexing error.
+- Datasource discovery keeps unresolved/lazy pool candidates visible without resolving dynamic AOP targets,
+  honours Quarkus's real `jdbc=false` switch, resolves named beans only once, and no longer mistakes a non-MySQL
+  database named `mysql` for the MySQL protocol.
+
 ### Changed
 
 - MySQL row-cap-only results use neutral labels and section-local explanations rather than warning banners.

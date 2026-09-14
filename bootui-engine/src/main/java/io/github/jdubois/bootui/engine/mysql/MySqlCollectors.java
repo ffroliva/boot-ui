@@ -72,7 +72,13 @@ final class MySqlCollectors {
     private boolean fatal;
     private String statementCollection = "UNKNOWN";
     private String statementTiming = "UNKNOWN";
+    private String tableCollection = "UNKNOWN";
     private String tableTiming = "UNKNOWN";
+    private String metadataLockCollection = "UNKNOWN";
+    private MySqlObjectInstrumentation objectInstrumentation;
+    private String objectInstrumentationProblem;
+    private final Set<String> catalogObjectNames = new java.util.LinkedHashSet<>();
+    private MySqlCounterSample counterSample;
 
     MySqlCollectors(
             Connection connection,
@@ -123,6 +129,10 @@ final class MySqlCollectors {
         sections.get("replication").rowCount = replication.size();
         sections.get("settings").rowCount = settings.size();
         return report(null);
+    }
+
+    MySqlCounterSample counterSample() {
+        return counterSample;
     }
 
     MySqlDataSourceDto report(String cleanupFailure) {
@@ -239,9 +249,12 @@ final class MySqlCollectors {
         if (!"1".equals(identity.get("performance_schema"))) {
             statementCollection = "DISABLED";
             statementTiming = "DISABLED";
+            tableCollection = "DISABLED";
             tableTiming = "DISABLED";
+            metadataLockCollection = "DISABLED";
             return;
         }
+        String global = "UNKNOWN";
         MySqlQuery.Rows consumers = query(
                 section,
                 "performance_schema.setup_consumers",
@@ -253,6 +266,7 @@ final class MySqlCollectors {
                 "NOT_APPLICABLE");
         if (consumers != null) {
             Map<String, String> values = map(consumers, "name", "enabled");
+            global = MySqlObjectInstrumentation.flag(values.get("global_instrumentation"));
             if (values.containsKey("global_instrumentation") && values.containsKey("statements_digest")) {
                 // Digest aggregation is global and does not depend on per-thread instrumentation.
                 statementCollection = "YES".equals(values.get("global_instrumentation"))
@@ -260,36 +274,54 @@ final class MySqlCollectors {
                         ? "ENABLED"
                         : "DISABLED";
             }
+            tableCollection = MySqlObjectInstrumentation.combine(global, "UNKNOWN");
+            tableTiming = tableCollection;
+            metadataLockCollection = tableCollection;
         }
         MySqlQuery.Rows instruments = query(
                 section,
                 "performance_schema.setup_instruments",
-                "SELECT CASE WHEN NAME LIKE 'statement/sql/%' THEN 'statement' ELSE 'table' END AS category,"
+                "SELECT CASE WHEN NAME LIKE 'statement/sql/%' THEN 'statement'"
+                        + " WHEN NAME='wait/io/table/sql/handler' THEN 'table' ELSE 'metadata-lock' END AS category,"
                         + " COUNT(*) AS instruments,"
                         + " SUM(ENABLED='YES') AS enabled, SUM(TIMED='YES' AND ENABLED='YES') AS timed"
                         + " FROM performance_schema.setup_instruments"
-                        + " WHERE NAME LIKE 'statement/sql/%' OR NAME='wait/io/table/sql/handler'"
+                        + " WHERE NAME LIKE 'statement/sql/%' OR NAME IN"
+                        + " ('wait/io/table/sql/handler','wait/lock/metadata/sql/mdl')"
                         + " GROUP BY category ORDER BY category LIMIT ?",
-                2,
+                3,
                 "NOT_APPLICABLE",
                 "NOT_APPLICABLE");
         if (instruments != null) {
             for (Map<String, String> row : instruments.values()) {
-                String timing = row.get("instruments").equals(row.get("timed")) ? "ENABLED" : "DISABLED";
+                String collection = instrumentState(row, "enabled");
+                String timing = instrumentState(row, "timed");
                 if ("statement".equals(row.get("category"))) {
                     statementTiming = timing;
                     if (!row.get("instruments").equals(row.get("enabled"))) {
                         statementCollection = "UNKNOWN";
                     }
-                } else {
-                    tableTiming = timing;
+                } else if ("table".equals(row.get("category"))) {
+                    tableCollection = MySqlObjectInstrumentation.combine(global, collection);
+                    tableTiming = MySqlObjectInstrumentation.combine(tableCollection, timing);
+                } else if ("metadata-lock".equals(row.get("category"))) {
+                    metadataLockCollection = MySqlObjectInstrumentation.combine(global, collection);
                 }
             }
         }
     }
 
+    private static String instrumentState(Map<String, String> row, String column) {
+        String count = row.get(column);
+        if ("0".equals(count)) {
+            return "DISABLED";
+        }
+        return count != null && count.equals(row.get("instruments")) ? "ENABLED" : "UNKNOWN";
+    }
+
     private void status() {
         Section section = sections.get("vital-signs");
+        long sampleStarted = clock.millis();
         MySqlQuery.Rows rows = query(
                 section,
                 "performance_schema.global_status",
@@ -300,6 +332,7 @@ final class MySqlCollectors {
                 "NOT_APPLICABLE");
         if (rows == null && !fatal && !budget.exhausted()) {
             try {
+                sampleStarted = clock.millis();
                 MySqlQuery.Rows fallback = MySqlQuery.status(connection, budget);
                 rows = new MySqlQuery.Rows(
                         fallback.values().stream()
@@ -332,6 +365,7 @@ final class MySqlCollectors {
             }
         }
         if (rows != null) {
+            long observedAt = clock.millis();
             for (Map<String, String> row : rows.values()) {
                 String id = row.get("name");
                 String value = MySqlValues.counter(row.get("value"));
@@ -343,6 +377,7 @@ final class MySqlCollectors {
             if (rows.values().size() != 17) {
                 section.reason("Some requested server status variables are absent; absent does not mean zero.");
             }
+            counterSample = new MySqlCounterSample(schema(), sampleStarted, observedAt, vitalSigns);
         }
     }
 
@@ -478,6 +513,11 @@ final class MySqlCollectors {
             }
         }
         int remaining = limits.maxLockWaits() - locks.size();
+        if (!"ENABLED".equals(metadataLockCollection)) {
+            section.reason("Metadata-lock instrumentation is "
+                    + metadataLockCollection.toLowerCase(java.util.Locale.ROOT)
+                    + "; an empty metadata-lock list does not establish absence.");
+        }
         MySqlQuery.Rows metadata = query(
                 section,
                 "performance_schema.metadata_locks",
@@ -486,7 +526,7 @@ final class MySqlCollectors {
                         + " FROM performance_schema.metadata_locks WHERE OBJECT_SCHEMA=? AND LOCK_STATUS='PENDING'"
                         + " ORDER BY OWNER_THREAD_ID,OBJECT_NAME,LOCK_TYPE LIMIT ?",
                 Math.max(1, remaining),
-                "UNKNOWN",
+                metadataLockCollection,
                 "NOT_APPLICABLE",
                 schema());
         if (metadata != null) {
@@ -581,14 +621,17 @@ final class MySqlCollectors {
         MySqlQuery.Rows catalog = query(
                 section,
                 "information_schema.tables",
-                "SELECT TABLE_SCHEMA AS schema_name,TABLE_NAME AS table_name,ENGINE AS engine,"
+                "SELECT TABLE_SCHEMA AS schema_name,TABLE_NAME AS table_name,"
+                        + objectKey("TABLE_NAME") + " AS instrumentation_name,ENGINE AS engine,"
                         + " TABLE_ROWS AS estimated_rows,DATA_LENGTH AS data_bytes,INDEX_LENGTH AS index_bytes"
-                        + " FROM information_schema.tables WHERE TABLE_SCHEMA=? AND TABLE_TYPE='BASE TABLE'"
+                        + " FROM information_schema.tables WHERE TABLE_SCHEMA=? AND "
+                        + objectKey("TABLE_SCHEMA") + "=? AND TABLE_TYPE='BASE TABLE'"
                         + " ORDER BY TABLE_NAME LIMIT ?",
                 limits.maxTables(),
                 "ENABLED",
                 "NOT_APPLICABLE",
-                schema());
+                schema(),
+                instrumentationSchema());
         if (catalog == null) {
             return;
         }
@@ -597,21 +640,29 @@ final class MySqlCollectors {
             MySqlQuery.Rows usage = query(
                     section,
                     "performance_schema.table_io_waits_summary_by_table",
-                    "SELECT OBJECT_NAME AS table_name,COUNT_READ AS read_ops,COUNT_WRITE AS write_ops,SUM_TIMER_WAIT"
+                    "SELECT OBJECT_NAME AS table_name," + objectKey("OBJECT_NAME")
+                            + " AS instrumentation_name,COUNT_READ AS read_ops,COUNT_WRITE AS write_ops,SUM_TIMER_WAIT"
                             + " AS time FROM performance_schema.table_io_waits_summary_by_table WHERE OBJECT_SCHEMA=?"
                             + " ORDER BY OBJECT_NAME LIMIT ?",
                     limits.maxTables(),
-                    "UNKNOWN",
+                    tableCollection,
                     tableTiming,
-                    schema());
+                    instrumentationSchema());
             if (usage != null) {
                 for (Map<String, String> row : usage.values()) {
-                    io.put(row.get("table_name"), row);
+                    io.put(row.get("instrumentation_name"), row);
                 }
             }
         }
+        List<MySqlObjectInstrumentation.State> states = new ArrayList<>();
         for (Map<String, String> row : catalog.values()) {
-            Map<String, String> usage = io.getOrDefault(row.get("table_name"), Map.of());
+            String object = row.get("instrumentation_name");
+            if (object != null) {
+                catalogObjectNames.add(object);
+            }
+            MySqlObjectInstrumentation.State state = tableState(object);
+            states.add(state);
+            Map<String, String> usage = io.getOrDefault(object, Map.of());
             tables.add(new MySqlTableDto(
                     text(row, "schema_name"),
                     text(row, "table_name"),
@@ -619,10 +670,11 @@ final class MySqlCollectors {
                     counter(row, "estimated_rows"),
                     counter(row, "data_bytes"),
                     counter(row, "index_bytes"),
-                    counter(usage, "read_ops"),
-                    counter(usage, "write_ops"),
-                    millis(usage, "time", "ENABLED".equals(tableTiming))));
+                    "ENABLED".equals(state.collection()) ? counter(usage, "read_ops") : null,
+                    "ENABLED".equals(state.collection()) ? counter(usage, "write_ops") : null,
+                    millis(usage, "time", "ENABLED".equals(state.timing()))));
         }
+        qualifyTableInstrumentation(section, "performance_schema.table_io_waits_summary_by_table", states);
     }
 
     private void indexes() {
@@ -633,30 +685,120 @@ final class MySqlCollectors {
         MySqlQuery.Rows rows = query(
                 section,
                 "performance_schema.table_io_waits_summary_by_index_usage",
-                "SELECT OBJECT_SCHEMA AS schema_name,OBJECT_NAME AS table_name,INDEX_NAME AS index_name, COUNT_READ AS"
+                "SELECT OBJECT_SCHEMA AS schema_name,OBJECT_NAME AS table_name,"
+                        + objectKey("OBJECT_NAME") + " AS instrumentation_name,INDEX_NAME AS index_name, COUNT_READ AS"
                         + " read_ops,COUNT_WRITE AS write_ops,COUNT_FETCH AS fetches,COUNT_INSERT AS inserts, COUNT_UPDATE"
                         + " AS updates,COUNT_DELETE AS deletes,SUM_TIMER_WAIT AS time FROM"
                         + " performance_schema.table_io_waits_summary_by_index_usage WHERE OBJECT_SCHEMA=? ORDER BY"
                         + " OBJECT_NAME,INDEX_NAME LIMIT ?",
                 limits.maxIndexes(),
-                "UNKNOWN",
+                tableCollection,
                 tableTiming,
-                schema());
+                instrumentationSchema());
         if (rows != null) {
+            List<MySqlObjectInstrumentation.State> states = new ArrayList<>();
+            for (String object : catalogObjectNames) {
+                states.add(tableState(object));
+            }
             for (Map<String, String> row : rows.values()) {
+                MySqlObjectInstrumentation.State state = tableState(row.get("instrumentation_name"));
+                states.add(state);
+                boolean collected = "ENABLED".equals(state.collection());
                 indexes.add(new MySqlIndexDto(
                         text(row, "schema_name"),
                         text(row, "table_name"),
                         text(row, "index_name"),
-                        counter(row, "read_ops"),
-                        counter(row, "write_ops"),
-                        counter(row, "fetches"),
-                        counter(row, "inserts"),
-                        counter(row, "updates"),
-                        counter(row, "deletes"),
-                        millis(row, "time", "ENABLED".equals(tableTiming))));
+                        collected ? counter(row, "read_ops") : null,
+                        collected ? counter(row, "write_ops") : null,
+                        collected ? counter(row, "fetches") : null,
+                        collected ? counter(row, "inserts") : null,
+                        collected ? counter(row, "updates") : null,
+                        collected ? counter(row, "deletes") : null,
+                        millis(row, "time", "ENABLED".equals(state.timing()))));
+            }
+            qualifyTableInstrumentation(section, "performance_schema.table_io_waits_summary_by_index_usage", states);
+        }
+    }
+
+    private String instrumentationSchema() {
+        return identity.get("instrumentation_schema");
+    }
+
+    private String objectKey(String column) {
+        String value = "CONVERT(" + column + " USING utf8mb4) COLLATE utf8mb4_0900_bin";
+        return "0".equals(identity.get("lower_case_table_names")) ? value : "LOWER(" + value + ")";
+    }
+
+    private MySqlObjectInstrumentation.State tableState(String object) {
+        if (!"ENABLED".equals(tableCollection)) {
+            return new MySqlObjectInstrumentation.State(tableCollection, tableTiming);
+        }
+        if (objectInstrumentation == null) {
+            Section evidence = new Section("object-instrumentation", "Object instrumentation", SCHEMA);
+            MySqlQuery.Rows rules = query(
+                    evidence,
+                    "performance_schema.setup_objects",
+                    "SELECT OBJECT_SCHEMA AS schema_name,OBJECT_NAME AS object_name,ENABLED AS enabled,TIMED AS timed"
+                            + " FROM performance_schema.setup_objects WHERE OBJECT_TYPE='TABLE'"
+                            + " AND (OBJECT_SCHEMA=? OR (OBJECT_SCHEMA='%' AND OBJECT_NAME='%'))"
+                            + " ORDER BY OBJECT_SCHEMA,OBJECT_NAME LIMIT ?",
+                    MySqlObjectInstrumentation.MAX_RULES,
+                    "NOT_APPLICABLE",
+                    "NOT_APPLICABLE",
+                    instrumentationSchema());
+            if (!evidence.reasons.isEmpty()) {
+                objectInstrumentationProblem = String.join(" ", evidence.reasons);
+            } else if (rules != null && rules.truncated()) {
+                objectInstrumentationProblem = "Object instrumentation rules reached the inspection bound;"
+                        + " unmatched rules remain unknown.";
+            }
+            objectInstrumentation = new MySqlObjectInstrumentation(instrumentationSchema(), rules);
+        }
+        MySqlObjectInstrumentation.State local = objectInstrumentation.forObject(object);
+        return new MySqlObjectInstrumentation.State(
+                MySqlObjectInstrumentation.combine(tableCollection, local.collection()),
+                MySqlObjectInstrumentation.combine(tableTiming, local.timing()));
+    }
+
+    private void qualifyTableInstrumentation(
+            Section section, String source, List<MySqlObjectInstrumentation.State> states) {
+        String collection = aggregateState(
+                states.stream()
+                        .map(MySqlObjectInstrumentation.State::collection)
+                        .toList(),
+                tableCollection);
+        String timing = aggregateState(
+                states.stream().map(MySqlObjectInstrumentation.State::timing).toList(), tableTiming);
+        String reason = !"ENABLED".equals(collection)
+                ? "Table I/O collection is disabled or unknown for retained objects; affected operation counts are withheld."
+                : !"ENABLED".equals(timing)
+                        ? "Table I/O timing is disabled or unknown for retained objects; affected durations are withheld."
+                        : null;
+        if (reason != null) {
+            section.reason(reason);
+            if (objectInstrumentationProblem != null) {
+                section.reason(objectInstrumentationProblem);
             }
         }
+        for (int index = 0; index < capabilities.size(); index++) {
+            MySqlCapabilityDto capability = capabilities.get(index);
+            if (source.equals(capability.id()) && "READABLE".equals(capability.readability())) {
+                capabilities.set(
+                        index,
+                        new MySqlCapabilityDto(
+                                capability.id(),
+                                capability.source(),
+                                capability.scope(),
+                                capability.readability(),
+                                collection,
+                                timing,
+                                capability.reason() == null ? reason : capability.reason()));
+            }
+        }
+    }
+
+    private static String aggregateState(List<String> states, String empty) {
+        return states.isEmpty() ? empty : states.stream().distinct().count() == 1 ? states.get(0) : "UNKNOWN";
     }
 
     private void innodb() {
@@ -713,6 +855,15 @@ final class MySqlCollectors {
                 limits.maxReplicationChannels(),
                 "ENABLED",
                 "NOT_APPLICABLE");
+        MySqlQuery.Rows coordinators = query(
+                section,
+                "performance_schema.replication_applier_status_by_coordinator",
+                "SELECT CHANNEL_NAME AS channel,LAST_ERROR_NUMBER AS error"
+                        + " FROM performance_schema.replication_applier_status_by_coordinator"
+                        + " ORDER BY CHANNEL_NAME LIMIT ?",
+                limits.maxReplicationChannels(),
+                "ENABLED",
+                "NOT_APPLICABLE");
         // Aggregate at the source; never materialize an unbounded nested worker list.
         MySqlQuery.Rows workers = query(
                 section,
@@ -725,10 +876,12 @@ final class MySqlCollectors {
                 "NOT_APPLICABLE");
         Map<String, Map<String, String>> receiverMap = keyed(receivers, "channel");
         Map<String, Map<String, String>> applierMap = keyed(appliers, "channel");
+        Map<String, Map<String, String>> coordinatorMap = keyed(coordinators, "channel");
         Map<String, Map<String, String>> workerMap = keyed(workers, "channel");
         Set<String> names = new java.util.TreeSet<>();
         names.addAll(receiverMap.keySet());
         names.addAll(applierMap.keySet());
+        names.addAll(coordinatorMap.keySet());
         names.addAll(workerMap.keySet());
         for (String channel : names) {
             if (replication.size() == limits.maxReplicationChannels()) {
@@ -737,11 +890,22 @@ final class MySqlCollectors {
             }
             Map<String, String> receiver = receiverMap.getOrDefault(channel, Map.of());
             Map<String, String> applier = applierMap.getOrDefault(channel, Map.of());
+            Map<String, String> coordinator = coordinatorMap.getOrDefault(channel, Map.of());
             Map<String, String> worker = workerMap.getOrDefault(channel, Map.of());
             Integer error = integer(receiver.get("error"));
             Integer workerError = integer(worker.get("error"));
             if (workerError != null && (error == null || workerError > error)) {
                 error = workerError;
+            }
+            Integer coordinatorError = integer(coordinator.get("error"));
+            if (coordinatorError != null && (error == null || coordinatorError > error)) {
+                error = coordinatorError;
+            }
+            if (Integer.valueOf(0).equals(error)
+                    && !(channelRead(receivers, receiverMap, channel)
+                            && channelRead(coordinators, coordinatorMap, channel)
+                            && channelRead(workers, workerMap, channel))) {
+                error = null;
             }
             replication.add(new MySqlReplicationChannelDto(
                     MySqlValues.text(channel),
@@ -751,6 +915,11 @@ final class MySqlCollectors {
                     counter(worker, "errors"),
                     error));
         }
+    }
+
+    private static boolean channelRead(
+            MySqlQuery.Rows rows, Map<String, Map<String, String>> observed, String channel) {
+        return observed.containsKey(channel) || (rows != null && rows.reason() == null && !rows.truncated());
     }
 
     private void settings() {

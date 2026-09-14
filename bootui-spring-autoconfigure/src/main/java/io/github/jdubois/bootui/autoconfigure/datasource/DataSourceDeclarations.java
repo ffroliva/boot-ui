@@ -12,7 +12,15 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
 
-/** Reads only existing datasource objects; sidebar discovery must not initialize a lazy pool. */
+/**
+ * Reads only existing datasource objects; sidebar discovery must not initialize a lazy pool.
+ *
+ * <p>Every source this returns is safe for a caller to interrogate — read its JDBC URL, test its type — with
+ * no risk of creating a bean or opening a connection. A declaration that cannot be reduced to such an object,
+ * because the bean has not been created or because it is a dynamic Spring AOP proxy whose every method
+ * initializes its target, is reported through {@link Snapshot#incomplete()} rather than emitted. Callers must
+ * read {@code incomplete()} as "something is declared here that could not be observed", never as "nothing".</p>
+ */
 public final class DataSourceDeclarations {
 
     private DataSourceDeclarations() {}
@@ -58,6 +66,20 @@ public final class DataSourceDeclarations {
                 } catch (SQLException | RuntimeException ex) {
                     incomplete = true;
                 }
+            }
+            if (SpringAopDataSources.isProxy(source)) {
+                DataSource target = SpringAopDataSources.staticTarget(source);
+                if (target != null) {
+                    // The target already exists: hand callers the pool instead of a proxy that would route
+                    // every later question through an interceptor chain.
+                    pending.add(target);
+                    continue;
+                }
+                // A dynamic target source initializes its target on any invocation, including the URL getters
+                // the database detectors call. Emitting this proxy would turn rendering the sidebar into bean
+                // creation, so it is reported as unobserved instead.
+                incomplete = true;
+                continue;
             }
             if (DelegatingDataSources.isRouting(source.getClass())) {
                 var targets = DelegatingDataSources.routingTargets(source);

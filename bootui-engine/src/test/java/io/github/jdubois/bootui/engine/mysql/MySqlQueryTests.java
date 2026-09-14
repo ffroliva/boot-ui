@@ -19,6 +19,22 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class MySqlQueryTests {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2})
+    void requiredMetadataNeverInfersValuesFromEmptyOrAmbiguousRows(int count) throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.results = sql -> java.util.stream.IntStream.range(0, count)
+                .mapToObj(index -> MySqlJdbcFixture.row("value", "1"))
+                .toList();
+        assertThatThrownBy(() -> MySqlQuery.requiredRow(
+                        fixture.connection,
+                        new MySqlReadBudget(Duration.ofSeconds(15), () -> 0),
+                        "SELECT value FROM fixed LIMIT ?"))
+                .isInstanceOfSatisfying(
+                        SQLException.class,
+                        error -> assertThat(error.getSQLState()).isEqualTo("BUI04"));
+    }
+
     @Test
     void showFallbackHasAFixedNameInventoryAndNeverUsesJdbcCancellation() throws Exception {
         MySqlJdbcFixture fixture = new MySqlJdbcFixture();
