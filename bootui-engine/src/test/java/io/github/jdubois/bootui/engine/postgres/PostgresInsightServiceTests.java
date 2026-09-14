@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -119,6 +120,195 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("READ");
         assertThat(dataSource.executedSql()).startsWith("set transaction read only");
         assertThat(dataSource.connectionCalls()).contains("setSavepoint", "rollback", "close");
+    }
+
+    @Test
+    void configuredRowLimitsReachEveryCollector() {
+        var dataSource = PostgresTestDataSources.postgres();
+        for (var kind : List.of(
+                PostgresTestDataSources.QueryKind.SESSIONS,
+                PostgresTestDataSources.QueryKind.STATEMENTS,
+                PostgresTestDataSources.QueryKind.INDEXES,
+                PostgresTestDataSources.QueryKind.TABLES,
+                PostgresTestDataSources.QueryKind.VACUUM,
+                PostgresTestDataSources.QueryKind.REPLICAS,
+                PostgresTestDataSources.QueryKind.SETTINGS)) {
+            dataSource.rows(
+                    kind,
+                    Collections.nCopies(
+                            8,
+                            PostgresTestDataSources.row(
+                                    "state",
+                                    "streaming",
+                                    "sync_state",
+                                    "async",
+                                    "name",
+                                    "autovacuum_vacuum_threshold",
+                                    "setting",
+                                    "50")));
+        }
+
+        PostgresInsightReport report = PostgresInsightService.using(
+                        () -> discovery("primary", dataSource),
+                        exposure(ValueExposure.MASKED, true),
+                        FIXED_CLOCK,
+                        new PostgresRowLimits(1, 2, 3, 4, 5, 6, 7))
+                .read();
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.truncated()).isTrue();
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.sessions()).hasSize(1);
+            assertThat(database.statements()).hasSize(2);
+            assertThat(database.indexes()).hasSize(3);
+            assertThat(database.tables()).hasSize(4);
+            assertThat(database.vacuum()).hasSize(5);
+            assertThat(database.replication().replicas()).hasSize(6);
+            assertThat(database.settings()).hasSize(7);
+            assertThat(database.sections())
+                    .filteredOn(section -> !PostgresSectionIds.VITAL_SIGNS.equals(section.id()))
+                    .allSatisfy(section -> assertThat(section.truncated()).isTrue());
+        });
+        assertThat(dataSource.executedSql())
+                .contains(
+                        "set transaction read only",
+                        "set local statement_timeout = '5000ms'",
+                        "set local lock_timeout = '2000ms'");
+    }
+
+    @Test
+    void defaultReadAccommodatesMoreThanThePreviousStatementAndTableLimits() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.STATEMENTS,
+                        Collections.nCopies(100, PostgresTestDataSources.row("query_id", "1")))
+                .rows(PostgresTestDataSources.QueryKind.TABLES, Collections.nCopies(200, table(1L)));
+        PostgresInsightService service = PostgresInsightService.using(
+                () -> discovery("primary", dataSource), exposure(ValueExposure.MASKED, true), FIXED_CLOCK);
+
+        PostgresInsightReport report = service.read();
+
+        assertThat(report.status()).isEqualTo("READ");
+        assertThat(report.truncated()).isFalse();
+        assertThat(report.databases().get(0).statements()).hasSize(100);
+        assertThat(report.databases().get(0).tables()).hasSize(200);
+        dataSource.rows(
+                PostgresTestDataSources.QueryKind.STATEMENTS,
+                Collections.nCopies(101, PostgresTestDataSources.row("query_id", "1")));
+        PostgresInsightReport truncated = service.read();
+        assertThat(truncated.truncated()).isTrue();
+        assertThat(truncated.databases().get(0).statements()).hasSize(100);
+        assertThat(truncated.limitations()).singleElement().asString().contains("Showing the top 100 statements");
+    }
+
+    @Test
+    void replicaCapsUseTheSharedRowLimitExplanationWithoutHidingOtherFailures() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.REPLICAS,
+                        PostgresTestDataSources.row("application_name", "replica-1", "state", "streaming"),
+                        PostgresTestDataSources.row("application_name", "replica-2", "state", "streaming"));
+        PostgresInsightService service = PostgresInsightService.using(
+                () -> discovery("primary", dataSource),
+                exposure(ValueExposure.MASKED, true),
+                FIXED_CLOCK,
+                new PostgresRowLimits(100, 100, 500, 200, 200, 1, 40));
+
+        PostgresInsightReport report = service.read();
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.diagnostics()).isEmpty();
+        assertThat(report.limitations())
+                .containsExactly("primary / Replication, checkpoints and WAL: Showing 1 row."
+                        + " Additional rows are not shown because this section reached BootUI's row limit.");
+        assertThat(report.databases().get(0).sections())
+                .filteredOn(section -> PostgresSectionIds.REPLICATION.equals(section.id()))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.truncated()).isTrue();
+                    assertThat(section.reason()).isNull();
+                });
+
+        dataSource.fail(PostgresTestDataSources.QueryKind.CHECKPOINTS, "permission denied");
+        PostgresInsightReport failedCheckpoints = service.read();
+        assertThat(failedCheckpoints.limitations()).anyMatch(reason -> reason.contains("Showing 1 row"));
+        assertThat(failedCheckpoints.limitations()).anyMatch(reason -> reason.contains("permission denied"));
+        assertThat(failedCheckpoints.databases().get(0).sections())
+                .filteredOn(section -> PostgresSectionIds.REPLICATION.equals(section.id()))
+                .singleElement()
+                .satisfies(section -> assertThat(section.reason()).contains("permission denied"));
+    }
+
+    @Test
+    void rowLimitExplanationsNameEachSectionAndItsRetainedCount() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.STATEMENTS,
+                        PostgresTestDataSources.row("query_id", "1"),
+                        PostgresTestDataSources.row("query_id", "2"))
+                .rows(PostgresTestDataSources.QueryKind.TABLES, table(1L), table(2L));
+
+        PostgresInsightReport report = readWithOneRowLimits(dataSource);
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.truncated()).isTrue();
+        assertThat(report.limitations())
+                .containsExactly(
+                        "primary / Statement ranking: Showing the top 1 statement by total execution time."
+                                + " Additional statements are not shown.",
+                        "primary / Largest relations: Showing 1 row."
+                                + " Additional rows are not shown because this section reached BootUI's row limit.");
+        assertThat(report.databases().get(0).statements()).hasSize(1);
+        assertThat(report.databases().get(0).tables()).hasSize(1);
+    }
+
+    @Test
+    void exactlyTheRowLimitIsNotReportedAsTruncated() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.STATEMENTS, PostgresTestDataSources.row("query_id", "1"));
+
+        PostgresInsightReport report = readWithOneRowLimits(dataSource);
+
+        assertThat(report.status()).isEqualTo("READ");
+        assertThat(report.truncated()).isFalse();
+        assertThat(report.limitations()).isEmpty();
+    }
+
+    @Test
+    void rowLimitExplanationsPreserveOtherReadFailures() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.STATEMENTS,
+                        PostgresTestDataSources.row("query_id", "1"),
+                        PostgresTestDataSources.row("query_id", "2"))
+                .fail(PostgresTestDataSources.QueryKind.SESSIONS, "permission denied");
+
+        PostgresInsightReport report = readWithOneRowLimits(dataSource);
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.limitations()).anyMatch(reason -> reason.contains("Showing the top 1 statement"));
+        assertThat(report.limitations()).anyMatch(reason -> reason.contains("permission denied"));
+        assertThat(report.diagnostics()).anyMatch(diagnostic -> "ERROR".equals(diagnostic.level()));
+    }
+
+    private static PostgresInsightReport readWithOneRowLimits(DataSource dataSource) {
+        return PostgresInsightService.using(
+                        () -> discovery("primary", dataSource),
+                        exposure(ValueExposure.MASKED, true),
+                        FIXED_CLOCK,
+                        new PostgresInsightLimits(
+                                50,
+                                1,
+                                50,
+                                1,
+                                25,
+                                10,
+                                40,
+                                400,
+                                Duration.ofSeconds(15),
+                                Duration.ofSeconds(5),
+                                Duration.ofSeconds(2)))
+                .read();
     }
 
     @Test

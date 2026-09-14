@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -142,6 +143,8 @@ public class BootUiProperties {
      * SQL Trace panel settings.
      */
     private SqlTrace sqlTrace = new SqlTrace();
+    /** Per-datasource row limits for the PostgreSQL panel. */
+    private Postgresql postgresql = new Postgresql();
     /**
      * Transactions panel settings.
      */
@@ -453,6 +456,14 @@ public class BootUiProperties {
 
     public void setSqlTrace(SqlTrace sqlTrace) {
         this.sqlTrace = sqlTrace == null ? new SqlTrace() : sqlTrace;
+    }
+
+    public Postgresql getPostgresql() {
+        return postgresql;
+    }
+
+    public void setPostgresql(Postgresql postgresql) {
+        this.postgresql = postgresql == null ? new Postgresql() : postgresql;
     }
 
     public Transactions getTransactions() {
@@ -1081,6 +1092,81 @@ public class BootUiProperties {
 
         public void setMaxBytes(long maxBytes) {
             this.maxBytes = maxBytes;
+        }
+    }
+
+    public static class Postgresql {
+
+        /** Maximum session rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxSessions = 100;
+        /** Maximum statements ranked by total execution time. Must be between 1 and 2147483646; requires restart. */
+        private int maxStatements = 100;
+        /** Maximum index rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxIndexes = 500;
+        /** Maximum table rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxTables = 200;
+        /** Maximum autovacuum table rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxVacuumTables = 200;
+        /** Maximum replica rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxReplicas = 10;
+        /** Maximum curated setting rows per datasource. Must be between 1 and 2147483646; requires restart. */
+        private int maxSettings = 40;
+
+        public int getMaxSessions() {
+            return maxSessions;
+        }
+
+        public void setMaxSessions(int maxSessions) {
+            this.maxSessions = PostgresRowLimits.requireValid("bootui.postgresql.max-sessions", maxSessions);
+        }
+
+        public int getMaxStatements() {
+            return maxStatements;
+        }
+
+        public void setMaxStatements(int maxStatements) {
+            this.maxStatements = PostgresRowLimits.requireValid("bootui.postgresql.max-statements", maxStatements);
+        }
+
+        public int getMaxIndexes() {
+            return maxIndexes;
+        }
+
+        public void setMaxIndexes(int maxIndexes) {
+            this.maxIndexes = PostgresRowLimits.requireValid("bootui.postgresql.max-indexes", maxIndexes);
+        }
+
+        public int getMaxTables() {
+            return maxTables;
+        }
+
+        public void setMaxTables(int maxTables) {
+            this.maxTables = PostgresRowLimits.requireValid("bootui.postgresql.max-tables", maxTables);
+        }
+
+        public int getMaxVacuumTables() {
+            return maxVacuumTables;
+        }
+
+        public void setMaxVacuumTables(int maxVacuumTables) {
+            this.maxVacuumTables =
+                    PostgresRowLimits.requireValid("bootui.postgresql.max-vacuum-tables", maxVacuumTables);
+        }
+
+        public int getMaxReplicas() {
+            return maxReplicas;
+        }
+
+        public void setMaxReplicas(int maxReplicas) {
+            this.maxReplicas = PostgresRowLimits.requireValid("bootui.postgresql.max-replicas", maxReplicas);
+        }
+
+        public int getMaxSettings() {
+            return maxSettings;
+        }
+
+        public void setMaxSettings(int maxSettings) {
+            this.maxSettings = PostgresRowLimits.requireValid("bootui.postgresql.max-settings", maxSettings);
         }
     }
 

@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.engine.postgres;
 import java.time.Duration;
 
 /**
- * The fixed bounds every PostgreSQL read runs under, so an on-demand read against a very large or very busy
+ * The bounds every PostgreSQL read runs under, so an on-demand read against a very large or very busy
  * server can never turn into unbounded work on the request thread.
  *
  * <p>Row bounds are enforced by reading one row past the limit ({@code max + 1}), which makes truncation
@@ -24,8 +24,22 @@ record PostgresInsightLimits(
         Duration statementTimeout,
         Duration lockTimeout) {
 
-    static final PostgresInsightLimits DEFAULTS = new PostgresInsightLimits(
-            50, 25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
+    static final PostgresInsightLimits DEFAULTS = withRowLimits(PostgresRowLimits.defaults());
+
+    static PostgresInsightLimits withRowLimits(PostgresRowLimits rows) {
+        return new PostgresInsightLimits(
+                rows.maxSessions(),
+                rows.maxStatements(),
+                rows.maxIndexes(),
+                rows.maxTables(),
+                rows.maxVacuumTables(),
+                rows.maxReplicas(),
+                rows.maxSettings(),
+                400,
+                Duration.ofSeconds(15),
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(2));
+    }
 
     /** The whole-number seconds to hand to {@code Statement.setQueryTimeout}, at least one second. */
     int statementTimeoutSeconds() {

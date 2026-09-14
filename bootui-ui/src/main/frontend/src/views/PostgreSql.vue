@@ -71,8 +71,32 @@ const limitations = computed(() => report.value?.limitations || [])
 
 const readFailed = computed(() => hasRead.value && report.value?.status === 'ERROR')
 
+const rowLimitedSections = computed(() =>
+  databases.value.flatMap((database) =>
+    (database.sections || [])
+      .filter((part) => part.truncated)
+      .map((part) => `${database.name} / ${part.title}: ${rowLimitMessage(part)}`)
+  )
+)
+
+const onlyRowLimits = computed(
+  () =>
+    report.value?.status === 'PARTIAL' &&
+    report.value?.truncated &&
+    rowLimitedSections.value.length > 0 &&
+    diagnostics.value.every((diagnostic) => diagnostic.level === 'INFO') &&
+    databases.value.every(
+      (database) =>
+        (database.status === 'READ' || (database.status === 'PARTIAL' && database.truncated)) &&
+        !database.message &&
+        database.sections?.length > 0 &&
+        database.sections.every((part) => part.status === 'AVAILABLE' && !part.reason)
+    )
+)
+
 const incompleteReadMessage = computed(() => {
   if (!hasRead.value) return null
+  if (onlyRowLimits.value) return rowLimitedSections.value.join(' ')
   const reasons = []
   const unreadable = databases.value.filter((database) => database.status === 'ERROR').length
   if (unreadable > 0) {
@@ -80,10 +104,10 @@ const incompleteReadMessage = computed(() => {
   }
   const partial = databases.value.filter((database) => database.status === 'PARTIAL').length
   if (partial > 0) {
-    reasons.push(`${partial} ${pluralize(partial, 'datasource')} were read only partially`)
+    reasons.push(`${partial} ${pluralize(partial, 'datasource')} ${partial === 1 ? 'was' : 'were'} read only partially`)
   }
   if (report.value?.truncated) {
-    reasons.push('a read bound was reached, so some rows may be missing')
+    reasons.push('some sections reached their row limits')
   }
   if (reasons.length === 0) {
     // A report can be incomplete without carrying a single database row — an exhausted read budget, or a
@@ -94,7 +118,7 @@ const incompleteReadMessage = computed(() => {
     }
     return null
   }
-  return `${reasons.join('; ')}. The tables below therefore do not cover everything.`
+  return `${reasons.join('; ')}. See the section details and diagnostics for what is missing.`
 })
 
 function databaseStatusClass(status) {
@@ -176,9 +200,15 @@ function sectionBadge(candidate) {
 
 function sectionNote(candidate) {
   if (!candidate) return null
-  if (candidate.reason) return candidate.reason
-  if (candidate.truncated) return 'A row bound was reached, so rows past it were not read.'
-  return null
+  return [candidate.reason, candidate.truncated ? rowLimitMessage(candidate) : null].filter(Boolean).join(' ') || null
+}
+
+function rowLimitMessage(candidate) {
+  const count = formatNumber(candidate.rowCount)
+  if (candidate.id === 'statements') {
+    return `Showing the top ${count} ${pluralize(candidate.rowCount, 'statement')} by total execution time. Additional statements are not shown.`
+  }
+  return `Showing ${count} ${pluralize(candidate.rowCount, 'row')}. Additional rows are not shown because this section reached BootUI's row limit.`
 }
 
 function sectionReadable(candidate) {
@@ -372,7 +402,7 @@ onMounted(async () => {
           role="status"
         >
           <i class="bi bi-exclamation-triangle me-1"></i>
-          <strong>{{ readFailed ? 'Read failed.' : 'Incomplete read.' }}</strong>
+          <strong>{{ readFailed ? 'Read failed.' : onlyRowLimits ? 'Limited results.' : 'Incomplete read.' }}</strong>
           {{ incompleteReadMessage }}
         </div>
 

@@ -64,12 +64,39 @@ This is not the Database advisor and not SQL Trace:
 ::: details Safety and bounds
 
 The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
-2 seconds, and the read budget to 15 seconds. List sections are capped (50 sessions, 25 statements, 50 indexes,
-25 tables, 25 autovacuum rows, 10 replicas, and 40 settings). `truncated` means a row cap was reached; exhausting the
+2 seconds, and the read budget to 15 seconds. By default, list sections are capped at 100 sessions, 100 statements,
+500 indexes, 200 tables, 200 autovacuum rows, 10 replicas, and 40 settings per datasource. `truncated` means a row cap was reached; exhausting the
 time budget instead produces an explicit section reason and preserves rows already read. A budget-limited section
 with no retained rows is failed rather than shown as an empty successful read. Every statistics query runs inside its
 own savepoint, because one error would otherwise abort the shared read-only transaction and make every later section
 report "current transaction is aborted" instead of its own content.
+When row caps are the only limitation, the panel says **Limited results** and names each affected datasource and
+section with its retained row count. For example, Statement ranking says it shows the top 100 statements by total
+execution time, with additional statements omitted. This is a limit on the statistics returned, not missing
+application data or a failed database query. The API, MCP, and CLI retain `PARTIAL` and `truncated=true` and report
+each capped section in `limitations`. Permission failures, timeouts, and other read problems remain explicit,
+including when a row cap is also reached.
+
+Configure the row caps in the host application's `application.properties`. These keys and defaults are the same on
+Spring MVC, Spring WebFlux, and Quarkus:
+
+```properties
+bootui.postgresql.max-sessions=100
+bootui.postgresql.max-statements=100
+bootui.postgresql.max-indexes=500
+bootui.postgresql.max-tables=200
+bootui.postgresql.max-vacuum-tables=200
+bootui.postgresql.max-replicas=10
+bootui.postgresql.max-settings=40
+```
+
+Every value must be a positive integer below `2147483647`; zero does not mean unlimited. Invalid values are rejected,
+not silently clamped. Restart the application after changing a limit. Limits apply independently to every datasource
+and to the same reads reached through the browser, API, MCP, and CLI. BootUI reads at most one extra row to detect
+truncation; it does not issue an extra count query or claim a total for the omitted rows. Raising these limits does
+not change the time budgets or the settings allow-list, and larger reads may still run out of time.
+See the [property reference](../PROPERTIES.md#postgresql) for each limit's scope.
+
 No baseline is written to disk; only the last value seen for each metric is kept in memory so the panel can show simple
 deltas. That baseline is merged rather than replaced, so a read that could not reach a section keeps the earlier value
 of that section instead of erasing it and reporting "no change" next time.

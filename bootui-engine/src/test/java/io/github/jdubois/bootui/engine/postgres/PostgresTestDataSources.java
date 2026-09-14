@@ -25,13 +25,10 @@ import javax.sql.DataSource;
 
 final class PostgresTestDataSources {
 
-    private static final PostgresInsightLimits DEFAULT_LIMITS = new PostgresInsightLimits(
-            50, 25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
-
     private PostgresTestDataSources() {}
 
     static PostgresInsightLimits limits() {
-        return DEFAULT_LIMITS;
+        return PostgresInsightLimits.DEFAULTS;
     }
 
     static ScriptedDataSource postgres() {
@@ -127,7 +124,11 @@ final class PostgresTestDataSources {
 
         @SafeVarargs
         final ScriptedDataSource rows(QueryKind kind, Map<String, Object>... rows) {
-            this.rows.put(kind, List.of(rows));
+            return rows(kind, List.of(rows));
+        }
+
+        ScriptedDataSource rows(QueryKind kind, List<Map<String, Object>> rows) {
+            this.rows.put(kind, List.copyOf(rows));
             return this;
         }
 

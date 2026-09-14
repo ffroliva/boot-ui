@@ -44,6 +44,7 @@ import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
+import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
@@ -131,6 +132,11 @@ public class BootUiEngineProducer {
     void validateAdvisorRetention(
             @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         advisorRetentionLimit(config);
+    }
+
+    void validatePostgresqlLimits(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        postgresRowLimits(config);
     }
 
     @Produces
@@ -868,10 +874,31 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public PostgresInsightService postgresInsightService(
-            @Any Instance<DataSource> dataSources, QuarkusExposurePolicy exposure) {
+            @Any Instance<DataSource> dataSources, QuarkusExposurePolicy exposure, Config config) {
         QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new QuarkusDatabaseAdvisorDataSourceProvider(dataSources);
-        return PostgresInsightService.using(dataSourceProvider::discover, exposure, Clock.systemUTC());
+        return PostgresInsightService.using(
+                dataSourceProvider::discover, exposure, Clock.systemUTC(), postgresRowLimits(config));
+    }
+
+    static PostgresRowLimits postgresRowLimits(Config config) {
+        PostgresRowLimits defaults = PostgresRowLimits.defaults();
+        return new PostgresRowLimits(
+                postgresRowLimit(config, "max-sessions", defaults.maxSessions()),
+                postgresRowLimit(config, "max-statements", defaults.maxStatements()),
+                postgresRowLimit(config, "max-indexes", defaults.maxIndexes()),
+                postgresRowLimit(config, "max-tables", defaults.maxTables()),
+                postgresRowLimit(config, "max-vacuum-tables", defaults.maxVacuumTables()),
+                postgresRowLimit(config, "max-replicas", defaults.maxReplicas()),
+                postgresRowLimit(config, "max-settings", defaults.maxSettings()));
+    }
+
+    private static int postgresRowLimit(Config config, String name, int defaultValue) {
+        String property = "bootui.postgresql." + name;
+        // An explicitly empty value must fail conversion, not silently select the default.
+        return config.getConfigValue(property).getRawValue() == null
+                ? defaultValue
+                : config.getValue(property, Integer.class);
     }
 
     /**

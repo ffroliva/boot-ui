@@ -88,6 +88,22 @@ function report(overrides = {}) {
   }
 }
 
+function limitedReport(databaseOverrides = {}, reportOverrides = {}) {
+  return report({
+    status: 'PARTIAL',
+    truncated: true,
+    databases: [
+      database({
+        status: 'PARTIAL',
+        truncated: true,
+        sections: [section('statements', 'Statement ranking', 'AVAILABLE', {rowCount: 25, truncated: true})],
+        ...databaseOverrides
+      })
+    ],
+    ...reportOverrides
+  })
+}
+
 async function mountWith(body, {status = 200, attachTo} = {}) {
   const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), {status})))
   vi.stubGlobal('fetch', fetchMock)
@@ -323,7 +339,110 @@ describe('PostgreSql', () => {
     expect(wrapper.text()).toContain('pg_stat_activity hides the state of other backends')
 
     await openTab(wrapper, 'Table access')
-    expect(wrapper.text()).toContain('A row bound was reached')
+    expect(wrapper.text()).toContain("Additional rows are not shown because this section reached BootUI's row limit.")
+  })
+
+  it('names a capped ranking without describing it as a failed read', async () => {
+    const {wrapper, fetchMock} = await mountWith(limitedReport())
+
+    const warning = wrapper.find('[role="status"]')
+    expect(warning.text()).toContain('Limited results.')
+    expect(warning.text()).toContain(
+      'default / Statement ranking: Showing the top 25 statements by total execution time. Additional statements are not shown.'
+    )
+    expect(warning.text()).not.toContain('Incomplete read')
+    expect(warning.text()).not.toContain('read only partially')
+    expect(wrapper.find('[role="tabpanel"]').text()).toContain('Showing the top 25 statements')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('names every capped section and datasource with its own retained count', async () => {
+    const body = limitedReport()
+    body.databases.push(
+      database({
+        name: 'analytics',
+        status: 'PARTIAL',
+        truncated: true,
+        sections: [section('tables', 'Largest relations', 'AVAILABLE', {rowCount: 1, truncated: true})]
+      })
+    )
+    const {wrapper} = await mountWith(body)
+
+    const warning = wrapper.find('[role="status"]')
+    expect(warning.text()).toContain('Limited results.')
+    expect(warning.text()).toContain('default / Statement ranking: Showing the top 25 statements')
+    expect(warning.text()).toContain('analytics / Largest relations: Showing 1 row.')
+  })
+
+  it.each([null, 'Checkpoint statistics could not be read: permission denied.'])(
+    'distinguishes a replica cap from a replica cap with another read failure: %s',
+    async (reason) => {
+      const {wrapper} = await mountWith(
+        limitedReport({
+          sections: [
+            section('replication', 'Replication, checkpoints and WAL', 'AVAILABLE', {
+              rowCount: 1,
+              truncated: true,
+              reason
+            })
+          ],
+          replication: {inRecovery: false, replicasAvailable: true, replicas: [{applicationName: 'replica-1'}]}
+        })
+      )
+
+      const warning = wrapper.find('[role="status"]')
+      expect(warning.text()).toContain(reason ? 'Incomplete read.' : 'Limited results.')
+      const panel = wrapper.find('[role="tabpanel"]')
+      expect(panel.text()).toContain('Showing 1 row.')
+      if (reason) expect(panel.text()).toContain(reason)
+    }
+  )
+
+  it.each([
+    {name: 'section failure', part: section('sessions', 'Sessions', 'FAILED', {reason: 'Permission denied.'})},
+    {name: 'skipped section', part: section('sessions', 'Sessions', 'SKIPPED', {reason: 'Read budget ran out.'})},
+    {name: 'partial section', part: section('sessions', 'Sessions', 'AVAILABLE', {reason: 'Statistics restricted.'})}
+  ])('keeps incomplete-read warnings for a row cap plus a $name', async ({part}) => {
+    const body = limitedReport()
+    body.databases[0].sections.push(part)
+    const {wrapper} = await mountWith(body)
+
+    const warning = wrapper.find('[role="status"]')
+    expect(warning.text()).toContain('Incomplete read.')
+    expect(warning.text()).toContain('1 datasource was read only partially')
+    expect(warning.text()).not.toContain('Limited results.')
+    await openTab(wrapper, 'Sessions')
+    expect(wrapper.find('[role="tabpanel"]').text()).toContain(part.reason)
+  })
+
+  it.each([
+    {diagnostics: [{source: 'secondary', level: 'ERROR', message: 'Discovery failed.'}]},
+    {diagnostics: [{source: 'secondary', level: 'WARNING', message: 'Read budget ran out.'}]}
+  ])('does not hide datasource diagnostics behind a row-limit notice', async (overrides) => {
+    const {wrapper} = await mountWith(limitedReport({}, overrides))
+
+    expect(wrapper.find('[role="status"]').text()).toContain('Incomplete read.')
+  })
+
+  it('keeps connection-restoration failures visible alongside a row cap', async () => {
+    const {wrapper} = await mountWith(limitedReport({message: 'The connection could not be restored.'}))
+
+    expect(wrapper.find('[role="status"]').text()).toContain('Incomplete read.')
+    expect(wrapper.text()).toContain('The connection could not be restored.')
+  })
+
+  it('shows both the section reason and its row-limit explanation', async () => {
+    const reason = 'Statement text is restricted.'
+    const {wrapper} = await mountWith(
+      limitedReport({
+        sections: [section('statements', 'Statement ranking', 'AVAILABLE', {reason, rowCount: 25, truncated: true})]
+      })
+    )
+
+    const panel = wrapper.find('[role="tabpanel"]')
+    expect(panel.text()).toContain(reason)
+    expect(panel.text()).toContain('Showing the top 25 statements')
+    expect(wrapper.find('[role="status"]').text()).toContain('Incomplete read.')
   })
 
   it.each([
