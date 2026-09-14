@@ -160,7 +160,9 @@ do not invalidate a successfully read replica list.
 To try this panel with the application's real workload, the Spring MVC sample has a
 [`docker-mysql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-mysql).
 It replaces PostgreSQL with MySQL 8.4.6 for JPA and both migration tools, enables statement instrumentation, and
-provisions the sample account's diagnostic grants. No separate Maven profile is required.
+provisions the sample account's diagnostic grants. Run `bootui-spring-sample-app/run-local-mysql.sh` for the
+lightweight MySQL-and-Redis stack; Kafka and Ollama are disabled, with no AI model downloads.
+No separate Maven profile is required.
 
 ::: tip Tested compatibility
 **Oracle MySQL 8.4 LTS** is the tested server line, using `mysql:8.4.6` on Java 17:

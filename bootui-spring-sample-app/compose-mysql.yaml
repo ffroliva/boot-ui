@@ -28,11 +28,3 @@ services:
     extends:
       file: compose.yaml
       service: redis
-  kafka:
-    extends:
-      file: compose.yaml
-      service: kafka
-  ollama:
-    extends:
-      file: compose.yaml
-      service: ollama

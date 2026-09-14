@@ -15,10 +15,13 @@ import javax.sql.DataSource;
 import liquibase.integration.spring.SpringLiquibase;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
@@ -27,8 +30,8 @@ import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.MountableFile;
 
 /**
- * Tests the actual primary-database profile against MySQL, without starting unrelated Kafka/Redis/AI
- * services. The Compose database image, initialization grants and instrumentation are used unchanged.
+ * Tests the primary-database profile against MySQL, using a local cache instead of Redis.
+ * Kafka and AI are disabled by the profile itself, not by test-only exclusions.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -38,17 +41,7 @@ import org.testcontainers.utility.MountableFile;
             "spring.profiles.active=docker-mysql",
             "spring.docker.compose.enabled=false",
             "spring.cache.type=simple",
-            "spring.autoconfigure.exclude="
-                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration,"
-                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration,"
-                    + "org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration,"
-                    + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration,"
-                    + "org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration,"
-                    + "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration,"
-                    + "org.springframework.boot.kafka.autoconfigure.metrics.KafkaMetricsAutoConfiguration,"
-                    + "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,"
-                    + "org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration,"
-                    + "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",
+            "management.health.redis.enabled=false",
             "bootui.show-banner=false",
             "bootui.overrides-file=target/docker-mysql-profile-test/overrides.properties"
         })
@@ -93,6 +86,9 @@ class DockerMySqlProfileLiveTests {
     @Test
     void primaryMysqlRunsJpaBothMigrationToolsAndTheOperationalPanel() throws Exception {
         assertThat(context.getBeansOfType(DataSource.class)).hasSize(1);
+        assertThat(context.getBeansOfType(KafkaTemplate.class)).isEmpty();
+        assertThat(context.getBeansOfType(ChatModel.class)).isEmpty();
+        assertThat(context.getBeansOfType(EmbeddingModel.class)).isEmpty();
         try (Connection connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getDatabaseProductName()).isEqualTo("MySQL");
             assertThat(count(connection, "sample_products")).isEqualTo(3);

@@ -76,17 +76,21 @@ These commands run from the repository root. The extension setup is Docker-only;
 
 ## Run it with Docker and MySQL
 
-Use MySQL 8.4.6 **instead of PostgreSQL as the application's primary database**:
+Use MySQL 8.4.6 **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
+The dedicated launcher builds the sample and runs the lightweight stack:
 
 ```bash
-./mvnw -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app \
-  spring-boot:run -Dspring-boot.run.profiles=docker-mysql
+./bootui-spring-sample-app/run-local-mysql.sh
 ```
+
+The original `run-local.sh` continues to run the Docker-free `dev` profile. Both scripts use the isolated `.m2`
+repository and forward additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts
 [`compose-mysql.yaml`](compose-mysql.yaml), discovers MySQL's dynamically mapped localhost port and credentials,
-and uses it for JPA, Flyway, and Liquibase. Redis, Kafka, and Ollama reuse the existing Docker service definitions.
-The normal `dev` and PostgreSQL `docker` profiles are unchanged.
+and uses it for JPA, Flyway, and Liquibase. Redis reuses the existing Docker service definition. Kafka and Ollama
+auto-configuration are disabled, so this profile makes no broker connections or AI model downloads; Kafka and chat
+operations report unavailable. The normal `dev` and full PostgreSQL `docker` profiles are unchanged.
 
 The container enables statement instrumentation and grants the sample's non-root `bootui` account the diagnostic
 reads needed by the MySQL panel. Its passwords are development-only fixtures, not production credentials.
@@ -99,10 +103,14 @@ Opening the panel alone still performs no diagnostic query.
 Startup can already produce more than 100 distinct statement digests; **Limited results** then describes the
 normal top-100 ranking, not a failed read. All sections should otherwise be readable.
 
-Stop the PostgreSQL Docker variant before switching: both variants use Kafka's fixed port 9092 and Ollama's fixed
-port 11434. The MySQL variant has its own Compose project, so old PostgreSQL containers cannot become an additional
-datasource candidate. For parallel worktrees set a unique `COMPOSE_PROJECT_NAME`; the fixed Kafka/Ollama ports still
-require coordination.
+The MySQL variant has its own Compose project, so old PostgreSQL containers cannot become an additional datasource
+candidate. Both database/cache host ports are dynamic. For parallel worktrees set a unique `COMPOSE_PROJECT_NAME`
+and select a different application port:
+
+```bash
+COMPOSE_PROJECT_NAME=my-mysql-sample ./bootui-spring-sample-app/run-local-mysql.sh \
+  -Dspring-boot.run.arguments=--server.port=8085
+```
 
 To stop this variant explicitly, from the repository root:
 
