@@ -151,11 +151,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 data.setting("wal_level"),
                 replicasAvailable));
         int rowCount = replicas.size();
-        if (truncated) {
-            limitations.add("More replicas are connected than the read's replica bound allows.");
-        }
         return limitations.isEmpty()
-                ? available(rowCount, false)
+                ? available(rowCount, truncated)
                 : partial(rowCount, String.join(" ", limitations), truncated);
     }
 

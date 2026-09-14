@@ -37,6 +37,43 @@ export function registerPostgresqlTests(test, expect) {
   }
 
   test.describe('PostgreSQL incomplete evidence', () => {
+    for (const count of [25, 100]) {
+      test(`explains a top-${count} statement ranking without implying a failed read`, async ({page}) => {
+        const limitation = `primary / Statement ranking: Showing the top ${count} statements by total execution time. Additional statements are not shown.`
+        const body = report(
+          [{id: 'statements', title: 'Statement ranking', status: 'AVAILABLE', rowCount: count, truncated: true}],
+          {
+            truncated: true,
+            statements: Array.from({length: count}, (_, index) => ({
+              queryId: String(index),
+              query: `select $1 /* statement ${index + 1} */`,
+              totalTimeMs: 250 - index
+            }))
+          },
+          [limitation]
+        )
+        body.truncated = true
+        let reads = 0
+        page.on('request', (request) => {
+          if (request.method() === 'POST' && request.url().endsWith('/postgresql/read')) reads++
+        })
+
+        await openReport(page, body)
+
+        const warning = page.getByRole('status').filter({hasText: 'Limited results.'})
+        await expect(warning).toHaveCount(1)
+        await expect(warning).toContainText(limitation)
+        await expect(page.getByText('Incomplete read.', {exact: true})).toHaveCount(0)
+        await expect(
+          page.getByRole('tabpanel').getByText(`Showing the top ${count} statements`, {exact: false})
+        ).toBeVisible()
+        await expect(page.getByRole('tabpanel').locator('tbody tr')).toHaveCount(count)
+        await page.getByText('What this read does not cover (1)', {exact: true}).click()
+        await expect(page.locator('details li')).toContainText(limitation)
+        expect(reads).toBe(0)
+      })
+    }
+
     for (const scenario of [
       {name: 'standby', inRecovery: true, replicasAvailable: false, reason: 'The standby replica list was not read.'},
       {name: 'query failure', inRecovery: false, replicasAvailable: false, reason: 'Replication statistics failed.'},

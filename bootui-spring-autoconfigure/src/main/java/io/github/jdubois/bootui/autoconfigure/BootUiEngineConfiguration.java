@@ -78,6 +78,7 @@ import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
+import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -239,13 +240,27 @@ public class BootUiEngineConfiguration {
     @Lazy
     @ConditionalOnMissingBean
     PostgresInsightService bootUiPostgresInsightService(
-            ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            BootUiExposure exposure,
+            BootUiProperties properties) {
         // javax.sql.DataSource is core JDK, so DataSource discovery needs no @ConditionalOnClass gating; the
         // same Spring discovery that feeds the Database Advisor is reused, and the read runs on demand
         // (POST /read), never at bean construction.
         SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
                 new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
-        return PostgresInsightService.using(dataSourceProvider::discover, exposure, Clock.systemUTC());
+        BootUiProperties.Postgresql postgresql = properties.getPostgresql();
+        return PostgresInsightService.using(
+                dataSourceProvider::discover,
+                exposure,
+                Clock.systemUTC(),
+                new PostgresRowLimits(
+                        postgresql.getMaxSessions(),
+                        postgresql.getMaxStatements(),
+                        postgresql.getMaxIndexes(),
+                        postgresql.getMaxTables(),
+                        postgresql.getMaxVacuumTables(),
+                        postgresql.getMaxReplicas(),
+                        postgresql.getMaxSettings()));
     }
 
     @Bean

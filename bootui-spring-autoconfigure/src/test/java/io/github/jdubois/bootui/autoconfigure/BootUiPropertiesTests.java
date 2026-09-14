@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.BindResult;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -16,6 +18,58 @@ import org.springframework.mock.env.MockEnvironment;
  * properties using {@link Binder}.
  */
 class BootUiPropertiesTests {
+
+    @Test
+    void postgresqlDefaultsMatchTheSharedEngine() {
+        assertThat(postgresRowLimits(new BootUiProperties())).isEqualTo(PostgresRowLimits.defaults());
+    }
+
+    @Test
+    void postgresqlRowLimitsBindIndependently() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("bootui.postgresql.max-sessions", "11")
+                .withProperty("bootui.postgresql.max-statements", "12")
+                .withProperty("bootui.postgresql.max-indexes", "13")
+                .withProperty("bootui.postgresql.max-tables", "14")
+                .withProperty("bootui.postgresql.max-vacuum-tables", "15")
+                .withProperty("bootui.postgresql.max-replicas", "16")
+                .withProperty("bootui.postgresql.max-settings", "17");
+        assertThat(postgresRowLimits(bind(environment))).isEqualTo(new PostgresRowLimits(11, 12, 13, 14, 15, 16, 17));
+        assertThat(postgresRowLimits(bind(new MockEnvironment().withProperty("bootui.postgresql.max-tables", "250"))))
+                .isEqualTo(new PostgresRowLimits(100, 100, 500, 250, 200, 10, 40));
+    }
+
+    @Test
+    void postgresqlRejectsInvalidLimitsDuringBinding() {
+        for (String name : List.of(
+                "max-sessions",
+                "max-statements",
+                "max-indexes",
+                "max-tables",
+                "max-vacuum-tables",
+                "max-replicas",
+                "max-settings")) {
+            for (String invalid : List.of("0", "-1", "2147483647", "2147483648", "1.5", "invalid", "")) {
+                String property = "bootui.postgresql." + name;
+                assertThatThrownBy(() -> bind(new MockEnvironment().withProperty(property, invalid)))
+                        .as("%s=%s", property, invalid)
+                        .isInstanceOf(RuntimeException.class)
+                        .hasStackTraceContaining(property);
+            }
+        }
+    }
+
+    private static PostgresRowLimits postgresRowLimits(BootUiProperties properties) {
+        var postgresql = properties.getPostgresql();
+        return new PostgresRowLimits(
+                postgresql.getMaxSessions(),
+                postgresql.getMaxStatements(),
+                postgresql.getMaxIndexes(),
+                postgresql.getMaxTables(),
+                postgresql.getMaxVacuumTables(),
+                postgresql.getMaxReplicas(),
+                postgresql.getMaxSettings());
+    }
 
     @Test
     void advisorRetentionDefaultsBindsAndRejectsInvalidValuesImmediately() {

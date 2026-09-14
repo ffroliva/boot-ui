@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.HealthNodeDto;
@@ -46,6 +47,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -70,6 +72,42 @@ import org.springframework.mock.env.MockEnvironment;
  * package so it can call the package-private factory methods directly.</p>
  */
 class BootUiEngineConfigurationTests {
+
+    @Test
+    void postgresFactoryMapsEveryBoundWithoutReadingTheDatabase() {
+        BootUiProperties properties = Binder.get(new MockEnvironment()
+                        .withProperty("bootui.postgresql.max-sessions", "11")
+                        .withProperty("bootui.postgresql.max-statements", "12")
+                        .withProperty("bootui.postgresql.max-indexes", "13")
+                        .withProperty("bootui.postgresql.max-tables", "14")
+                        .withProperty("bootui.postgresql.max-vacuum-tables", "15")
+                        .withProperty("bootui.postgresql.max-replicas", "16")
+                        .withProperty("bootui.postgresql.max-settings", "17"))
+                .bind("bootui", BootUiProperties.class)
+                .get();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        DataSource dataSource = mock(DataSource.class);
+        beans.registerSingleton("dataSource", dataSource);
+        beans.registerSingleton("beanFactory", beans);
+        var service = new BootUiEngineConfiguration()
+                .bootUiPostgresInsightService(
+                        beans.getBeanProvider(ListableBeanFactory.class), mock(BootUiExposure.class), properties);
+
+        assertThat(service)
+                .extracting(
+                        "limits.maxSessions",
+                        "limits.maxStatements",
+                        "limits.maxIndexes",
+                        "limits.maxTables",
+                        "limits.maxVacuumTables",
+                        "limits.maxReplicas",
+                        "limits.maxSettings")
+                .containsExactly(11, 12, 13, 14, 15, 16, 17);
+        assertThat(service.initialReport().status()).isEqualTo("NOT_READ");
+        verifyNoInteractions(dataSource);
+        properties.getPostgresql().setMaxTables(300);
+        assertThat(service).extracting("limits.maxTables").isEqualTo(14);
+    }
 
     @Test
     @SuppressWarnings("unchecked")

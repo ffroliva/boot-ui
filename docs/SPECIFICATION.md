@@ -2104,6 +2104,10 @@ Features:
 - Reserve `truncated` for row caps. Budget exhaustion carries a section `reason`, retaining any rows already read;
   no retained rows means a failed section, not an empty successful one. Incomplete relation lists do not replace
   the comparison baseline.
+- Configure per-datasource row limits through the same `bootui.postgresql.*` properties on all adapters. Defaults:
+  100 sessions, 100 statements, 500 indexes, 200 tables, 200 autovacuum entries, 10 replicas, and 40 curated settings.
+  Limits require restart, reject non-positive values and integers that cannot accommodate the extra truncation-detection
+  row, and do not change the existing timeout or statement-text bounds. See `docs/PROPERTIES.md` for the keys.
 - Exclude the timeout settings BootUI overrides for its own read from the notable application settings.
 - Expose `replication.replicasAvailable` so an empty replica list is only evidence of absence when it was read.
   On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.

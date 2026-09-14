@@ -22,10 +22,10 @@ keys are platform-specific.
 
 **How keys are read.** On Spring, `bootui.*` keys are bound once into a `@ConfigurationProperties`
 object, so Spring's relaxed binding applies (camelCase, kebab-case, and underscores are all
-accepted). On Quarkus, each key is read **live, per request** through MicroProfile Config and must be
-written in **exact kebab-case**; a missing or invalid value **fails closed** (for example, masking
+accepted). On Quarkus, keys are read through MicroProfile Config and must be
+written in **exact kebab-case**. Safety policy is read **live, per request**; a missing or invalid value **fails closed** (for example, masking
 stays on and non-loopback access stays denied). Most keys below are honored identically on both
-adapters.
+adapters. Static bounds such as the PostgreSQL row limits require an application restart on every adapter.
 
 **Activation.** Spring decides activation at runtime from `bootui.enabled` and the
 `enabled-profiles` / `disabled-profiles` lists (plus DevTools). Quarkus decides activation at
@@ -68,7 +68,7 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
-`bootui.sql-trace.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.sql-trace.*`, `bootui.postgresql.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
 `bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*` (except `.activity-capture-enabled` and
 `.activity-max-events`, Spring only — see above), `bootui.mcp.*`, `bootui.cli.*`, `bootui.ai.*`,
 `bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
@@ -363,6 +363,42 @@ from startup, set `hibernate.generate_statistics=true` on Spring or
 
 **Run Database checks** performs bounded, read-only JDBC schema introspection. It does not require confirmation and is
 blocked when either `bootui.read-only=true` or `bootui.panels.database-advisor.read-only=true`.
+
+### PostgreSQL
+
+These properties apply to Spring MVC, Spring WebFlux, and Quarkus. Each row limit applies independently to each
+datasource and is shared by reads from the browser, REST API, MCP, and CLI.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.postgresql.enabled` | `true` | Show the PostgreSQL panel when a PostgreSQL datasource is configured. |
+| `bootui.panels.postgresql.read-only` | `false` | Disable the explicit read action while keeping the last report visible. |
+| `bootui.postgresql.max-sessions` | `100` | Maximum client-session rows from `pg_stat_activity` for the connected database. |
+| `bootui.postgresql.max-statements` | `100` | Maximum normalized statement entries, ranked by total execution time. Requires `pg_stat_statements`. |
+| `bootui.postgresql.max-indexes` | `500` | Maximum index entries, ordered by least usage first, then largest size. |
+| `bootui.postgresql.max-tables` | `200` | Maximum relation entries, ordered by total size descending. |
+| `bootui.postgresql.max-vacuum-tables` | `200` | Maximum autovacuum table entries, ordered by dead tuples descending. |
+| `bootui.postgresql.max-replicas` | `10` | Maximum connected-replica entries; does not limit aggregate checkpoint or replication-slot counters. |
+| `bootui.postgresql.max-settings` | `40` | Maximum entries from the curated settings allow-list. Raising it does not expose additional setting names. Lowering it may omit settings used for autovacuum estimates. |
+
+Row limits are **static: restart the application after changing them**, including when saved through Spring's
+Configuration panel. Values must be integers from `1` to `2147483646`, inclusive. Zero, negative values, invalid
+integers, and `2147483647` are rejected rather than clamped or treated as unlimited. The upper endpoint leaves room
+for the one extra row used to detect truncation; it is not a recommended operating limit.
+
+For example, to retain a deeper statement ranking and inspect more relations:
+
+```properties
+bootui.postgresql.max-statements=250
+bootui.postgresql.max-tables=500
+bootui.postgresql.max-vacuum-tables=500
+```
+
+The existing safety bounds stay fixed: a 5-second statement timeout, a 2-second lock timeout, a 15-second overall
+read budget, and a 400-character statement-text limit. Raising row limits can increase read cost and does not
+guarantee a complete result before these deadlines. Row-limit omissions retain `PARTIAL` / `truncated=true` and name
+the affected sections; timeouts and permission failures remain distinct explanations.
+See [PostgreSQL](features/database.md#postgresql) for read behavior and availability.
 
 ### Memory
 

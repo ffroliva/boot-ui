@@ -89,8 +89,17 @@ public final class PostgresInsightService {
 
     public static PostgresInsightService using(
             Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier, ExposurePolicy exposure, Clock clock) {
+        return using(dataSourceSupplier, exposure, clock, PostgresRowLimits.defaults());
+    }
+
+    /** Configured row limits are fixed for this service; timeout and query-text bounds remain unchanged. */
+    public static PostgresInsightService using(
+            Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier,
+            ExposurePolicy exposure,
+            Clock clock,
+            PostgresRowLimits rowLimits) {
         return new PostgresInsightService(
-                dataSourceSupplier, exposure, clock, PostgresInsightLimits.DEFAULTS, System::nanoTime);
+                dataSourceSupplier, exposure, clock, PostgresInsightLimits.withRowLimits(rowLimits), System::nanoTime);
     }
 
     /** Test seam: the same service running under explicit bounds. */
@@ -204,7 +213,7 @@ public final class PostgresInsightService {
                         }
                         yield discoveryFailed
                                 ? "Some datasources could not be discovered; see the diagnostics."
-                                : "Some subsystems could not be read; see the section status and diagnostics.";
+                                : "Some results are incomplete; see the section details and diagnostics.";
                     }
                     default -> null;
                 };
@@ -595,9 +604,15 @@ public final class PostgresInsightService {
                 if (!"AVAILABLE".equals(section.status()) || section.reason() != null) {
                     limitations.add(database.name() + "/" + section.id() + ": " + section.reason());
                 }
-            }
-            if (database.truncated()) {
-                limitations.add(database.name() + ": a row bound truncated the read.");
+                if (section.truncated()) {
+                    String description = PostgresSectionIds.STATEMENTS.equals(section.id())
+                            ? "Showing the top " + section.rowCount()
+                                    + (section.rowCount() == 1 ? " statement" : " statements")
+                                    + " by total execution time. Additional statements are not shown."
+                            : "Showing " + section.rowCount() + (section.rowCount() == 1 ? " row." : " rows.")
+                                    + " Additional rows are not shown because this section reached BootUI's row limit.";
+                    limitations.add(database.name() + " / " + section.title() + ": " + description);
+                }
             }
             if (("PARTIAL".equals(database.status()) || "ERROR".equals(database.status()))
                     && database.message() != null) {
@@ -605,7 +620,7 @@ public final class PostgresInsightService {
             }
         }
         if (truncated && limitations.isEmpty()) {
-            limitations.add("A row bound truncated the read.");
+            limitations.add("Some results reached BootUI's row limits. Additional rows are not shown.");
         }
         return List.copyOf(limitations);
     }
