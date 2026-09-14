@@ -1,52 +1,53 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
-// These checks only run when the sample app was booted with the full Docker stack (the `docker`
-// Spring profile, set via BOOTUI_SAMPLE_PROFILES=docker by the weekly "Docker configuration"
-// workflow). They assert the runtime genuinely uses PostgreSQL, Redis, Kafka, and Ollama instead of
+// These checks only run with the full Docker stack (`docker` or `docker-mysql`).
+// They assert the runtime genuinely uses the selected database, Redis, Kafka, and Ollama instead of
 // the Docker-free `dev` defaults (H2, an in-memory cache, no KafkaTemplate, disabled Spring AI), so a
 // green run actually proves the Docker-based configuration works rather than passing in a broadly
 // compatible mode.
-const dockerProfileActive = (process.env.BOOTUI_SAMPLE_PROFILES || '')
-  .split(',')
-  .map((profile) => profile.trim())
-  .includes('docker')
+const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
+const mysql = profiles.includes('docker-mysql')
+const dockerProfile = mysql ? 'docker-mysql' : 'docker'
+const database = mysql ? 'MySQL' : 'PostgreSQL'
+const panelId = mysql ? 'mysql' : 'postgresql'
 
 test.describe('Docker profile smoke checks', () => {
-  test.skip(!dockerProfileActive, 'Only runs when the sample app is started with the docker profile')
+  test.skip(!profiles.includes(dockerProfile), 'Only runs with a Docker sample profile')
 
-  test('reports the docker profile as active', async ({request}) => {
+  test(`reports the ${dockerProfile} profile as active`, async ({request}) => {
     const response = await request.get('/bootui/api/overview')
     expect(response.ok()).toBeTruthy()
     const overview = await response.json()
-    expect(overview.activeProfiles).toContain('docker')
+    expect(overview.activeProfiles).toContain(dockerProfile)
   })
 
-  test('uses a PostgreSQL datasource', async ({request}) => {
+  test(`uses a ${database} datasource`, async ({request}) => {
     const response = await request.get('/actuator/health')
     expect(response.ok()).toBeTruthy()
     const health = await response.json()
-    expect(health.components?.db?.details?.database).toBe('PostgreSQL')
+    expect(health.components?.db?.details?.database).toBe(database)
   })
 
-  test('reads PostgreSQL statement statistics', async ({request, page, openView}) => {
+  test(`reads ${database} statement statistics`, async ({request, page, openView}) => {
     const products = await request.get('/api/sample/products')
     expect(products.ok()).toBeTruthy()
 
-    await openView('postgresql', 'PostgreSQL')
+    await openView(panelId, database)
     const readResponse = page.waitForResponse(
-      (response) => response.url().endsWith('/bootui/api/postgresql/read') && response.request().method() === 'POST'
+      (response) => response.url().endsWith(`/bootui/api/${panelId}/read`) && response.request().method() === 'POST'
     )
-    await page.getByRole('button', {name: /Run PostgreSQL read$/}).click()
+    await page.getByRole('button', {name: `Run ${database} read`, exact: true}).click()
     const response = await readResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.databases.length).toBeGreaterThan(0)
-    for (const database of report.databases) {
-      const statements = database.sections.find((section) => section.id === 'statements')
+    const sources = mysql ? report.dataSources : report.databases
+    expect(sources.length).toBeGreaterThan(0)
+    for (const source of sources) {
+      const statements = source.sections.find((section) => section.id === 'statements')
       expect(statements?.status).toBe('AVAILABLE')
       expect(statements?.reason).toBeNull()
-      expect(database.statements.length).toBeGreaterThan(0)
+      expect(source.statements.length).toBeGreaterThan(0)
     }
   })
 
@@ -58,7 +59,7 @@ test.describe('Docker profile smoke checks', () => {
     expect(managerTypes.some((type) => /Redis/i.test(type ?? ''))).toBeTruthy()
   })
 
-  test('serves PostgreSQL-backed sample products', async ({request}) => {
+  test(`serves ${database}-backed sample products`, async ({request}) => {
     const response = await request.get('/api/sample/products')
     expect(response.ok()).toBeTruthy()
     const products = await response.json()

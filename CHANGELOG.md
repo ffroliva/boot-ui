@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead
+  of PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for
+  the MySQL panel. Redis, Kafka, and Ollama retain the existing Docker setup.
+
 - **MySQL operational diagnostics.** A PostgreSQL sibling covering vital signs,
   sessions/blocking, normalized statements, indexes, tables, InnoDB, basic replication, and curated settings through
   existing JDBC datasources on Spring MVC, WebFlux, and Quarkus. The contract includes explicit collection, cached
