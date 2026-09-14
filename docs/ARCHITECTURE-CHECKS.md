@@ -364,10 +364,15 @@ Dismissed rules remove all of their instances from the score.
 - **Severity**: MEDIUM
 - **Inspects**: `new Thread(...)` constructor calls, including instantiating a class that extends `Thread`.
 - **Fires when**: application code directly constructs a `Thread` (or a subclass), except inside an actual public,
-  non-static `ThreadFactory.newThread(Runnable)` implementation with a Thread-compatible return type.
+  non-static `ThreadFactory.newThread(Runnable)` implementation with a Thread-compatible return type, or a verified
+  Java/Kotlin ThreadFactory lambda body.
   The [JDK 17 ThreadFactory example](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ThreadFactory.html)
   explicitly constructs a thread there. An unrelated `newThread` method, an overload, or another method in the factory
-  class is not exempt. Named and anonymous implementations and covariant returns are recognized.
+  class is not exempt. Named and anonymous implementations, covariant returns, and captured lambda arguments are
+  recognized, including ThreadFactory subinterfaces used only as local lambda targets and intersection types.
+  Lambda exemptions use the compiled functional-interface contract, not just a generated method name,
+  a `Runnable -> Thread` signature, or the presence of an executor call. Unrelated construction on the same source
+  line and non-factory lambdas nested inside a factory remain findings.
 - **Why it matters**: an unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
   outside both frameworks' managed-concurrency story — Spring's `TaskExecutor` / `@Async` (and
   `spring.threads.virtual.enabled` on Java 21+), or Quarkus's `ManagedExecutor` / `@RunOnVirtualThread`. This mirrors
@@ -377,8 +382,18 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: prefer Spring's `TaskExecutor`/`@Async` or Quarkus's `ManagedExecutor`, or use an
   application-owned `ExecutorService` with explicit shutdown. Plain `Executors` factories are not automatically
   container-managed.
-- **Limitations**: construction does not prove that a thread starts. Lambda factories, constructor references, delegated
-  factory helpers and shutdown-hook patterns are not resolved through dataflow; the exemption is deliberately narrow.
+- **Limitations**: construction does not prove that a thread starts. Arbitrary Thread-returning methods, delegated
+  factory helpers and shutdown-hook patterns are not exempted through object-flow analysis. Constructor references
+  such as `Thread::new` are not reported, whether used as a factory or another functional interface.
+  Class-based factory implementations and Java/Kotlin
+  LambdaMetafactory bodies are supported; other compiler lowering patterns are not inferred from a signature alone.
+  Required bytecode that cannot be read, or constructor observations that cannot be reconciled with it, produce an
+  analysis error rather than a clean result. This remains bounded by ArchUnit's imported model: accesses omitted by
+  that importer (for example, orphaned synthetic bodies after bytecode rewriting) are not independently recovered.
+- **CRaC distinction**: `CRAC-THREAD-001` separately checks thread starts and executor ownership. A factory such as
+  `Executors.newSingleThreadScheduledExecutor(r -> new Thread(r))` no longer triggers ARCH-CODE-017 for its lambda,
+  but the executor construction can still need CRaC lifecycle review. A factory exemption does not establish that
+  its threads remain unstarted or that its executor is lifecycle-managed.
 
 ### ARCH-CODE-018 - Assertions should have a detail message
 
