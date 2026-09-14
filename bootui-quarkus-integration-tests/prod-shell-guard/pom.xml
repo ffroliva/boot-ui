@@ -13,10 +13,10 @@
 
     <artifactId>bootui-quarkus-prod-shell-guard-integration-tests</artifactId>
     <name>BootUI :: Quarkus Extension (Prod Shell Guard Integration Tests)</name>
-    <description>Holds the one test in the whole bootui-quarkus-integration-tests reactor that boots a genuine
-        LaunchMode.NORMAL (production) artifact via QuarkusProdModeTest, proving BootUiProdShellGuardFilter
-        actually 404s /bootui and /bootui/** in a real production process (not just LaunchMode.TEST, which is
-        all every @QuarkusTest elsewhere in this reactor can exercise). Kept in its own module/JVM fork on
+    <description>Boots genuine LaunchMode.NORMAL (production) artifacts via QuarkusProdModeTest, proving
+        BootUiProdShellGuardFilter actually 404s /bootui and /bootui/** in a real production process and
+        exercising the Architecture engine's ThreadFactory analysis through a standalone fast-jar probe.
+        These are packaged processes, not the LaunchMode.TEST used by @QuarkusTest. Kept in its own module/JVM fork on
         purpose: Quarkus's own test-framework ExclusivityChecker throws IllegalStateException if a
         QuarkusProdModeTest and a @QuarkusTest run in the same JUnit Platform launcher session (i.e. the same
         Surefire fork), so this test cannot live alongside base's (or any other submodule's) @QuarkusTest
@@ -89,8 +89,8 @@
               forkCount=1: same override as every other bootui-quarkus-integration-tests/* submodule (and
               bootui-quarkus itself); see bootui-quarkus-integration-tests/base/pom.xml for the full
               rationale (a Quarkus test-bootstrap classloading race between concurrent Surefire forks in the
-              same module). This module has a single test class today, but pins the override anyway for
-              consistency and to stay safe if a second one is ever added.
+              same module). The production shell guard and the standalone Architecture probe share this
+              fork without mixing @QuarkusTest and QuarkusProdModeTest launcher sessions.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
