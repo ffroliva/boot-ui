@@ -12,6 +12,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -60,6 +61,11 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
     @Override
     protected String apiPath() {
         return "/host/internal/bootui-api";
+    }
+
+    @Override
+    protected Path dismissalFile() {
+        return Path.of("target/custom-path-conformance/boot-ui.yml");
     }
 
     @Test
@@ -177,6 +183,7 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
                     "quarkus.http.root-path", "/host",
                     "bootui.path", "/dev-console/",
                     "bootui.api-path", "/internal/bootui-api/",
+                    "bootui.overrides-file", "target/custom-path-conformance/application-bootui.properties",
                     "bootui.panels.copilot.enabled", "false",
                     "bootui.panels.heap-dump.read-only", "true",
                     "bootui.heap-dump.capture-enabled", "false",
