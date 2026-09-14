@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
@@ -46,6 +47,7 @@ public final class ArchitectureScanner {
     private final ArchitecturePlatform platform;
     private final Clock clock;
     private final List<ArchitectureRule> rules;
+    private final Function<JavaClasses, ArchitectureGeneratedCode.Result> generatedCodeResolver;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<ArchitectureReport> violationState =
             new AdvisorScanState<>(ArchitectureReport::withViolationDetails);
@@ -64,11 +66,22 @@ public final class ArchitectureScanner {
             ArchitecturePlatform platform,
             Clock clock,
             List<ArchitectureRule> rules) {
+        this(basePackagesSupplier, importer, platform, clock, rules, ArchitectureGeneratedCode::resolve);
+    }
+
+    ArchitectureScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            ArchitectureClassImporter importer,
+            ArchitecturePlatform platform,
+            Clock clock,
+            List<ArchitectureRule> rules,
+            Function<JavaClasses, ArchitectureGeneratedCode.Result> generatedCodeResolver) {
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.platform = platform;
         this.clock = clock;
         this.rules = List.copyOf(rules);
+        this.generatedCodeResolver = generatedCodeResolver;
     }
 
     /**
@@ -168,11 +181,25 @@ public final class ArchitectureScanner {
                     new AdvisorEvidenceDto(false, true, List.of()));
         }
 
+        ArchitectureGeneratedCode.Result generatedCode;
+        try {
+            generatedCode = Objects.requireNonNull(generatedCodeResolver.apply(classes));
+        } catch (RuntimeException | LinkageError ex) {
+            generatedCode = new ArchitectureGeneratedCode.Result(
+                    Set.of(),
+                    List.of("Generated-source lookup failed (" + ex.getClass().getSimpleName()
+                            + "); uncertain classes remain included."));
+        }
         ArchitectureContext context = new ArchitectureContext(
-                classes, basePackages, platform, new ArchitectureContext.ArchitectureEvaluationEvidence(), collector);
+                classes,
+                basePackages,
+                platform,
+                new ArchitectureContext.ArchitectureEvaluationEvidence(),
+                collector,
+                generatedCode.handwrittenClasses(classes));
         List<ArchitectureRuleResultDto> results = new java.util.ArrayList<>();
         boolean usable = false;
-        List<String> unreported = new java.util.ArrayList<>();
+        List<String> unreported = new java.util.ArrayList<>(generatedCode.limitations());
         for (ArchitectureRule rule : rules) {
             context.evidence().reset();
             ArchitectureRuleResultDto result = rule.evaluate(context);
@@ -196,6 +223,10 @@ public final class ArchitectureScanner {
                         + " application class(es) under the detected base package(s)."
                 : "Architecture analysis is incomplete: " + errors + " rule(s) could not be evaluated against "
                         + classes.size() + " application class(es).";
+        if (!generatedCode.limitations().isEmpty()) {
+            if (errors == 0) status = "PARTIAL";
+            message += " Generated-code provenance is incomplete; uncertain classes remain included.";
+        }
 
         List<String> limitations = java.util.stream.Stream.concat(
                         unreported.stream(),

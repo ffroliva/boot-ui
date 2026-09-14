@@ -52,6 +52,11 @@ function detailPage({scanId = 'scan-1', count = 29, retained = count, offset = 0
  */
 export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui', apiPath = '/bootui/api'} = {}) {
   test.describe('On-demand advisor violations', () => {
+    test.afterEach(async ({page}) => {
+      // Finish in-flight route.fetch handlers before context teardown disposes their responses.
+      await page.unrouteAll({behavior: 'wait'})
+    })
+
     test.beforeEach(async ({page}) => {
       await page.route(`**${apiPath}/panels`, async (route) => {
         const response = await route.fetch()

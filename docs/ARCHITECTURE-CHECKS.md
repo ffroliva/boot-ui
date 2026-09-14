@@ -61,6 +61,55 @@ because they also key on the shared `jakarta.*` annotations (`jakarta.transactio
 below for which category it falls into, and `ArchitectureCdiNeutralityTests` for the automated check that pins this
 property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
 
+## Generated application code
+
+The **ARCH-CODE-001 through ARCH-CODE-018** coding-practice rules exclude classes that BootUI can positively identify
+as generated. For example, OpenAPI Generator's `ApiUtil` helpers should not contribute generic-exception findings while
+a handwritten generic throw still does. This is a class-level exemption, not a rule dismissal or an exclusion of every
+class named `ApiUtil` or every `api` package. Package-cycle, module-boundary, and Spring/CDI checks keep the full class
+graph, including generated types; handwritten callers and subclasses remain eligible for coding checks.
+
+Identification happens only during the explicit architecture scan. BootUI matches imported classes to their local
+source ownership using their module, package, recorded source filename, and top-level/enclosing type:
+
+- Maven `target/classes` uses that module's `target/generated-sources`; `target/test-classes` uses
+  `target/generated-test-sources`.
+- Gradle `build/classes/java/main` and `build/classes/kotlin/main` use the module's `build/generated` tree, including
+  generator-specific subdirectories, and OpenAPI Generator's default `build/generate-resources/main` output.
+  Corresponding `test` output uses test-source ownership. Recognized source-layout prefixes distinguish `main`/`test`;
+  a package directory with either name does not change the source set.
+- Java and Kotlin generated sources are recognized even when their directories do not mirror their package names.
+  A bounded module-local source census checks both conventional and custom handwritten directories for conflicting
+  declarations. It excludes generated trees, compiled class output, the opposite conventional source set, and
+  `.git`, `.gradle`, `.m2`, and `node_modules` directories. Duplicate generated candidates, conflicting handwritten
+  declarations, or uncertain ownership prevent an exemption. Maven compiler-input lists that identify sources outside
+  the module prevent classification without opening those external sources.
+
+The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
+annotations have **SOURCE retention**: they normally disappear from compiled bytecode. A same-named class-level marker
+is recognized if it is actually present, but normal generator output needs local source provenance. The Kotlin OpenAPI
+`ApiUtil` template does not carry such a marker at all. BootUI still evaluates bytecode, not source-level coding rules;
+the source lookup only identifies ownership.
+
+Lookup is limited per scan to 64 module/source-set groups, 50,000 directory entries, depth 32 beneath each inspected
+root, 256 KiB per inspected file, and 16 MiB of source/metadata bytes in total. It never follows source-tree
+symlinks, searches arbitrary ancestors or the process working directory, downloads sources, or runs a build. Cached
+reports and violation-detail reads reuse the completed scan without reading sources again.
+
+**Conservative limitations:** packaged jars, unsupported/custom output layouts, missing sources or `SourceFile`
+metadata, and ambiguous matches retain their findings. A SOURCE-retained annotation in a non-generated source layout
+does not by itself exempt a class. Ownership recognition handles multiline declarations, Java Unicode escapes, and
+Kotlin string templates, but is deliberately not a full Java/Kotlin parser. Kotlin file facades (including
+`@file:JvmName` facades) are not treated as explicit class/object declarations and remain eligible for coding checks;
+their function bodies may be handwritten. Source inputs outside the module or excluded dependency/cache trees are
+not supported. Lookup failures,
+symlinked source trees, and exhausted budgets produce a sanitized limitation and a `PARTIAL` scan while retaining
+uncertain classes and known findings. No source contents or local paths are included in the report.
+
+The policy is shared by Spring MVC, WebFlux, and Quarkus. `classesAnalyzed` continues to count the full imported
+application graph; coding-rule counts, previews, retained details, and score penalties exclude only established
+generated findings. An empty eligible coding-rule target set does not establish usable evidence by itself.
+
 ## Kotlin applications
 
 The rules read compiled bytecode, so they run unchanged on Kotlin classes, and the engine recognizes Kotlin constructs
@@ -169,6 +218,8 @@ Dismissed rules remove all of their instances from the score.
 - **Severity**: LOW
 - **Inspects**: throwing of generic exception types such as `Exception`, `RuntimeException`, or `Throwable`.
 - **Fires when**: a class throws one of the generic types instead of a specific exception.
+- **Generated code**: verified generated classes are exempt under the
+  [shared generated-code policy](#generated-application-code); handwritten throws remain findings.
 - **Recommendation**: throw specific, meaningful exception types so callers can handle failures precisely.
 
 ### ARCH-CODE-003 - Classes should not use java.util.logging
