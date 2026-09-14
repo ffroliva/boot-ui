@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.datasource.DataSourceDeclarations;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
@@ -14,8 +16,8 @@ import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
-import org.springframework.beans.BeansException;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -185,6 +187,12 @@ public class PanelsController {
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.POSTGRESQL -> availability(postgresAvailable(), postgresUnavailableReason());
+            case BootUiPanels.MYSQL ->
+                availability(
+                        declaredDatabaseAvailable(MySqlDataSourceDetection::isMySqlJdbcUrl, "com.mysql.cj.jdbc.Driver"),
+                        applicationContext.getBeanNamesForType(javax.sql.DataSource.class, true, false).length == 0
+                                ? "No JDBC DataSource bean is available; reactive clients alone are not supported."
+                                : "No MySQL JDBC datasource is configured. MariaDB requires a separate integration.");
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
@@ -388,29 +396,25 @@ public class PanelsController {
      * read action then reports the honest per-datasource diagnostic.</p>
      */
     private boolean postgresAvailable() {
-        if (!beanPresent(javax.sql.DataSource.class)) {
+        return declaredDatabaseAvailable(PostgresDataSourceDetection::isPostgresJdbcUrl, "org.postgresql.Driver");
+    }
+
+    private boolean declaredDatabaseAvailable(Predicate<String> matches, String driverClass) {
+        DataSourceDeclarations.Snapshot declarations = DataSourceDeclarations.inspect(applicationContext);
+        if (!declarations.present()) {
             return false;
         }
-        boolean anyUnknownUrl = false;
-        for (String beanName : applicationContext.getBeanNamesForType(javax.sql.DataSource.class)) {
-            javax.sql.DataSource dataSource;
-            try {
-                dataSource = applicationContext.getBean(beanName, javax.sql.DataSource.class);
-            } catch (BeansException ex) {
-                anyUnknownUrl = true;
-                continue;
-            }
+        boolean anyUnknownUrl = declarations.incomplete();
+        for (javax.sql.DataSource dataSource : declarations.sources()) {
             String url = PostgresDataSourceDetection.jdbcUrlOf(dataSource);
             if (url == null) {
                 anyUnknownUrl = true;
-            } else if (PostgresDataSourceDetection.isPostgresJdbcUrl(url)) {
+            } else if (matches.test(url)) {
                 return true;
             }
         }
-        if (PostgresDataSourceDetection.isPostgresJdbcUrl(environment.getProperty("spring.datasource.url"))) {
-            return true;
-        }
-        return anyUnknownUrl && classPresent("org.postgresql.Driver");
+        return anyUnknownUrl
+                && (matches.test(environment.getProperty("spring.datasource.url")) || classPresent(driverClass));
     }
 
     private String postgresUnavailableReason() {
@@ -421,8 +425,14 @@ public class PanelsController {
     }
 
     private boolean hikariAvailable() {
-        return classPresent("com.zaxxer.hikari.HikariDataSource")
-                && HikariDataSourceDiscovery.hasAny(applicationContext);
+        if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
+            return false;
+        }
+        if (applicationContext.getBeanNamesForType(com.zaxxer.hikari.HikariDataSource.class, true, false).length > 0) {
+            return true;
+        }
+        return DataSourceDeclarations.inspect(applicationContext).sources().stream()
+                .anyMatch(source -> HikariDataSourceDiscovery.existingHikariTarget(source) != null);
     }
 
     private String hikariUnavailableReason() {

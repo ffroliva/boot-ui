@@ -5,6 +5,17 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **MySQL operational diagnostics.** A PostgreSQL sibling covering vital signs,
+  sessions/blocking, normalized statements, indexes, tables, InnoDB, basic replication, and curated settings through
+  existing JDBC datasources on Spring MVC, WebFlux, and Quarkus. The contract includes explicit collection, cached
+  REST/MCP/CLI reports, configurable row caps, exact large counters, and honest partial evidence without grades or
+  tuning recommendations. Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6;
+  MariaDB and R2DBC/reactive-client-only access remain outside this scope.
+
 ## [1.17.0] - 2026-09-10
 
 Feature release focused on evidence-led diagnostics and agent-guided application assessment. A new MCP prompt and

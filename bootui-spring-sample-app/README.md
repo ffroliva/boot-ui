@@ -74,6 +74,26 @@ docker compose -f bootui-spring-sample-app/compose.yaml exec -T postgres \
 
 These commands run from the repository root. The extension setup is Docker-only; the default `dev` profile still uses H2.
 
+## Optional MySQL diagnostics
+
+Keep the default H2 application and migrations while inspecting an existing local MySQL 8.4 database through a
+separate named pool. Set `BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and
+`BOOTUI_SAMPLE_MYSQL_PASSWORD` in your local environment, then enable both the Maven driver profile and Spring profile:
+
+```bash
+./mvnw -Dmaven.repo.local=.m2 -Pmysql-diagnostics -pl bootui-spring-sample-app \
+  spring-boot:run -Dspring-boot.run.profiles=dev,mysql-diagnostics
+```
+
+The URL should select a schema, for example `jdbc:mysql://localhost:3306/bootui_sample`. Use an account with only the
+diagnostic grants you need; see [MySQL permissions and limits](../docs/features/database.md#mysql).
+Opening MySQL serves the cached report. Click **Run MySQL read** to collect evidence. BootUI does not create the
+database, seed tables, or enable monitoring. Generate any desired synthetic workload separately and deliberately.
+
+The WebFlux sample supports the same optional profile and environment variables; substitute
+`bootui-spring-webflux-sample-app` in the command. Neither sample requires MySQL in its normal `dev` profile.
+Stop the sample to close its auxiliary pool; this profile creates no containers or volumes to clean up.
+
 ## Visit BootUI
 
 Open <http://localhost:8080/bootui> in a browser running on the same machine.

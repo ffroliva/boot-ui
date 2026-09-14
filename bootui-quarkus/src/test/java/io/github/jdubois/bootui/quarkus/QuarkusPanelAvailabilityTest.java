@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -361,6 +362,92 @@ class QuarkusPanelAvailabilityTest {
                         .available())
                 .as("configuration alone cannot be read without a JDBC datasource extension")
                 .isFalse();
+    }
+
+    @Test
+    void mysqlHasAHonestAbsentHintWithoutJdbcEvenWithReactiveConfiguration() {
+        for (Map<String, String> properties : List.of(
+                Map.<String, String>of(),
+                Map.of(
+                        "quarkus.datasource.db-kind",
+                        "mysql",
+                        "quarkus.datasource.reactive.url",
+                        "mysql://localhost/demo"))) {
+            PanelDto mysql = manifestById(new StubConfig(properties)).get(BootUiPanels.MYSQL);
+            assertThat(mysql.available()).isFalse();
+            assertThat(mysql.unavailableReason())
+                    .contains("MySQL JDBC datasource", "MariaDB", "Unknown")
+                    .doesNotContain("Not yet available");
+        }
+    }
+
+    @Test
+    void mysqlRecognizesDefaultNamedWrappedAndDriverRoutingDeclarationsWithoutConnecting() {
+        for (String url : List.of(
+                "jdbc:mysql://localhost/demo",
+                "jdbc:p6spy:mysql://localhost/demo",
+                "jdbc:mysql:loadbalance://localhost,localhost:3307/demo",
+                "jdbc:mysql:replication://localhost,localhost:3307/demo")) {
+            StubConfig config = new StubConfig(Map.of(
+                    QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                    "true",
+                    "quarkus.datasource.db-kind",
+                    "h2",
+                    "quarkus.datasource.\"reporting\".jdbc.url",
+                    url));
+            assertThat(mysqlPanel(config, true).available()).as(url).isTrue();
+        }
+        assertThat(mysqlPanel(
+                                new StubConfig(Map.of(
+                                        QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                                        "true",
+                                        "quarkus.datasource.db-kind",
+                                        "mysql")),
+                                true)
+                        .available())
+                .isTrue();
+    }
+
+    @Test
+    void mysqlDoesNotAdvertiseInactiveNonMysqlUnknownOrReactiveOnlyDeclarations() {
+        for (Map<String, String> declaration : List.of(
+                Map.of("quarkus.datasource.db-kind", "h2"),
+                Map.of(
+                        "quarkus.datasource.db-kind",
+                        "mariadb",
+                        "quarkus.datasource.jdbc.url",
+                        "jdbc:mariadb://localhost/demo"),
+                Map.of("quarkus.datasource.jdbc.url", "jdbc:unknown://localhost/demo"),
+                Map.of("quarkus.datasource.db-kind", "mysql", "quarkus.datasource.active", "false"),
+                Map.of("quarkus.datasource.db-kind", "mysql", "quarkus.datasource.jdbc.enabled", "false"))) {
+            Map<String, String> properties = new java.util.HashMap<>(declaration);
+            properties.put(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true");
+            assertThat(mysqlPanel(new StubConfig(properties), true).available())
+                    .as("%s", declaration)
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void anotherJdbcExtensionPlusAReactiveMysqlClientIsNotAMysqlJdbcCapability() {
+        StubConfig config = new StubConfig(Map.of(
+                QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                "true",
+                "quarkus.datasource.db-kind",
+                "h2",
+                "quarkus.datasource.mysql.db-kind",
+                "mysql",
+                "quarkus.datasource.mysql.reactive.url",
+                "mysql://localhost/demo"));
+        assertThat(mysqlPanel(config, false).available()).isFalse();
+    }
+
+    private static PanelDto mysqlPanel(StubConfig config, boolean driverPresent) {
+        return new QuarkusPanelAvailability(config, driverPresent)
+                .manifest().panels().stream()
+                        .filter(panel -> panel.id().equals(BootUiPanels.MYSQL))
+                        .findFirst()
+                        .orElseThrow();
     }
 
     @Test

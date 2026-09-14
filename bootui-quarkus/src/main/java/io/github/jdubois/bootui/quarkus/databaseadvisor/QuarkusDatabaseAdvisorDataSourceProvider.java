@@ -9,6 +9,8 @@ import io.quarkus.arc.InjectableInstance;
 import io.quarkus.arc.InstanceHandle;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.Bean;
+import jakarta.enterprise.inject.spi.BeanManager;
 import java.lang.annotation.Annotation;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -49,9 +51,15 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
             "io.github.jdubois.bootui.engine.sqltrace.SqlTracedDataSource";
 
     private final Instance<DataSource> dataSources;
+    private final BeanManager beanManager;
 
     public QuarkusDatabaseAdvisorDataSourceProvider(@Any Instance<DataSource> dataSources) {
+        this(dataSources, null);
+    }
+
+    public QuarkusDatabaseAdvisorDataSourceProvider(Instance<DataSource> dataSources, BeanManager beanManager) {
         this.dataSources = dataSources;
+        this.beanManager = beanManager;
     }
 
     @Override
@@ -84,8 +92,31 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
 
     private List<Candidate> candidates(List<Failure> failures) {
         List<Candidate> candidates = new ArrayList<>();
-        if (dataSources instanceof InjectableInstance<DataSource> injectable) {
-            int position = 0;
+        appendCandidates(dataSources, candidates, failures);
+        if (beanManager != null) {
+            // @Any Instance iteration still applies CDI alternative priority: the default SQL Trace
+            // alternative can suppress every named pool. Enumerate only qualifier metadata through
+            // BeanManager, then resolve each named group through the owning Instance so CDI lifecycle
+            // and alternatives within that group remain intact. No connection is borrowed here.
+            Set<Annotation> qualifiers = new java.util.LinkedHashSet<>();
+            for (Bean<?> bean : beanManager.getBeans(DataSource.class, Any.Literal.INSTANCE)) {
+                for (Annotation qualifier : bean.getQualifiers()) {
+                    if (AGROAL_DATA_SOURCE_QUALIFIER.equals(
+                            qualifier.annotationType().getName())) {
+                        qualifiers.add(qualifier);
+                    }
+                }
+            }
+            qualifiers.stream()
+                    .sorted(java.util.Comparator.comparing(Annotation::toString))
+                    .forEach(qualifier -> appendCandidates(dataSources.select(qualifier), candidates, failures));
+        }
+        return candidates;
+    }
+
+    private void appendCandidates(Instance<DataSource> selection, List<Candidate> candidates, List<Failure> failures) {
+        if (selection instanceof InjectableInstance<DataSource> injectable) {
+            int position = candidates.size() + failures.size();
             for (InstanceHandle<DataSource> handle : injectable.handles()) {
                 String name = positionalName(++position);
                 try {
@@ -103,14 +134,13 @@ public final class QuarkusDatabaseAdvisorDataSourceProvider implements DatabaseA
                     failures.add(new Failure(name, "Datasource bean could not be resolved: " + ex.getMessage()));
                 }
             }
-            return candidates;
+            return;
         }
-        for (DataSource dataSource : dataSources) {
+        for (DataSource dataSource : selection) {
             if (dataSource != null) {
                 candidates.add(new Candidate(dataSource, null));
             }
         }
-        return candidates;
     }
 
     /**
