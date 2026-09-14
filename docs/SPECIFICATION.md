@@ -2101,6 +2101,9 @@ Features:
   and access shape; autovacuum state; replication and WAL; and the curated settings.
 - Carry a report-level list of what the read does not cover, assembled from every degraded section, truncation and
   unread datasource.
+- When only the top-N statement ranking is truncated, render its omission once as a section-level informational
+  note rather than page-wide warnings or warning badges. Other row caps and actual read failures remain prominent.
+  This presentation does not change the API's `PARTIAL`, `truncated`, or `limitations` fields.
 - Reserve `truncated` for row caps. Budget exhaustion carries a section `reason`, retaining any rows already read;
   no retained rows means a failed section, not an empty successful one. Incomplete relation lists do not replace
   the comparison baseline.

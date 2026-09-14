@@ -70,12 +70,13 @@ time budget instead produces an explicit section reason and preserves rows alrea
 with no retained rows is failed rather than shown as an empty successful read. Every statistics query runs inside its
 own savepoint, because one error would otherwise abort the shared read-only transaction and make every later section
 report "current transaction is aborted" instead of its own content.
-When row caps are the only limitation, the panel says **Limited results** and names each affected datasource and
-section with its retained row count. For example, Statement ranking says it shows the top 100 statements by total
-execution time, with additional statements omitted. This is a limit on the statistics returned, not missing
-application data or a failed database query. The API, MCP, and CLI retain `PARTIAL` and `truncated=true` and report
+When only the **Statement ranking** reaches its cap, the panel shows one informational note inside that section:
+it shows the top 100 statements by total execution time, with additional statements omitted. An expected top-N
+ranking does not produce page-wide warnings, a duplicate limitations disclosure, or warning badges. Other row caps
+still produce **Limited results**, naming each affected datasource and section with its retained row count.
+These caps limit the statistics returned, not application data. The API, MCP, and CLI retain `PARTIAL` and `truncated=true` and report
 each capped section in `limitations`. Permission failures, timeouts, and other read problems remain explicit,
-including when a row cap is also reached.
+including when a statement cap is also reached; in that case the page-wide warnings and limitations remain visible.
 
 Configure the row caps in the host application's `application.properties`. These keys and defaults are the same on
 Spring MVC, Spring WebFlux, and Quarkus:

@@ -94,8 +94,16 @@ const onlyRowLimits = computed(
     )
 )
 
+const onlyStatementRankingLimits = computed(
+  () =>
+    onlyRowLimits.value &&
+    databases.value.every((database) =>
+      database.sections.every((part) => !part.truncated || isLimitedStatementRanking(part))
+    )
+)
+
 const incompleteReadMessage = computed(() => {
-  if (!hasRead.value) return null
+  if (!hasRead.value || onlyStatementRankingLimits.value) return null
   if (onlyRowLimits.value) return rowLimitedSections.value.join(' ')
   const reasons = []
   const unreadable = databases.value.filter((database) => database.status === 'ERROR').length
@@ -123,6 +131,10 @@ const incompleteReadMessage = computed(() => {
 
 function databaseStatusClass(status) {
   return DATABASE_STATUS_CLASSES[status] || 'text-bg-secondary'
+}
+
+function displayedDatabaseStatus(database) {
+  return onlyStatementRankingLimits.value ? 'READ' : database.status
 }
 
 function databaseStatusLabel(status) {
@@ -188,10 +200,17 @@ function section(database, id) {
 
 // The engine marks a partially read section AVAILABLE with a reason, because the rows it did
 // read are real. That reason is what stops the table from claiming more than it read, so it is
-// shown as PARTIAL rather than green. A truncated section is partial for the same reason even
-// when it carries no reason of its own: the rows past the bound were never read.
+// shown as PARTIAL rather than green. Other than an expected top-N statement ranking, a
+// truncated section is partial even when it carries no reason: rows past the bound were not read.
 function sectionPartial(candidate) {
-  return candidate.status === 'AVAILABLE' && (!!candidate.reason || !!candidate.truncated)
+  return (
+    candidate.status === 'AVAILABLE' &&
+    (!!candidate.reason || (!!candidate.truncated && !isLimitedStatementRanking(candidate)))
+  )
+}
+
+function isLimitedStatementRanking(candidate) {
+  return candidate.id === 'statements' && candidate.status === 'AVAILABLE' && candidate.truncated && !candidate.reason
 }
 
 function sectionBadge(candidate) {
@@ -381,7 +400,7 @@ onMounted(async () => {
       <template v-else>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3 small text-muted">
           <span
-            v-if="report.message"
+            v-if="report.message && !onlyStatementRankingLimits"
             class="badge"
             :class="
               report.status === 'READ'
@@ -406,7 +425,7 @@ onMounted(async () => {
           {{ incompleteReadMessage }}
         </div>
 
-        <details v-if="limitations.length > 0" class="alert alert-warning">
+        <details v-if="limitations.length > 0 && !onlyStatementRankingLimits" class="alert alert-warning">
           <summary class="fw-semibold">What this read does not cover ({{ limitations.length }})</summary>
           <ul class="mb-0 mt-2 small">
             <li v-for="(limitation, index) in limitations" :key="index">{{ limitation }}</li>
@@ -416,15 +435,17 @@ onMounted(async () => {
         <div v-for="(database, databaseIndex) in databases" :key="database.name" class="card mb-3">
           <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div class="d-flex flex-wrap align-items-center gap-2">
-              <span :class="databaseStatusClass(database.status)" class="badge">{{
-                databaseStatusLabel(database.status)
+              <span :class="databaseStatusClass(displayedDatabaseStatus(database))" class="badge">{{
+                databaseStatusLabel(displayedDatabaseStatus(database))
               }}</span>
               <span class="font-monospace"><i class="bi bi-hdd-stack me-1"></i>{{ database.name }}</span>
               <span v-if="database.serverVersion" class="text-muted small">{{ database.serverVersion }}</span>
               <span v-if="database.databaseName" class="text-muted small font-monospace">{{
                 database.databaseName
               }}</span>
-              <span v-if="database.truncated" class="badge text-bg-warning">Truncated</span>
+              <span v-if="database.truncated && !onlyStatementRankingLimits" class="badge text-bg-warning"
+                >Truncated</span
+              >
             </div>
             <span
               v-if="database.role"
@@ -570,7 +591,9 @@ onMounted(async () => {
                 <span v-if="part.status === 'AVAILABLE'" class="text-muted small"
                   >{{ formatNumber(part.rowCount) }} {{ pluralize(part.rowCount, 'row') }}</span
                 >
-                <span v-if="part.truncated" class="badge text-bg-warning">Truncated</span>
+                <span v-if="part.truncated && !isLimitedStatementRanking(part)" class="badge text-bg-warning"
+                  >Truncated</span
+                >
               </div>
               <div v-if="sectionNote(part)" class="small text-muted mb-2">
                 <i class="bi bi-info-circle me-1"></i>{{ sectionNote(part) }}

@@ -53,6 +53,7 @@ export function registerPostgresqlTests(test, expect) {
           [limitation]
         )
         body.truncated = true
+        body.message = 'Some results are incomplete; see the section details and diagnostics.'
         let reads = 0
         page.on('request', (request) => {
           if (request.method() === 'POST' && request.url().endsWith('/postgresql/read')) reads++
@@ -60,17 +61,65 @@ export function registerPostgresqlTests(test, expect) {
 
         await openReport(page, body)
 
-        const warning = page.getByRole('status').filter({hasText: 'Limited results.'})
-        await expect(warning).toHaveCount(1)
-        await expect(warning).toContainText(limitation)
+        await expect(page.locator('main .alert-warning, main .text-bg-warning')).toHaveCount(0)
+        await expect(page.getByText('Limited results.', {exact: true})).toHaveCount(0)
         await expect(page.getByText('Incomplete read.', {exact: true})).toHaveCount(0)
+        await expect(page.getByText(body.message, {exact: true})).toHaveCount(0)
+        await expect(page.getByText('What this read does not cover', {exact: false})).toHaveCount(0)
+        await expect(page.getByText(`Showing the top ${count} statements`, {exact: false})).toHaveCount(1)
         await expect(
           page.getByRole('tabpanel').getByText(`Showing the top ${count} statements`, {exact: false})
         ).toBeVisible()
         await expect(page.getByRole('tabpanel').locator('tbody tr')).toHaveCount(count)
-        await page.getByText('What this read does not cover (1)', {exact: true}).click()
-        await expect(page.locator('details li')).toContainText(limitation)
         expect(reads).toBe(0)
+      })
+    }
+
+    for (const reason of [null, 'Statement text is restricted.']) {
+      test(`retains warnings when a statement cap accompanies ${reason ? 'restricted statistics' : 'a table cap'}`, async ({
+        page
+      }) => {
+        const sections = [
+          {id: 'statements', title: 'Statement ranking', status: 'AVAILABLE', rowCount: 1, truncated: true, reason}
+        ]
+        const limitations = ['primary / Statement ranking: Additional statements are not shown.']
+        if (reason) {
+          limitations.push(reason)
+        } else {
+          sections.push({
+            id: 'tables',
+            title: 'Largest relations',
+            status: 'AVAILABLE',
+            rowCount: 1,
+            truncated: true,
+            reason: null
+          })
+          limitations.push('primary / Largest relations: Additional rows are not shown.')
+        }
+        const body = report(
+          sections,
+          {
+            truncated: true,
+            statements: [{queryId: '1', query: 'select $1'}],
+            tables: [{schema: 'public', table: 'orders'}]
+          },
+          limitations
+        )
+        body.truncated = true
+        await openReport(page, body)
+
+        await expect(
+          page.getByRole('status').filter({hasText: reason ? 'Incomplete read.' : 'Limited results.'})
+        ).toBeVisible()
+        await page.getByText('What this read does not cover', {exact: false}).click()
+        await expect(page.locator('details li')).toHaveCount(2)
+        if (reason) {
+          await expect(page.getByRole('tabpanel')).toContainText(reason)
+          await expect(page.getByRole('tabpanel').getByText('Truncated', {exact: true})).toBeVisible()
+        } else {
+          await page.getByRole('tab', {name: 'Largest relations 1'}).click()
+          await expect(page.getByRole('tabpanel').getByText('Truncated', {exact: true})).toBeVisible()
+        }
       })
     }
 
