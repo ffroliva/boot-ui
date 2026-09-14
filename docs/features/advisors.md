@@ -255,6 +255,13 @@ conventions), and Spring stereotype/proxy heuristics (no field injection, correc
 proxyable annotations). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
 inspects.
 
+Coding-practice checks (`ARCH-CODE-*`) exclude classes positively identified as generated, such as OpenAPI Generator's
+`ApiUtil`, without dismissing the same rule for handwritten code. During an explicit scan, a bounded local lookup
+matches compiled classes to generated Java/Kotlin sources in standard Maven/Gradle layouts, including OpenAPI
+Generator's default Gradle output, and checks module-local handwritten sources for conflicting ownership. Missing sources
+or uncertain ownership leave findings visible; lookup failures are reported as limitations. Package and framework checks keep the
+full class graph. See [generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
+
 When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available
 when a base package is resolvable, and the scan runs on demand and caches the last report. Generic rules are less
 powerful than project-authored ArchUnit tests, so the panel is a starting-point and review aid that complements — not

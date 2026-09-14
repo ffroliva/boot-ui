@@ -69,7 +69,10 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
     @Override
     public ArchitectureRuleResultDto evaluate(ArchitectureContext context) {
         try {
-            if (context != null) context.evidence().reset();
+            if (context != null) {
+                context.evidence().reset();
+                context = context.forCategory(definition.category());
+            }
             ArchRule rule = rule(context);
             if (rule == null) {
                 if (context != null) context.evidence().complete(false);

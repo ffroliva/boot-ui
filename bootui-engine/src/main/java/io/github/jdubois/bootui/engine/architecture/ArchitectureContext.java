@@ -13,7 +13,8 @@ record ArchitectureContext(
         List<String> basePackages,
         ArchitecturePlatform platform,
         ArchitectureEvaluationEvidence evidence,
-        AdvisorViolationCollector violationCollector) {
+        AdvisorViolationCollector violationCollector,
+        JavaClasses codingClasses) {
 
     ArchitectureContext(JavaClasses classes, List<String> basePackages, ArchitecturePlatform platform) {
         this(classes, basePackages, platform, new ArchitectureEvaluationEvidence());
@@ -27,8 +28,24 @@ record ArchitectureContext(
         this(classes, basePackages, platform, evidence, new AdvisorViolationCollector(10000));
     }
 
+    ArchitectureContext(
+            JavaClasses classes,
+            List<String> basePackages,
+            ArchitecturePlatform platform,
+            ArchitectureEvaluationEvidence evidence,
+            AdvisorViolationCollector violationCollector) {
+        this(classes, basePackages, platform, evidence, violationCollector, classes);
+    }
+
     ArchitectureContext {
         basePackages = List.copyOf(basePackages);
+    }
+
+    ArchitectureContext forCategory(ArchitectureCategory category) {
+        return category == ArchitectureCategory.CODING_PRACTICES
+                ? new ArchitectureContext(
+                        codingClasses, basePackages, platform, evidence, violationCollector, codingClasses)
+                : this;
     }
 
     /**
