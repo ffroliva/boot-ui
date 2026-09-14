@@ -313,7 +313,11 @@ See the [property reference](../PROPERTIES.md#mysql).
 `truncated=true` means a BootUI row cap omitted results, not a failed query or timeout. MySQL digest overflow, disabled
 instrumentation, denied sources, and time exhaustion have separate explanations. Local filters cannot retrieve
 omitted rows, and there is no pagination/details API in this first scope. A cap-only `PARTIAL` report identifies the
-retained window without suggesting that a source failed or needs additional permissions.
+retained window without suggesting that a source failed or needs additional permissions. The MySQL UI treats these
+normal bounds as neutral **Limited** labels and section-local row-count notes, not a warning banner or amber
+partial-read badges. Actual permission problems, timeouts, unavailable instrumentation, and other read failures
+remain warnings or errors, including when a row cap is also reached. REST, MCP, and CLI still retain the honest
+`PARTIAL`/`truncated` coverage contract.
 
 Collection snapshots actual session settings, sets `transaction_read_only=1`, starts `START TRANSACTION READ ONLY`,
 and verifies the server read-only setting. It deliberately avoids `Connection.setReadOnly`: that hint can reroute a

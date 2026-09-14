@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- MySQL row-cap-only results use neutral labels and section-local explanations rather than warning banners.
+  Permission failures, timeouts, and other incomplete reads remain prominent; the API coverage contract is unchanged.
+
 ### Added
 
 - **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead

@@ -181,7 +181,7 @@ describe('MySQL report lifecycle', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('Safe read-only execution')
   })
 
-  it('labels row-cap-only partial results as limited rather than failed', async () => {
+  it('presents normal row limits without warning banners or partial-read badges', async () => {
     const {wrapper} = await mountReport(
       report({
         status: 'PARTIAL',
@@ -195,8 +195,14 @@ describe('MySQL report lifecycle', () => {
         ]
       })
     )
-    expect(wrapper.get('[role="status"]').text()).toContain('Limited results.')
-    expect(wrapper.get('[role="status"]').text()).toContain('primary / Statements: Showing the top 100 statements')
+    expect(wrapper.get('[role="status"]').text()).toContain('Limited results')
+    expect(wrapper.get('[role="status"]').classes()).not.toContain('alert')
+    expect(wrapper.findAll('.alert-warning, .text-bg-warning')).toHaveLength(0)
+    expect(wrapper.get('[role="tabpanel"]').text()).toContain('Showing the top 100 statements')
+    expect(wrapper.get('[role="tabpanel"] .badge').classes()).toContain('text-bg-secondary')
+    expect(tab(wrapper, 'Statements').text()).toContain('Limited')
+    expect(wrapper.get('article .card-header .badge').classes()).toContain('text-bg-secondary')
+    expect(wrapper.text()).not.toContain('Partly read')
     expect(wrapper.text()).not.toContain('Incomplete read.')
   })
 
@@ -225,6 +231,7 @@ describe('MySQL report lifecycle', () => {
       })
     )
     const warning = wrapper.get('[role="status"]').text()
+    expect(wrapper.get('[role="status"]').classes()).toContain('alert-warning')
     expect(warning).toContain('Incomplete read.')
     for (const text of [
       'Showing the top 100',
@@ -256,7 +263,8 @@ describe('MySQL report lifecycle', () => {
     )
     expect(wrapper.get('[role="status"]').text()).toContain('Incomplete read.')
     expect(wrapper.get('[role="status"]').text()).toContain('secondary: not reached')
-    expect(wrapper.text()).not.toContain('Limited results.')
+    expect(wrapper.get('[role="status"]').classes()).toContain('alert-warning')
+    expect(wrapper.text()).not.toContain('Limited results')
   })
 
   it('recognizes the engine’s canonical cap limitation as limited results', async () => {
@@ -274,7 +282,59 @@ describe('MySQL report lifecycle', () => {
         limitations: ['primary: Statements retained 100 rows; additional rows were omitted by BootUI caps.']
       })
     )
-    expect(wrapper.get('[role="status"]').text()).toContain('Limited results.')
+    expect(wrapper.get('[role="status"]').text()).toContain('Limited results')
+    expect(wrapper.findAll('.alert-warning, .text-bg-warning')).toHaveLength(0)
+    expect(wrapper.get('[role="tabpanel"]').text()).toContain('Showing the top 100 statements')
+  })
+
+  it('keeps a connection-restoration warning even when all sections are capped but readable', async () => {
+    const {wrapper} = await mountReport(
+      report({
+        status: 'PARTIAL',
+        truncated: true,
+        dataSources: [
+          source({
+            status: 'PARTIAL',
+            message: 'The connection could not be restored.',
+            truncated: true,
+            sections: [section('statements', {rowCount: 100, truncated: true})]
+          })
+        ]
+      })
+    )
+    expect(wrapper.get('[role="status"]').classes()).toContain('alert-warning')
+    expect(wrapper.get('[role="status"]').text()).toContain('The connection could not be restored')
+    expect(wrapper.get('article .card-header .badge').classes()).toContain('text-bg-warning')
+    expect(wrapper.get('[role="tabpanel"] .badge').classes()).toContain('text-bg-secondary')
+  })
+
+  it('keeps every capped datasource and section identifiable without warning colors', async () => {
+    const {wrapper} = await mountReport(
+      report({
+        status: 'PARTIAL',
+        truncated: true,
+        dataSourcesRead: 2,
+        dataSources: [
+          source({
+            status: 'PARTIAL',
+            truncated: true,
+            sections: [section('statements', {rowCount: 100, truncated: true})]
+          }),
+          source({
+            name: 'archive',
+            status: 'PARTIAL',
+            truncated: true,
+            sections: [section('tables', {rowCount: 200, truncated: true})]
+          })
+        ]
+      })
+    )
+    expect(wrapper.findAll('[role="status"]')).toHaveLength(1)
+    expect(wrapper.findAll('.alert-warning, .text-bg-warning')).toHaveLength(0)
+    expect(wrapper.findAll('article').map((item) => item.text())).toEqual([
+      expect.stringContaining('Showing the top 100 statements'),
+      expect.stringContaining('Showing 200 retained rows')
+    ])
   })
 
   it('keeps independent keyboard tab selection and unique IDs for multiple datasources', async () => {

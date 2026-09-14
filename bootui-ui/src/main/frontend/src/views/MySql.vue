@@ -33,6 +33,7 @@ const scopes = {
 }
 const statusLabels = {
   READ: 'Read',
+  LIMITED: 'Limited',
   PARTIAL: 'Partly read',
   ERROR: 'Unreadable',
   DISABLED: 'Unavailable',
@@ -49,7 +50,20 @@ function statusClass(status) {
 }
 
 function sectionStatus(part) {
-  return part.status === 'AVAILABLE' && (part.reason || part.truncated) ? 'PARTIAL' : part.status
+  if (part.status !== 'AVAILABLE') return part.status
+  return part.reason ? 'PARTIAL' : part.truncated ? 'LIMITED' : 'AVAILABLE'
+}
+
+function completeSections(source) {
+  return (
+    !source.message &&
+    source.sections?.length &&
+    source.sections.every((part) => part.status === 'AVAILABLE' && !part.reason)
+  )
+}
+
+function sourceStatus(source) {
+  return source.status === 'PARTIAL' && source.truncated && completeSections(source) ? 'LIMITED' : source.status
 }
 
 function rowLimitMessage(part) {
@@ -86,13 +100,10 @@ const onlyRowLimits = computed(
     diagnostics.value.every((item) => item.level === 'INFO') &&
     dataSources.value.every(
       (source) =>
-        (source.status === 'READ' || (source.status === 'PARTIAL' && source.truncated)) &&
-        !source.message &&
-        source.sections?.length &&
-        source.sections.every((part) => part.status === 'AVAILABLE' && !part.reason)
+        (source.status === 'READ' || (source.status === 'PARTIAL' && source.truncated)) && completeSections(source)
     )
 )
-const incomplete = computed(() => ['PARTIAL', 'ERROR'].includes(report.value?.status))
+const incomplete = computed(() => !onlyRowLimits.value && ['PARTIAL', 'ERROR'].includes(report.value?.status))
 const partialReasons = computed(() => [
   ...new Set(
     [
@@ -260,7 +271,7 @@ onMounted(async () => {
           class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3"
           :role="!incomplete && !error && !actionMessage && !readOnly ? 'status' : undefined"
         >
-          <span class="badge" :class="statusClass(report.status)">{{
+          <span class="badge" :class="statusClass(onlyRowLimits ? 'LIMITED' : report.status)">{{
             onlyRowLimits ? 'Limited results' : statusLabels[report.status] || report.status
           }}</span>
           <span v-if="report.readAt != null">Read at {{ formatClockTime(report.readAt) }}</span>
@@ -273,15 +284,13 @@ onMounted(async () => {
           :class="report.status === 'ERROR' ? 'alert-danger' : 'alert-warning'"
           role="status"
         >
-          <strong>{{
-            report.status === 'ERROR' ? 'Read failed.' : onlyRowLimits ? 'Limited results.' : 'Incomplete read.'
-          }}</strong>
+          <strong>{{ report.status === 'ERROR' ? 'Read failed.' : 'Incomplete read.' }}</strong>
           <ul v-if="partialReasons.length" class="small mb-0 mt-2">
             <li v-for="reason in partialReasons" :key="reason">{{ reason }}</li>
           </ul>
           <span v-else>Some requested observations could not be read. See the section details and diagnostics.</span>
         </div>
-        <details v-if="!incomplete && limitations.length" class="alert alert-info small">
+        <details v-if="!incomplete && !onlyRowLimits && limitations.length" class="alert alert-info small">
           <summary>What this read does not cover ({{ limitations.length }})</summary>
           <ul class="mb-0 mt-2">
             <li v-for="reason in limitations" :key="reason">{{ reason }}</li>
@@ -295,8 +304,8 @@ onMounted(async () => {
           :aria-label="`${source.name} datasource`"
         >
           <div class="card-header d-flex flex-wrap align-items-center gap-2">
-            <span class="badge" :class="statusClass(source.status)">{{
-              statusLabels[source.status] || source.status
+            <span class="badge" :class="statusClass(sourceStatus(source))">{{
+              statusLabels[sourceStatus(source)] || source.status
             }}</span>
             <h3 class="fs-6 font-monospace mb-0">{{ source.name }}</h3>
             <span v-if="source.serverVersion" class="small font-monospace text-muted">{{ source.serverVersion }}</span>

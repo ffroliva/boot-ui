@@ -133,6 +133,7 @@ export function registerMysqlTests(test, expect, {uiPath = '/bootui', apiPath = 
       )
       const status = page.getByRole('status').filter({hasText: 'Incomplete read.'})
       await expect(status).toHaveCount(1)
+      await expect(status).toHaveClass(/alert-warning/)
       for (const reason of [
         'top 100 statements',
         'Transaction instrumentation is disabled',
@@ -146,16 +147,30 @@ export function registerMysqlTests(test, expect, {uiPath = '/bootui', apiPath = 
       await expect(page.getByRole('heading', {name: 'Vital signs', exact: true})).toBeVisible()
     })
 
-    test('labels a capped ranking as Limited results rather than a failed read', async ({page}) => {
+    test('presents a capped ranking as normal information rather than a warning', async ({page}) => {
       const source = mysqlDataSource({status: 'PARTIAL', truncated: true})
       Object.assign(
         source.sections.find((part) => part.id === 'statements'),
         {rowCount: 100, truncated: true}
       )
-      await openReport(page, mysqlReport({status: 'PARTIAL', truncated: true, dataSources: [source]}))
-      await expect(page.getByRole('status')).toContainText('Limited results.')
-      await expect(page.getByRole('status')).toContainText('orders / Statements: Showing the top 100')
+      await openReport(
+        page,
+        mysqlReport({
+          status: 'PARTIAL',
+          truncated: true,
+          dataSources: [source],
+          limitations: ['orders: Statements retained 100 rows; additional rows were omitted by BootUI caps.']
+        })
+      )
+      await expect(page.getByRole('status')).toContainText('Limited results')
+      await expect(page.getByRole('status')).not.toHaveClass(/alert/)
+      await expect(page.locator('.mysql-panel .alert-warning, .mysql-panel .text-bg-warning')).toHaveCount(0)
+      await expect(page.getByRole('tab', {name: /^Statements/})).toContainText('Limited')
+      await page.getByRole('tab', {name: /^Statements/}).click()
+      await expect(page.getByRole('tabpanel')).toContainText('Showing the top 100')
+      await expect(page.getByRole('tabpanel').locator('.badge').first()).toHaveClass(/text-bg-secondary/)
       await expect(page.getByText('Incomplete read.', {exact: true})).toHaveCount(0)
+      await expect(page.locator('.mysql-panel')).not.toContainText('Partly read')
     })
 
     test('sorts exact large counters, filters retained rows locally, and distinguishes missing timing', async ({
