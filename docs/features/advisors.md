@@ -198,7 +198,8 @@ panel-originated scan, dismissal, or restore updates both the score and eligibil
 Rules can be restored at any time from that list.
 
 Architecture, REST API, Spring/Quarkus, Database, Hibernate, Memory, Security, and Pentesting disable scan, dismiss,
-and restore controls while a scan or dismissal request is pending, or when the panel is read-only or unavailable.
+and restore controls while the initial cached report, a scan, or a dismissal request is pending, or when the panel is
+read-only or unavailable.
 A failed dismissal leaves the last accepted report visible and displays an error.
 
 ::: details Where dismissals are stored
@@ -206,6 +207,8 @@ Dismissals are applied server-side and persisted under the `dismissedRules` node
 (next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Overview
 dashboard. The file is developer-local and intended to be git-ignored. Rule identifiers are globally unique across
 advisors, so a dismissal always targets exactly one rule.
+Pentesting scan reports themselves are not persisted: after a restart, findings and their dismissal flags appear when you
+explicitly run the first scan, not merely by opening the panel.
 
 `bootui.overrides-file` moves both files together: BootUI resolves `boot-ui.yml` in the same directory as the configured
 overrides file. That is what lets dismissals survive a container image rebuild — point the key at a mounted volume, or
