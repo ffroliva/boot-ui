@@ -69,7 +69,10 @@ abstract class AbstractArchitectureRule implements ArchitectureRule {
     @Override
     public ArchitectureRuleResultDto evaluate(ArchitectureContext context) {
         try {
-            if (context != null) context.evidence().reset();
+            if (context != null) {
+                context.evidence().reset();
+                context = context.forCategory(definition.category());
+            }
             ArchRule rule = rule(context);
             if (rule == null) {
                 if (context != null) context.evidence().complete(false);
@@ -2321,7 +2324,8 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
                         ArchitectureCategory.CODING_PRACTICES,
                         "MEDIUM",
                         "Reviews new Thread(...) construction, including Thread subclasses, outside an actual"
-                                + " ThreadFactory.newThread(Runnable) implementation. Direct construction can bypass"
+                                + " ThreadFactory.newThread(Runnable) implementation or verified ThreadFactory lambda."
+                                + " Direct construction can bypass"
                                 + " executor lifecycle and context management; this check does not prove the thread is"
                                 + " started.",
                         "Prefer Spring's TaskExecutor/@Async or Quarkus's ManagedExecutor, or an application-owned"
@@ -2333,28 +2337,18 @@ final class NoDirectThreadInstantiationRule extends AbstractArchitectureRule {
 
     @Override
     ArchRule rule(ArchitectureContext context) {
-        return noClasses()
+        ThreadFactoryLambdaAnalysis threadFactories = new ThreadFactoryLambdaAnalysis(context.classes());
+        return classes()
                 .that(observed(DescribedPredicate.alwaysTrue(), context))
-                .should()
-                .callConstructorWhere(new DescribedPredicate<JavaConstructorCall>("a Thread constructor is called") {
+                .should(new ArchCondition<>("not directly instantiate Thread outside a ThreadFactory") {
                     @Override
-                    public boolean test(JavaConstructorCall call) {
-                        return call.getTarget().getOwner().isAssignableTo(Thread.class)
-                                && !isThreadFactoryImplementation(call.getOrigin());
+                    public void check(JavaClass type, ConditionEvents events) {
+                        for (JavaConstructorCall call : threadFactories.violations(type)) {
+                            events.add(SimpleConditionEvent.violated(call, call.getDescription()));
+                        }
                     }
                 })
                 .as("Classes should not directly instantiate Thread");
-    }
-
-    private static boolean isThreadFactoryImplementation(JavaCodeUnit origin) {
-        return origin instanceof JavaMethod method
-                && method.getOwner().isAssignableTo(java.util.concurrent.ThreadFactory.class)
-                && method.getName().equals("newThread")
-                && method.getModifiers().contains(JavaModifier.PUBLIC)
-                && !method.getModifiers().contains(JavaModifier.STATIC)
-                && method.getRawParameterTypes().size() == 1
-                && method.getRawParameterTypes().get(0).isEquivalentTo(Runnable.class)
-                && method.getRawReturnType().isAssignableTo(Thread.class);
     }
 }
 

@@ -271,6 +271,21 @@ installing the reactor dependencies, run the affected conformance class:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
+The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
+`verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
+older host ASM alongside BootUI's private reader. The Quarkus check launches a standalone fast-jar scanner probe,
+without enabling BootUI's production HTTP surface:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app -am verify \
+  -Dit.test=ThreadFactoryExecutableJarIT
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-quarkus-integration-tests/prod-shell-guard test \
+  -Dtest=ThreadFactoryFastJarTest
+```
+
+Use an absolute isolated-repository path for the packaged Quarkus test: its fork resolves Maven dependencies from a
+different working directory, so a relative `.m2` would point at a different repository.
+
 ### Panel metadata workflow
 
 Backend panel metadata (`id`, manifest title/order, action capability, and guarded

@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -133,6 +134,11 @@ public abstract class AbstractBootUiApiConformanceTest {
     /** Browser-visible API mount, including any host application root path. */
     protected String apiPath() {
         return "/bootui/api";
+    }
+
+    /** Expected on-disk artifact, independent of the running adapter's path resolution. */
+    protected Path dismissalFile() {
+        return Path.of("target/api-conformance/boot-ui.yml");
     }
 
     private BootUiHttpProbe probe() {
@@ -904,6 +910,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         PentestingDismissalContract.verify(
                 probe,
                 api(""),
+                dismissalFile(),
                 () -> PentestingDismissalContract.response(
                         probe.post(api("/pentesting/scan"), stateChangingHeaders(probe))),
                 () -> PentestingDismissalContract.response(probe.get(api("/pentesting"))));

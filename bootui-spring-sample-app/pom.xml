@@ -179,6 +179,13 @@
             <artifactId>bootui-conformance</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The packaged-reader test deliberately supplies an older host ASM than BootUI's private copy. -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>9.8</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -210,6 +217,25 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <systemPropertyVariables>
+                        <sample.jar>${project.build.directory}/${project.build.finalName}.jar</sample.jar>
+                        <host.asm.jar>${org.ow2.asm:asm:jar}</host.asm.jar>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

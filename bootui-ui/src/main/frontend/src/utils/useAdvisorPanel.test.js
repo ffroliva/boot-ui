@@ -115,4 +115,22 @@ describe('advisor panel scoring', () => {
     document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
     wrapper.unmount()
   })
+
+  it('blocks actions until the initial cached report settles', async () => {
+    let finish
+    const fetchMock = vi.fn(() => new Promise((resolve) => (finish = resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(Host)
+    expect(panel.actionsDisabled).toBe(true)
+    await panel.runScan()
+    await panel.dismiss('TEST-1')
+    await panel.restore('TEST-1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    finish(new Response(JSON.stringify(report('SCANNED'))))
+    await flushPromises()
+    expect(panel.actionsDisabled).toBe(false)
+    expect(panel.score).toBe(90)
+    wrapper.unmount()
+  })
 })

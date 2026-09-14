@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -49,14 +50,13 @@ public abstract class AbstractMcpConformanceTest {
     @Test
     void testPentestingToolsApplyLiveDismissalsToScanAndCachedRead() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
-        try {
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
             PentestingDismissalContract.verify(
                     probe(),
                     "/bootui/api",
+                    Path.of("target/mcp-conformance/boot-ui.yml"),
                     () -> pentestingTool("pentest_scan"),
                     () -> pentestingTool("get_pentest_report"));
-        } finally {
-            disableMcp();
         }
     }
 

@@ -61,6 +61,55 @@ because they also key on the shared `jakarta.*` annotations (`jakarta.transactio
 below for which category it falls into, and `ArchitectureCdiNeutralityTests` for the automated check that pins this
 property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
 
+## Generated application code
+
+The **ARCH-CODE-001 through ARCH-CODE-018** coding-practice rules exclude classes that BootUI can positively identify
+as generated. For example, OpenAPI Generator's `ApiUtil` helpers should not contribute generic-exception findings while
+a handwritten generic throw still does. This is a class-level exemption, not a rule dismissal or an exclusion of every
+class named `ApiUtil` or every `api` package. Package-cycle, module-boundary, and Spring/CDI checks keep the full class
+graph, including generated types; handwritten callers and subclasses remain eligible for coding checks.
+
+Identification happens only during the explicit architecture scan. BootUI matches imported classes to their local
+source ownership using their module, package, recorded source filename, and top-level/enclosing type:
+
+- Maven `target/classes` uses that module's `target/generated-sources`; `target/test-classes` uses
+  `target/generated-test-sources`.
+- Gradle `build/classes/java/main` and `build/classes/kotlin/main` use the module's `build/generated` tree, including
+  generator-specific subdirectories, and OpenAPI Generator's default `build/generate-resources/main` output.
+  Corresponding `test` output uses test-source ownership. Recognized source-layout prefixes distinguish `main`/`test`;
+  a package directory with either name does not change the source set.
+- Java and Kotlin generated sources are recognized even when their directories do not mirror their package names.
+  A bounded module-local source census checks both conventional and custom handwritten directories for conflicting
+  declarations. It excludes generated trees, compiled class output, the opposite conventional source set, and
+  `.git`, `.gradle`, `.m2`, and `node_modules` directories. Duplicate generated candidates, conflicting handwritten
+  declarations, or uncertain ownership prevent an exemption. Maven compiler-input lists that identify sources outside
+  the module prevent classification without opening those external sources.
+
+The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
+annotations have **SOURCE retention**: they normally disappear from compiled bytecode. A same-named class-level marker
+is recognized if it is actually present, but normal generator output needs local source provenance. The Kotlin OpenAPI
+`ApiUtil` template does not carry such a marker at all. BootUI still evaluates bytecode, not source-level coding rules;
+the source lookup only identifies ownership.
+
+Lookup is limited per scan to 64 module/source-set groups, 50,000 directory entries, depth 32 beneath each inspected
+root, 256 KiB per inspected file, and 16 MiB of source/metadata bytes in total. It never follows source-tree
+symlinks, searches arbitrary ancestors or the process working directory, downloads sources, or runs a build. Cached
+reports and violation-detail reads reuse the completed scan without reading sources again.
+
+**Conservative limitations:** packaged jars, unsupported/custom output layouts, missing sources or `SourceFile`
+metadata, and ambiguous matches retain their findings. A SOURCE-retained annotation in a non-generated source layout
+does not by itself exempt a class. Ownership recognition handles multiline declarations, Java Unicode escapes, and
+Kotlin string templates, but is deliberately not a full Java/Kotlin parser. Kotlin file facades (including
+`@file:JvmName` facades) are not treated as explicit class/object declarations and remain eligible for coding checks;
+their function bodies may be handwritten. Source inputs outside the module or excluded dependency/cache trees are
+not supported. Lookup failures,
+symlinked source trees, and exhausted budgets produce a sanitized limitation and a `PARTIAL` scan while retaining
+uncertain classes and known findings. No source contents or local paths are included in the report.
+
+The policy is shared by Spring MVC, WebFlux, and Quarkus. `classesAnalyzed` continues to count the full imported
+application graph; coding-rule counts, previews, retained details, and score penalties exclude only established
+generated findings. An empty eligible coding-rule target set does not establish usable evidence by itself.
+
 ## Kotlin applications
 
 The rules read compiled bytecode, so they run unchanged on Kotlin classes, and the engine recognizes Kotlin constructs
@@ -169,6 +218,8 @@ Dismissed rules remove all of their instances from the score.
 - **Severity**: LOW
 - **Inspects**: throwing of generic exception types such as `Exception`, `RuntimeException`, or `Throwable`.
 - **Fires when**: a class throws one of the generic types instead of a specific exception.
+- **Generated code**: verified generated classes are exempt under the
+  [shared generated-code policy](#generated-application-code); handwritten throws remain findings.
 - **Recommendation**: throw specific, meaningful exception types so callers can handle failures precisely.
 
 ### ARCH-CODE-003 - Classes should not use java.util.logging
@@ -364,10 +415,15 @@ Dismissed rules remove all of their instances from the score.
 - **Severity**: MEDIUM
 - **Inspects**: `new Thread(...)` constructor calls, including instantiating a class that extends `Thread`.
 - **Fires when**: application code directly constructs a `Thread` (or a subclass), except inside an actual public,
-  non-static `ThreadFactory.newThread(Runnable)` implementation with a Thread-compatible return type.
+  non-static `ThreadFactory.newThread(Runnable)` implementation with a Thread-compatible return type, or a verified
+  Java/Kotlin ThreadFactory lambda body.
   The [JDK 17 ThreadFactory example](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ThreadFactory.html)
   explicitly constructs a thread there. An unrelated `newThread` method, an overload, or another method in the factory
-  class is not exempt. Named and anonymous implementations and covariant returns are recognized.
+  class is not exempt. Named and anonymous implementations, covariant returns, and captured lambda arguments are
+  recognized, including ThreadFactory subinterfaces used only as local lambda targets and intersection types.
+  Lambda exemptions use the compiled functional-interface contract, not just a generated method name,
+  a `Runnable -> Thread` signature, or the presence of an executor call. Unrelated construction on the same source
+  line and non-factory lambdas nested inside a factory remain findings.
 - **Why it matters**: an unmanaged thread bypasses pool sizing, naming, and uncaught-exception handling, and sits
   outside both frameworks' managed-concurrency story — Spring's `TaskExecutor` / `@Async` (and
   `spring.threads.virtual.enabled` on Java 21+), or Quarkus's `ManagedExecutor` / `@RunOnVirtualThread`. This mirrors
@@ -377,8 +433,18 @@ Dismissed rules remove all of their instances from the score.
 - **Recommendation**: prefer Spring's `TaskExecutor`/`@Async` or Quarkus's `ManagedExecutor`, or use an
   application-owned `ExecutorService` with explicit shutdown. Plain `Executors` factories are not automatically
   container-managed.
-- **Limitations**: construction does not prove that a thread starts. Lambda factories, constructor references, delegated
-  factory helpers and shutdown-hook patterns are not resolved through dataflow; the exemption is deliberately narrow.
+- **Limitations**: construction does not prove that a thread starts. Arbitrary Thread-returning methods, delegated
+  factory helpers and shutdown-hook patterns are not exempted through object-flow analysis. Constructor references
+  such as `Thread::new` are not reported, whether used as a factory or another functional interface.
+  Class-based factory implementations and Java/Kotlin
+  LambdaMetafactory bodies are supported; other compiler lowering patterns are not inferred from a signature alone.
+  Required bytecode that cannot be read, or constructor observations that cannot be reconciled with it, produce an
+  analysis error rather than a clean result. This remains bounded by ArchUnit's imported model: accesses omitted by
+  that importer (for example, orphaned synthetic bodies after bytecode rewriting) are not independently recovered.
+- **CRaC distinction**: `CRAC-THREAD-001` separately checks thread starts and executor ownership. A factory such as
+  `Executors.newSingleThreadScheduledExecutor(r -> new Thread(r))` no longer triggers ARCH-CODE-017 for its lambda,
+  but the executor construction can still need CRaC lifecycle review. A factory exemption does not establish that
+  its threads remain unstarted or that its executor is lifecycle-managed.
 
 ### ARCH-CODE-018 - Assertions should have a detail message
 

@@ -124,6 +124,28 @@ describe('advisor panel states', () => {
   }
 
   describe.each(advisorComponents)('%s rendered advisor actions', (name, component, id) => {
+    it.each([true, false])('disables scans until the initial GET settles (success %s)', async (success) => {
+      let finish
+      const fetchMock = vi.fn((url) =>
+        url === `api/${id}`
+          ? new Promise((resolve) => (finish = resolve))
+          : Promise.resolve(new Response(JSON.stringify({available: false, entries: [], total: 0})))
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const wrapper = mount(component, {props: {panel: {id, available: true, enabled: true, readOnly: false}}})
+      await flushPromises()
+      const scan = wrapper.get('.panel-header__actions button')
+      expect(scan.element.disabled).toBe(true)
+      await scan.trigger('click')
+      expect(fetchMock.mock.calls.some(([url]) => url === `api/${id}/scan`)).toBe(false)
+
+      finish(new Response(JSON.stringify(success ? actionableReport() : {}), {status: success ? 200 : 500}))
+      await flushPromises()
+      expect(scan.element.disabled).toBe(false)
+      expect(wrapper.find('.skeleton-wrapper').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
     it.each([
       ['read-only', {readOnly: true}],
       ['unavailable', {available: false}],
