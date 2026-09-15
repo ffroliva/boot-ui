@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- WebFlux filter rejections close their Reactor Netty HTTP/1.x connection after responding, preventing a queued
+  keep-alive rejection from stranding the next request. HTTP/2 and successful request behavior are unchanged.
 - MySQL diagnostics now qualify disabled or unreadable table/object and metadata-lock instrumentation instead
   of implying zero activity, include replication-coordinator errors, and preserve status-counter comparison
   intervals independently of later collector latency. Required-metadata deadline expiry reports an explicit

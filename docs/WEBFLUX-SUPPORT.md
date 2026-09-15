@@ -114,6 +114,11 @@ Every safety rule mirrors the servlet adapter over a reactive binding; only requ
   JSON body. Only the plumbing (`ServerWebExchange` instead of `HttpServletRequest`/`HttpServletResponse`) differs.
 - **Same per-panel gating.** `ReactivePanelAccessFilter` enforces `bootui.panels.*` (enable/read-only) via the same
   `BootUiPanels` registry the servlet `PanelAccessFilter` uses — same config keys, same canonical JSON 403 body.
+- **Early rejection connection handling.** On Reactor Netty, BootUI's filter-generated JSON errors close the
+  HTTP/1.x connection after sending the response. This avoids a queued keep-alive read stall in Reactor Netty 1.3.7
+  ([upstream report](https://github.com/reactor/reactor-netty/issues/4361)) without reading a rejected request's
+  untrusted body. Clients reconnect normally; rejection decisions and JSON stay unchanged. Accepted requests,
+  HTTP/2, and other WebFlux server implementations retain their existing connection behavior.
 - **Same configurable path contract.** `bootui.path` moves the shell, assets, APIs, streams, downloads, and action
   endpoints together; `bootui.api-path` can override the derived `<bootui.path>/api` mount independently. Both compose
   with `spring.webflux.base-path` exactly once. A dedicated WebFlux static-resource handler serves the configured mount,
