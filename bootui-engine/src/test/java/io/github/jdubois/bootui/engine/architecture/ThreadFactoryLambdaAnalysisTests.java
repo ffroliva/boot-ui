@@ -8,6 +8,9 @@ import static org.mockito.Mockito.when;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,9 +26,6 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
 
 class ThreadFactoryLambdaAnalysisTests {
     private static final Class<?> FIXTURE = NoDirectThreadInstantiationRuleTests.MixedConstruction.class;

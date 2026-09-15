@@ -273,7 +273,8 @@ installing the reactor dependencies, run the affected conformance class:
 
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
 `verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
-older host ASM alongside BootUI's private reader. The Quarkus check launches a standalone fast-jar scanner probe,
+older host ASM alongside ArchUnit's embedded reader, and verifies that the engine does not bundle another ASM copy.
+The Quarkus check launches a standalone fast-jar scanner probe,
 without enabling BootUI's production HTTP surface:
 
 ```bash
@@ -285,6 +286,12 @@ without enabling BootUI's production HTTP surface:
 
 Use an absolute isolated-repository path for the packaged Quarkus test: its fork resolves Maven dependencies from a
 different working directory, so a relative `.m2` would point at a different repository.
+
+ThreadFactory analysis deliberately uses `com.tngtech.archunit.thirdparty.org.objectweb.asm`, an internal package in
+the existing ArchUnit dependency, rather than shipping another reader or depending on a host framework's ASM version.
+When upgrading ArchUnit, verify this internal API with `NoDirectThreadInstantiationRuleTests`,
+`ThreadFactoryLambdaAnalysisTests`, and `ThreadFactoryReviewTests`, then run both packaged-runtime checks above.
+The Spring fixture's ASM 9.8 dependency must remain older than the reader so it continues to exercise isolation.
 
 ### Live MySQL validation
 
