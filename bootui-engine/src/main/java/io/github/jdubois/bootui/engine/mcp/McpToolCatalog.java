@@ -154,6 +154,8 @@ public final class McpToolCatalog {
             entry("get_postgresql_report", McpToolSchema.NONE, BootUiPanels.POSTGRESQL, false, ALL_STACKS),
             entry("mysql_read", McpToolSchema.NONE, BootUiPanels.MYSQL, true, ALL_STACKS),
             entry("get_mysql_report", McpToolSchema.NONE, BootUiPanels.MYSQL, false, ALL_STACKS),
+            entry("get_mongodb_report", McpToolSchema.MONGODB_REPORT, BootUiPanels.MONGODB, false, ALL_STACKS),
+            entry("mongodb_inspect", McpToolSchema.MONGODB_INSPECT, BootUiPanels.MONGODB, true, ALL_STACKS),
             entry("vulnerabilities_scan", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, true, ALL_STACKS),
             entry("get_vulnerabilities_report", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, false, ALL_STACKS),
             entry("get_live_activity", McpToolSchema.LIMIT, BootUiPanels.ACTIVITY, false, ALL_STACKS),

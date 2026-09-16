@@ -48,6 +48,9 @@ jobs:
       - name: Test MySQL live-evidence gate
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_mysql_live_tests.py'
 
+      - name: Test MongoDB live-evidence gate
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_mongodb_live_tests.py'
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v6
         with:
@@ -98,6 +101,25 @@ jobs:
       - name: Publish coverage summary
         if: ${{ !cancelled() }}
         run: bash .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run required authenticated MongoDB live contracts
+        run: |
+          (cd bootui-spring-sample-app/e2e && npm ci && npx playwright install --with-deps chromium)
+          STARTED=$(date +%s)
+          ./mvnw -B -ntp -pl bootui-spring-autoconfigure -Pmongodb-live test -Dtest='MongoDb*LiveTests'
+          python3 .github/scripts/check-mongodb-live-tests.py --since "$STARTED" \
+            bootui-spring-autoconfigure/target/surefire-reports \
+            MongoDbAdapterLiveTests MongoDbHttpLiveTests MongoDbTransactionsLiveTests
+          ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/mongodb -Pmongodb-live test \
+            -Dtest='BootUiQuarkusMongoDb*LiveTest'
+          python3 .github/scripts/check-mongodb-live-tests.py --since "$STARTED" \
+            bootui-quarkus-integration-tests/mongodb/target/surefire-reports \
+            BootUiQuarkusMongoDbLiveTest BootUiQuarkusMongoDbCustomPathLiveTest \
+            BootUiQuarkusMongoDbDiscoveryLiveTest BootUiQuarkusMongoDbTimeoutLiveTest
+          ./mvnw -B -ntp -pl bootui-spring-sample-app -Pmongodb-sample,mongodb-live test \
+            -Dtest=DockerMongoDbProfileLiveTests
+          python3 .github/scripts/check-mongodb-live-tests.py --since "$STARTED" \
+            bootui-spring-sample-app/target-mongodb/surefire-reports DockerMongoDbProfileLiveTests
 
       # Aggregates dependencies from every reactor module (already installed above) into one CycloneDX
       # SBOM. Invoked as a standalone goal (not bound to a lifecycle phase in pom.xml) so it never attaches

@@ -34,6 +34,7 @@
     <properties>
         <!-- Demo/integration module only: never publish to Maven Central (mirrors bootui-spring-sample-app). -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <sample.build.directory>${project.basedir}/target</sample.build.directory>
 
         <!-- Quarkus LangChain4j 1.12.1 targets Quarkus 3.33.2 and is compatible with LTS patch releases. -->
         <quarkus-langchain4j.version>1.13.1</quarkus-langchain4j.version>
@@ -212,7 +213,12 @@
     </dependencies>
 
     <build>
+        <directory>${sample.build.directory}</directory>
         <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId>
+                <configuration><java><includes><include>src/**/*.java</include></includes></java></configuration>
+            </plugin>
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
@@ -232,6 +238,45 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>mongodb-diagnostics</id>
+            <properties>
+                <sample.build.directory>${project.basedir}/target-mongodb</sample.build.directory>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-mongodb-client</artifactId>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>mongodb-source</id>
+                                <phase>generate-sources</phase>
+                                <goals><goal>add-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/mongodb/java</source></sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>mongodb-test-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/mongodb-test/java</source></sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>mysql-diagnostics</id>
             <dependencies>

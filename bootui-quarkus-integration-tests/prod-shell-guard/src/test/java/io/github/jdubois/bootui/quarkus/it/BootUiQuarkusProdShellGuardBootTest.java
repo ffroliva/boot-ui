@@ -122,4 +122,14 @@ class BootUiQuarkusProdShellGuardBootTest {
                     .isEqualTo(404);
         }
     }
+
+    @Test
+    void mongodbReportAndInspectionStayDarkAtConfiguredAndDefaultMounts() {
+        for (String api : java.util.List.of("/host/internal/bootui-api", "/host/bootui/api", "/bootui/api")) {
+            assertThat(probe().get(api + "/mongodb").status()).isEqualTo(404);
+            assertThat(probe().post(api + "/mongodb/inspect", Map.of("Content-Type", "application/json"))
+                            .status())
+                    .isEqualTo(404);
+        }
+    }
 }

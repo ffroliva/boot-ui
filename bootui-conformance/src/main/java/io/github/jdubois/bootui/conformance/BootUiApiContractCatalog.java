@@ -149,6 +149,18 @@ public final class BootUiApiContractCatalog {
                             "diagnostics", JsonType.ARRAY,
                             "limitations", JsonType.ARRAY)),
             read(
+                    "mongodb",
+                    "/mongodb",
+                    fields(
+                            "localOnly", JsonType.BOOLEAN,
+                            "available", JsonType.BOOLEAN,
+                            "status", JsonType.STRING,
+                            "inventory", JsonType.OBJECT,
+                            "inspection", JsonType.NULLABLE_OBJECT,
+                            "catalog", JsonType.OBJECT,
+                            "limits", JsonType.OBJECT,
+                            "diagnostics", JsonType.ARRAY)),
+            read(
                     "hibernate-statistics",
                     "/hibernate-statistics",
                     fields(
@@ -379,6 +391,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "database-advisor.scan", "database-advisor", "POST", "/database-advisor/scan");
         all(actions, "postgresql.read", "postgresql", "POST", "/postgresql/read");
         all(actions, "mysql.read", "mysql", "POST", "/mysql/read");
+        all(actions, "mongodb.inspect", "mongodb", "POST", "/mongodb/inspect");
         all(actions, "cache.clear", "cache", "POST", "/cache/clear");
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");

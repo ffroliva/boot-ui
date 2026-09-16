@@ -161,6 +161,20 @@ before the application is stopped.
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior.
 
+### Read MongoDB metadata
+
+1. Read `bootui db mongodb report --json` / `get_mongodb_report`. It observes local client declarations and the retained
+   snapshot only; do not evaluate Health as a Mongo inventory preflight.
+2. Ask approval for the exact client/scope before `bootui db mongodb inspect --client-id <id> --scope CONFIGURED --json`
+   / `mongodb_inspect`. SELECTED uses known database/collection IDs, with `snapshotId` for observed targets.
+3. AUTHORIZED_NAMES is separately configuration-gated, names-only, and has an unpaged initial server response. It does
+   not authorize scanning every visible database. Select a database for a separate explicit inspection.
+4. Page retained `DATABASES`, `COLLECTIONS`, `INDEXES` with snapshot/parent IDs, query, offset and limit. Counts are
+   retained metadata, not server totals. Never auto-repeat stale, partial, timed-out, busy or denied requests.
+5. Treat declared Spring Data mappings/indexes separately from observed server definitions. Dynamic expressions and
+   tenant routing are not evaluated. There is no missing-index performance verdict, document browser, shell, write,
+   statistics or profiler. Raw query/pipeline/filter literals and credentials remain withheld even in FULL exposure.
+
 ### Read MySQL operational evidence
 
 The MySQL operational panel supports Oracle MySQL 8.4 LTS, with live coverage on 8.4.6; check the running catalog

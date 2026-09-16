@@ -10,7 +10,6 @@ import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.transaction.ConfigurableTransactionManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,24 +24,21 @@ import reactor.core.publisher.Flux;
  *
  * <p>Capture itself is wired the same way as Spring MVC: BootUI contributes a {@code
  * TransactionExecutionListener} bean through Spring Boot's standard transaction-manager customization,
- * which registers it against every {@code ConfigurableTransactionManager} and observes any blocking {@code
- * PlatformTransactionManager} a WebFlux application still uses (e.g. wrapping JDBC repositories). A
- * WebFlux application backed only by a {@code ReactiveTransactionManager} (R2DBC) has no such bean to
- * observe — Spring's transaction-execution listener hook exists solely on the blocking SPI — so the
- * panel honestly reports unavailable in that case, exactly as it does when no manager exists at all.</p>
+ * which registers it against {@code ConfigurableTransactionManager}. Reactive boundaries use detached
+ * execution-identity association; thread-local JDBC parentage and correlation are not inferred.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/transactions")
 public class ReactiveTransactionsController {
 
     private final ObjectProvider<TransactionRecorder> recorderProvider;
-    private final ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider;
+    private final org.springframework.beans.factory.ListableBeanFactory transactionManagerProvider;
     private final ReactiveBootUiChangeStream changeStream;
     private Runnable recorderUnsubscribe;
 
     public ReactiveTransactionsController(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
+            org.springframework.beans.factory.ListableBeanFactory transactionManagerProvider) {
         this.recorderProvider = recorderProvider;
         this.transactionManagerProvider = transactionManagerProvider;
         this.changeStream = new ReactiveBootUiChangeStream("transactions");

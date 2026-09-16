@@ -141,7 +141,8 @@ public class QuarkusMcpEnvelope {
                 parsedArguments.names(),
                 parsedArguments.error(),
                 parsedArguments.scanId(),
-                parsedArguments.offset());
+                parsedArguments.offset(),
+                parsedArguments.mongoDb());
     }
 
     private static ParsedArguments parseArguments(JsonNode arguments) {
@@ -179,6 +180,15 @@ public class QuarkusMcpEnvelope {
         if (offset != null && offset.asInt() < 0) {
             return ParsedArguments.error(McpProtocol.invalidArgumentMinimumMessage("offset", 0));
         }
+        java.util.Map<String, String> mongoDb = new java.util.LinkedHashMap<>();
+        for (String name : io.github.jdubois.bootui.engine.mongodb.MongoDbRequests.SELECTION_FIELDS) {
+            JsonNode value = arguments.get(name);
+            if (value != null) {
+                if (!value.isTextual())
+                    return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage(name, "a string"));
+                mongoDb.put(name, value.asText());
+            }
+        }
         return new ParsedArguments(
                 query == null ? null : query.asText(),
                 limit == null ? null : limit.asInt(),
@@ -186,11 +196,30 @@ public class QuarkusMcpEnvelope {
                 names,
                 null,
                 scanId == null ? null : scanId.asText(),
-                offset == null ? null : offset.asInt());
+                offset == null ? null : offset.asInt(),
+                mongoDb);
     }
 
     private record ParsedArguments(
-            String query, Integer limit, String id, Set<String> names, String error, String scanId, Integer offset) {
+            String query,
+            Integer limit,
+            String id,
+            Set<String> names,
+            String error,
+            String scanId,
+            Integer offset,
+            java.util.Map<String, String> mongoDb) {
+        private ParsedArguments(
+                String query,
+                Integer limit,
+                String id,
+                Set<String> names,
+                String error,
+                String scanId,
+                Integer offset) {
+            this(query, limit, id, names, error, scanId, offset, java.util.Map.of());
+        }
+
         private static ParsedArguments empty() {
             return new ParsedArguments(null, null, null, Set.of(), null, null, null);
         }
@@ -364,7 +393,43 @@ public class QuarkusMcpEnvelope {
             case QUERY_LIMIT -> querySchema();
             case ID -> idSchema();
             case RULE_VIOLATIONS -> ruleViolationsSchema();
+            case MONGODB_REPORT, MONGODB_INSPECT -> mongoDbSchema(schema);
         };
+    }
+
+    private static ObjectNode mongoDbSchema(McpToolSchema kind) {
+        ObjectNode schema = emptyObjectSchema();
+        ObjectNode properties = (ObjectNode) schema.get("properties");
+        for (String name : kind.argumentNames()) {
+            ObjectNode property = JsonNodeFactory.instance.objectNode();
+            if ("limit".equals(name) || "offset".equals(name)) {
+                property.put("type", "integer");
+                property.put("minimum", "limit".equals(name) ? 1 : 0);
+            } else {
+                property.put("type", "string");
+                property.put("minLength", 1);
+                property.put("maxLength", 256);
+            }
+            if ("scope".equals(name)) {
+                ArrayNode values = JsonNodeFactory.instance.arrayNode();
+                values.add("CONFIGURED").add("SELECTED").add("AUTHORIZED_NAMES");
+                property.set("enum", values);
+                property.put("default", "CONFIGURED");
+            }
+            if ("section".equals(name)) {
+                ArrayNode values = JsonNodeFactory.instance.arrayNode();
+                values.add("DATABASES").add("COLLECTIONS").add("INDEXES");
+                property.set("enum", values);
+                property.put("default", "DATABASES");
+            }
+            properties.set(name, property);
+        }
+        if (kind == McpToolSchema.MONGODB_INSPECT) {
+            ArrayNode required = JsonNodeFactory.instance.arrayNode();
+            required.add("clientId");
+            schema.set("required", required);
+        }
+        return schema;
     }
 
     private static ObjectNode emptyObjectSchema() {

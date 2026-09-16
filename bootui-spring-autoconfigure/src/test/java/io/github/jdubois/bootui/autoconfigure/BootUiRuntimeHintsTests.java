@@ -22,6 +22,24 @@ class BootUiRuntimeHintsTests {
     }
 
     @Test
+    void mongoAndRepositoryMetadataRecordsAndArraysHaveBindingHints() {
+        for (Class<?> type : java.util.List.of(
+                io.github.jdubois.bootui.core.dto.MongoDbReport.class,
+                io.github.jdubois.bootui.core.dto.MongoDbIndexDto.class,
+                io.github.jdubois.bootui.core.dto.MongoDbInspectRequest.class,
+                io.github.jdubois.bootui.core.dto.RepositoryMongoDbDto.class,
+                io.github.jdubois.bootui.core.dto.RepositoryQueryMetadataDto.class)) {
+            assertThat(RuntimeHintsPredicates.reflection()
+                            .onType(type)
+                            .withMemberCategory(MemberCategory.INVOKE_PUBLIC_METHODS))
+                    .accepts(hints);
+            assertThat(RuntimeHintsPredicates.reflection()
+                            .onType(java.lang.reflect.Array.newInstance(type, 0).getClass()))
+                    .accepts(hints);
+        }
+    }
+
+    @Test
     void registersClasspathResourcePatternsScannedAtRuntime() {
         assertThat(RuntimeHintsPredicates.resource().forResource("META-INF/maven/group/artifact/pom.properties"))
                 .accepts(hints);

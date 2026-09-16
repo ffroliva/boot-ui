@@ -93,14 +93,15 @@ process so its test-only OSV base URI and limits are guaranteed to apply.
 
 ## Useful environment variables
 
-| Variable                   | Default                   | Purpose                                                    |
-| -------------------------- | ------------------------- | ---------------------------------------------------------- |
-| `BOOTUI_SAMPLE_PORT`       | `8082`                    | Port the Quarkus sample listens on.                        |
-| `BOOTUI_BASE_URL`          | `http://localhost:<port>` | Base URL the browser hits.                                 |
-| `BOOTUI_SKIP_WEBSERVER`    | _(unset)_                 | Set to `1` to test an already-running server / list tests. |
-| `BOOTUI_WEBSERVER_TIMEOUT` | `300000`                  | Startup timeout (ms); raise it on slow Dev Services pulls. |
-| `BOOTUI_OSV_FIXTURE_PORT`  | `18080`                   | Port for the deterministic loopback OSV fixture.           |
-| `BOOTUI_OSV_LIVE`          | _(unset)_                 | Set to `1` only for the focused live OSV smoke.            |
+| Variable                   | Default                   | Purpose                                                                                                                                                                                                                                                    |
+| -------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BOOTUI_SAMPLE_PORT`       | `8082`                    | Port the Quarkus sample listens on.                                                                                                                                                                                                                        |
+| `BOOTUI_BASE_URL`          | `http://localhost:<port>` | Base URL the browser hits.                                                                                                                                                                                                                                 |
+| `BOOTUI_SKIP_WEBSERVER`    | _(unset)_                 | Set to `1` to test an already-running server / list tests.                                                                                                                                                                                                 |
+| `BOOTUI_QUARKUS_DEV_JAR`   | _(unset)_                 | Optional absolute path to Quarkus's already-generated dev-mode jar, with its `dev-app-model.dat` beside it. Read-only test instances launch it with Java from `JAVA_HOME`, avoiding overlapping Maven processes. This is not a NORMAL-mode production jar. |
+| `BOOTUI_WEBSERVER_TIMEOUT` | `300000`                  | Startup timeout (ms); raise it on slow Dev Services pulls.                                                                                                                                                                                                 |
+| `BOOTUI_OSV_FIXTURE_PORT`  | `18080`                   | Port for the deterministic loopback OSV fixture.                                                                                                                                                                                                           |
+| `BOOTUI_OSV_LIVE`          | _(unset)_                 | Set to `1` only for the focused live OSV smoke.                                                                                                                                                                                                            |
 
 ## CI
 

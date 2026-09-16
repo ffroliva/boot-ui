@@ -202,7 +202,7 @@ the classpath) are simply not advertised.
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
-  `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+  `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_mongodb_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -211,9 +211,27 @@ the classpath) are simply not advertised.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
+  `postgresql_read`, `mysql_read`, `mongodb_inspect`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command.
+
+### MongoDB metadata evidence
+
+Use `get_mongodb_report` / `bootui db mongodb report --json` first. This reads existing local declarations and one
+sanitized retained snapshot without contacting MongoDB or evaluating a health indicator. Unknown driver topology is
+not a health failure.
+
+Ask approval before `mongodb_inspect` / `bootui db mongodb inspect --client-id <id> --scope CONFIGURED --json`,
+naming the selected client and database scope. SELECTED accepts known database/collection IDs and the snapshot ID
+for observed targets. No arbitrary namespace command, endpoint, query or credentials are accepted.
+AUTHORIZED_NAMES is separately configuration-gated and returns database names only; its initial server response
+is unpaged. Selecting one for collection/index inspection is another explicit action.
+
+Read retained DATABASES/COLLECTIONS/INDEXES pages with `snapshotId`, `section`, parent IDs, `query`, `offset`, `limit`.
+Counts describe retained rows, not server-wide totals. A stale snapshot, busy result, denied permission or timeout is
+not authorization to retry automatically. Inspect is blocked by global/panel read-only policy.
+No documents, statistics, raw query/pipeline/filter literals or index-performance verdicts are exposed.
+See [the full contract](features/database.md#mongodb).
 
 ### MySQL operational evidence
 

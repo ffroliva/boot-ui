@@ -24,7 +24,7 @@ import java.util.Map;
 public final class MeterFamilyCatalogue {
 
     /** Version of the curated data below. Bump on every family addition, rename or re-scope. */
-    public static final String VERSION = "2026.1";
+    public static final String VERSION = "2026.2";
 
     /** Group holding every meter BootUI cannot attribute to a known integration. */
     public static final String APPLICATION_GROUP_ID = "application";
@@ -120,9 +120,30 @@ public final class MeterFamilyCatalogue {
                             + " scheduled tasks, logging events and startup timings.",
                     "Most of these are cumulative counters or pool gauges scoped to one component, so read them per"
                             + " component tag and treat startup timers as one-off measurements."),
+            new MeterGroup(
+                    "mongodb",
+                    "MongoDB",
+                    "Micrometer MongoDB driver binders",
+                    "Command timers and pool measurements already registered by the application's Mongo integration.",
+                    "Commands are driver operations, not repository latency. Pools have their own connection semantics,"
+                            + " not JDBC counters. Missing instrumentation is unavailable; BootUI registers no listener."),
             APPLICATION_GROUP);
 
     private static final List<MeterFamily> FAMILIES = List.of(
+            family(
+                    "mongodb.driver",
+                    "MongoDB driver",
+                    "mongodb",
+                    List.of(
+                            "mongodb.driver.commands",
+                            "mongodb.driver.pool.size",
+                            "mongodb.driver.pool.checkedout",
+                            "mongodb.driver.pool.checkoutfailed",
+                            "mongodb.driver.pool.waitqueuesize"),
+                    List.of(),
+                    "Native MongoDB command timing and pool size, checkout and waiting measurements.",
+                    "Read the native meter type, tags and units. Command time is not total repository or session time;"
+                            + " inspection commands may be included. No collection/index usage is inferred."),
             family(
                     "jvm.memory",
                     "JVM memory",

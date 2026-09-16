@@ -81,6 +81,11 @@ class MeterFamilyCatalogueTests {
     @ParameterizedTest
     @CsvSource({
         "jvm.memory.used,jvm.memory,jvm",
+        "mongodb.driver.commands,mongodb.driver,mongodb",
+        "mongodb.driver.pool.size,mongodb.driver,mongodb",
+        "mongodb.driver.pool.checkedout,mongodb.driver,mongodb",
+        "mongodb.driver.pool.checkoutfailed,mongodb.driver,mongodb",
+        "mongodb.driver.pool.waitqueuesize,mongodb.driver,mongodb",
         "jvm.gc.pause,jvm.gc,jvm",
         "jvm.threads.live.threads,jvm.threads,jvm",
         "jvm.classes.loaded,jvm.classes,jvm",
@@ -145,6 +150,8 @@ class MeterFamilyCatalogueTests {
     @ValueSource(
             strings = {
                 "jvmx.memory.used",
+                "mongodb.application.orders",
+                "mongodb.driver.commands.custom",
                 "jvm_memory_used",
                 "jvmmemory.used",
                 "cache.orders.entries",

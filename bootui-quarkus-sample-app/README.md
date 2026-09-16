@@ -63,6 +63,65 @@ This is harmless if the Spring app is not running (the export just fails quietly
 disabled in the Docker image below, which has no Spring app nearby.
 
 
+## Optional MongoDB diagnostics
+
+Maven profile `mongodb-diagnostics` adds `quarkus-mongodb-client` and the isolated `src/mongodb/java` sources.
+The matching Quarkus profile uses **both native synchronous and reactive application-owned clients** against
+an explicitly provisioned local fixture. No Panache Mongo dependency is needed; the ordinary sample dependency
+graph and default PostgreSQL Dev Services behavior stay unchanged.
+
+Follow the [MVC sample's shared-fixture instructions](../bootui-spring-sample-app/README.md#disposable-authentication-and-shared-fixture)
+to start authenticated MongoDB 8.0.19 and set `BOOTUI_SAMPLE_MONGODB_URL`. Use the fixture's dynamic loopback
+endpoint, database `bootui_sample`, and non-root `bootui` account with `authSource=bootui_sample`, never its root
+initialization credentials. The URL stays in your environment, not source control.
+
+From the repository root, on JDK 17, 21, or 25:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pmongodb-diagnostics \
+  -pl bootui-quarkus-sample-app -am -DskipTests clean install
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pmongodb-diagnostics \
+  -pl bootui-quarkus-sample-app quarkus:dev -Dquarkus.profile=dev,mongodb-diagnostics
+```
+
+This explicit profile reuses the sample's existing H2 driver for relational data, disables PostgreSQL/Mongo/Ollama
+Dev Services and OTLP export, and binds HTTP to loopback. It starts no additional containers and does not change
+the existing migration files. Mongo auto-index creation is not introduced; the shared bootstrap script owns the
+document fixtures and indexes. Existing non-Mongo sample endpoints are still available.
+
+Open <http://localhost:8082/bootui/#/mongodb>. `GET /bootui/api/mongodb` reports `NOT_READ` and locally observed
+`inventory.clients` without diagnostic commands. Select a client and explicitly **Inspect** its configured
+`bootui_sample` database. For REST use the opaque `inventory.clients[].id`, not an invented name:
+`POST /bootui/api/mongodb/inspect` with `{"clientId":"<id>","scope":"CONFIGURED"}`.
+The restricted application account can yield partial metadata; no hidden root inspector is used.
+
+Two explicit sample endpoints generate deterministic, small workloads:
+
+```bash
+curl --fail-with-body -X POST -H 'Origin: http://localhost:8082' \
+  http://localhost:8082/api/sample/mongodb/workload
+curl --fail-with-body -X POST -H 'Origin: http://localhost:8082' \
+  http://localhost:8082/api/sample/mongodb/reactive-workload
+```
+
+Each upserts its own fixed product ID and counts at most one matching document, without changing MVC/WebFlux
+fixture IDs. Sync work runs off the event loop; reactive work has a six-second budget. Driver selection/connect/read
+timeouts are two seconds. Only one sample Mongo workload can run at once. The workload routes enforce the shared
+localhost, Host, and cross-site-write guard, independently of the ordinary sample's deliberately permissive CORS
+demonstration. `GET /api/sample/mongodb` shows local client-style metadata only.
+
+Optional structural sample tests (no database contacted):
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pmongodb-diagnostics \
+  -pl bootui-quarkus-sample-app test -Dtest=MongoDiagnosticsProfileTest
+```
+
+Real-server adapter/browser validation is separate; the command above is not evidence of a live run.
+The optional profile uses `target-mongodb`, separate from ordinary `target`, to avoid stale optional classes when
+switching profiles. Stop the application and remove only the disposable shared fixture
+as described in the MVC README. Packaged NORMAL launch mode still keeps BootUI dark.
+
 ## Optional MySQL diagnostics
 
 The `mysql-diagnostics` Maven profile adds Connector/J through `quarkus-jdbc-mysql`; the matching runtime profile adds a

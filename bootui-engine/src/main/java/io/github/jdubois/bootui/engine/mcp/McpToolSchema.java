@@ -25,7 +25,9 @@ public enum McpToolSchema {
     /** A required string {@code id} identifying one specific resource (e.g. an exception group id). */
     ID(List.of("id")),
     /** A required rule {@code id} and {@code scanId}, with optional {@code offset} and {@code limit}. */
-    RULE_VIOLATIONS(List.of("id", "scanId", "offset", "limit"));
+    RULE_VIOLATIONS(List.of("id", "scanId", "offset", "limit")),
+    MONGODB_REPORT(List.of("snapshotId", "section", "databaseId", "collectionId", "query", "offset", "limit")),
+    MONGODB_INSPECT(List.of("clientId", "scope", "databaseId", "collectionId", "snapshotId"));
 
     private final Set<String> argumentNames;
 
@@ -42,5 +44,14 @@ public enum McpToolSchema {
      */
     public Set<String> argumentNames() {
         return argumentNames;
+    }
+
+    public List<String> requiredArgumentNames() {
+        return switch (this) {
+            case ID -> List.of("id");
+            case RULE_VIOLATIONS -> List.of("id", "scanId");
+            case MONGODB_INSPECT -> List.of("clientId");
+            default -> List.of();
+        };
     }
 }

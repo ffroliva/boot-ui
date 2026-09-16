@@ -177,6 +177,13 @@ See [Features](features/README.md) for the full per-platform availability.
 
 ## Want the full experience?
 
+For the narrow MongoDB demo, run `./bootui-spring-sample-app/run-local-mongodb.sh` from a checkout.
+It enables isolated sample dependencies and starts one authenticated `mongo:8.0.19` container. The new document
+workload uses MongoDB; existing JPA/Flyway/Liquibase features continue to use Docker-free H2 and caching uses Caffeine.
+No PostgreSQL, MySQL, Redis, Kafka or Ollama container is required. Ordinary dev stays Docker-free.
+See [MongoDB](features/database.md#mongodb) and the
+[sample walkthrough](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md#run-it-with-mongodb-documents-and-h2).
+
 To exercise every panel with PostgreSQL, Redis, and Ollama, run the sample app with the `docker` profile from a checkout
 of the repository — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md#run-it-with-docker)
 for details.

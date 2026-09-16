@@ -615,6 +615,20 @@ public class ReactiveBootUiMcpTools {
         this.tools = List.copyOf(registry);
     }
 
+    @Autowired
+    void addMongoDbTools(io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService mongodb) {
+        List<McpTool> registry = new ArrayList<>(tools);
+        registry.add(tool(
+                "get_mongodb_report",
+                McpToolDescriptions.spring("get_mongodb_report"),
+                args -> io.github.jdubois.bootui.engine.mongodb.MongoDbTools.report(mongodb, args)));
+        registry.add(tool(
+                "mongodb_inspect",
+                McpToolDescriptions.spring("mongodb_inspect"),
+                args -> io.github.jdubois.bootui.engine.mongodb.MongoDbTools.inspect(mongodb, args)));
+        tools = List.copyOf(registry);
+    }
+
     ReactiveBootUiMcpTools(List<McpTool> tools) {
         this.panelsController = null;
         this.tools = List.copyOf(tools);

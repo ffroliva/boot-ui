@@ -61,6 +61,7 @@
     { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true },
     { "id": "jms", "title": "JMS", "actionCapable": true },
     { "id": "fault-tolerance", "title": "Fault Tolerance", "actionCapable": false },
-    { "id": "websockets", "title": "WebSockets", "actionCapable": true }
+    { "id": "websockets", "title": "WebSockets", "actionCapable": true },
+    { "id": "mongodb", "title": "MongoDB", "actionCapable": true }
   ]
 }

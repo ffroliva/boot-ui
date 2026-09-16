@@ -23,6 +23,12 @@
     -->
 
     <dependencies>
+        <!-- Compile-only native integration. The host supplies its BOM-aligned Mongo drivers. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mongodb-client</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <!-- Framework-neutral DTO/wire contract: the immutable records the engine returns and this adapter
              serializes (imported directly by the JAX-RS resources), declared explicitly rather than leaned on
              transitively through bootui-engine. -->

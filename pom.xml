@@ -372,6 +372,7 @@
                             <excludeArtifact>bootui-quarkus-hibernate-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-liquibase-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-micrometer-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-mongodb-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-otel-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-prod-shell-guard-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-rabbit-integration-tests</excludeArtifact>

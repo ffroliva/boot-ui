@@ -1,6 +1,7 @@
 <script setup>
 import {apiFetch} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
+import {RouterLink} from 'vue-router'
 import {describeLoadError} from '../utils/loadError.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -67,6 +68,11 @@ const shortName = (name) => {
   return i < 0 ? name : name.substring(i + 1)
 }
 
+function mongoValue(value, fallback, state) {
+  if (value === '******') return 'Withheld'
+  return value || (state === 'STATIC' ? 'Withheld (metadata-only)' : fallback)
+}
+
 const storeClass = (s) =>
   ({
     JPA: 'bg-primary',
@@ -99,11 +105,17 @@ onMounted(load)
   <div>
     <PanelHeader icon="bi-database" title="Spring Data repositories" :error="error" />
 
+    <div v-if="report?.discovery && !report.discovery.complete" class="alert alert-warning small">
+      Repository discovery is incomplete; uninitialized or inaccessible factories are not resolved.
+      <ul class="mb-0">
+        <li v-for="warning in report.discovery.warnings" :key="warning">{{ warning }}</li>
+      </ul>
+    </div>
     <PanelSkeleton v-if="initialLoading" />
 
     <UnavailableState v-else-if="!springDataPresent" variant="info">
-      Spring Data is not on the classpath of this application. Add a Spring Data starter (e.g.
-      <code>spring-boot-starter-data-jpa</code>) to see repositories here.
+      Spring Data is not on the classpath of this application. Add the starter for your store, such as
+      <code>spring-boot-starter-data-jpa</code>, <code>spring-boot-starter-data-mongodb</code> or its reactive variant.
     </UnavailableState>
 
     <UnavailableState v-else-if="report && report.total === 0">
@@ -197,6 +209,65 @@ onMounted(load)
                 </template>
               </dl>
 
+              <section v-if="detail.mongodb" class="mb-4" aria-label="MongoDB repository declarations">
+                <h4 class="fs-6">MongoDB declarations</h4>
+                <p class="small text-muted">
+                  Static mapping metadata, not stored documents or an index-performance assessment.
+                  {{ detail.executionKind || 'Unknown execution kind' }} · {{ detail.mongodb.binding }}
+                </p>
+                <dl v-if="detail.mongodb.mapping" class="row small">
+                  <dt class="col-sm-4">Collection</dt>
+                  <dd class="col-sm-8">
+                    <code>{{
+                      mongoValue(
+                        detail.mongodb.mapping.collection,
+                        'Unresolved',
+                        detail.mongodb.mapping.collectionState
+                      )
+                    }}</code>
+                    ·
+                    {{ detail.mongodb.mapping.collectionState }}
+                  </dd>
+                  <dt class="col-sm-4">ID / version</dt>
+                  <dd class="col-sm-8">
+                    <code
+                      >{{ mongoValue(detail.mongodb.mapping.idField, 'Unknown') }} /
+                      {{ mongoValue(detail.mongodb.mapping.versionField, 'None declared') }}</code
+                    >
+                  </dd>
+                </dl>
+                <details v-if="detail.mongodb.mapping?.fields?.length" class="small mb-2">
+                  <summary>Persisted field declarations</summary>
+                  <ul class="mt-2">
+                    <li v-for="field in detail.mongodb.mapping.fields" :key="field.property">
+                      <code
+                        >{{ field.property }} → {{ mongoValue(field.persistedName, 'Unresolved', field.state) }} ({{
+                          field.javaType
+                        }})</code
+                      >
+                      · {{ field.referenceKind || field.state }}
+                    </li>
+                  </ul>
+                </details>
+                <details v-if="detail.mongodb.declaredIndexes?.length" class="small mb-2">
+                  <summary>Declared indexes (not observed server indexes)</summary>
+                  <ul class="mt-2">
+                    <li v-for="(index, position) in detail.mongodb.declaredIndexes" :key="position">
+                      <code>{{ index.name || 'Unnamed' }}</code> · {{ index.state }}
+                      <span v-for="(key, keyPosition) in index.keys" :key="keyPosition"
+                        ><code> {{ key.field }} {{ key.kind }}</code></span
+                      >
+                      <span v-if="index.unique"> · Unique</span><span v-if="index.sparse"> · Sparse</span>
+                      <span v-if="index.expireAfterSeconds != null"> · TTL {{ index.expireAfterSeconds }} seconds</span>
+                      <span v-if="index.partialFilterPresent"> · Partial predicate withheld</span>
+                    </li>
+                  </ul>
+                </details>
+                <p v-for="limitation in detail.mongodb.limitations" :key="limitation" class="small text-muted mb-1">
+                  {{ limitation }}
+                </p>
+                <RouterLink to="/mongodb" class="small">Open MongoDB inventory (does not run an inspection)</RouterLink>
+              </section>
               <h4 class="fs-6 mb-2">
                 Methods <span class="badge bg-secondary">{{ detail.methods.length }}</span>
               </h4>
@@ -218,7 +289,11 @@ onMounted(load)
                         <code class="bootui-break-anywhere">{{ m.signature }}</code>
                       </td>
                       <td>
-                        <code v-if="m.query" class="small bootui-break-anywhere">{{ m.query }}</code>
+                        <span v-if="m.queryMetadata?.language === 'MONGODB'" class="small">
+                          {{ m.queryMetadata.kind }}<span v-if="m.queryMetadata.dynamic"> · Dynamic declaration</span>
+                          <span v-if="m.queryMetadata.textWithheld"> · Literal text withheld</span>
+                        </span>
+                        <code v-else-if="m.query" class="small bootui-break-anywhere">{{ m.query }}</code>
                         <span v-else-if="m.namedQuery" class="small text-muted bootui-break-anywhere"
                           >named: {{ m.namedQuery }}</span
                         >

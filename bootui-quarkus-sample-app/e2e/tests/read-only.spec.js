@@ -227,18 +227,31 @@ async function startSampleApp(properties) {
     throw new Error(`Maven Wrapper not found at ${mvnw}`)
   }
 
+  // A prepared dev-mode jar lets an owning validation session keep Maven invocations serialized.
+  // It is Quarkus dev mode, not a packaged NORMAL application with its production guard bypassed.
+  const devJar = process.env.BOOTUI_QUARKUS_DEV_JAR
+  if (devJar && (!process.env.JAVA_HOME || !fs.existsSync(devJar))) {
+    throw new Error('BOOTUI_QUARKUS_DEV_JAR requires JAVA_HOME and an existing prepared dev-mode jar')
+  }
+  const propertiesArgs = [
+    `-Dquarkus.http.port=${port}`,
+    '-Dquarkus.test.continuous-testing=disabled',
+    '-Dquarkus.analytics.disabled=true',
+    ...Object.entries(properties).map(([name, value]) => `-D${name}=${value}`)
+  ]
+  const devBootstrapArgs = devJar
+    ? [
+        `-Dquarkus-internal.serialized-app-model.path=${path.join(path.dirname(devJar), 'dev-app-model.dat')}`,
+        '-Djava.util.logging.manager=org.jboss.logmanager.LogManager',
+        '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
+        '--add-exports=java.base/jdk.internal.module=ALL-UNNAMED'
+      ]
+    : []
   const child = spawn(
-    mvnw,
-    [
-      '-f',
-      path.join(sampleAppDir, 'pom.xml'),
-      '-q',
-      'quarkus:dev',
-      `-Dquarkus.http.port=${port}`,
-      '-Dquarkus.test.continuous-testing=disabled',
-      '-Dquarkus.analytics.disabled=true',
-      ...Object.entries(properties).map(([name, value]) => `-D${name}=${value}`)
-    ],
+    devJar ? path.join(process.env.JAVA_HOME || '', 'bin', 'java') : mvnw,
+    devJar
+      ? [...devBootstrapArgs, ...propertiesArgs, '-jar', devJar]
+      : ['-f', path.join(sampleAppDir, 'pom.xml'), '-q', 'quarkus:dev', ...propertiesArgs],
     {
       cwd: e2eDir,
       env: {...process.env},

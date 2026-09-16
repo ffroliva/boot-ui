@@ -42,6 +42,8 @@ import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService;
+import io.github.jdubois.bootui.engine.mongodb.MongoDbSettings;
 import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
@@ -89,6 +91,7 @@ import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.MongoDbProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.github.jdubois.bootui.spi.WebSocketSessionProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -143,6 +146,30 @@ public class BootUiEngineProducer {
 
     void validateMySqlLimits(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         mySqlRowLimits(config);
+    }
+
+    void validateMongoDbSettings(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        mongoDbSettings(config);
+    }
+
+    @Produces
+    @Singleton
+    public MongoDbSettings mongoDbSettings(Config config) {
+        return MongoDbSettings.from(key -> {
+            var value = config.getConfigValue(key);
+            return value.getRawValue() == null ? null : value.getValue() == null ? "" : value.getValue();
+        });
+    }
+
+    @Produces
+    @Singleton
+    public MongoDbInspectionService mongoDbInspectionService(
+            Instance<MongoDbProvider> provider, QuarkusExposurePolicy exposure, MongoDbSettings settings) {
+        MongoDbProvider available = provider.isUnsatisfied()
+                ? max -> new MongoDbProvider.Discovery(List.of(), List.of("NO_CLIENT"), false)
+                : provider.get();
+        return MongoDbInspectionService.using(available, exposure, Clock.systemUTC(), settings);
     }
 
     @Produces

@@ -349,6 +349,7 @@ class BootUiQuarkusProcessor {
         additionalBeans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(
                         BootUiEngineProducer.class,
+                        io.github.jdubois.bootui.quarkus.mongodb.MongoDbClientsSnapshot.class,
                         BootUiTelemetryProducer.class,
                         QuarkusTelemetrySettings.class,
                         QuarkusExposurePolicy.class,

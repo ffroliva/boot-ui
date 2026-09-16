@@ -265,6 +265,11 @@
           <small>Inspect: Spring Data, Cache, HTTP Exchanges</small>
         </article>
         <article class="test-action">
+          <button class="button" id="mongodb-workload-button" type="button">Run Mongo document workload</button>
+          <p>Upserts three synthetic documents and runs bounded repository queries. Requires <code>run-local-mongodb.sh</code>.</p>
+          <small>In this profile: Mongo stores documents; H2 backs JPA, Flyway, Liquibase and SQL Trace. Inspect: MongoDB, Spring Data</small>
+        </article>
+        <article class="test-action">
           <button class="button" id="sql-query-button" type="button">Run an SQL query</button>
           <p>Calls <code>GET /api/sample/product-search</code> to run a live, uncached SQL <code>SELECT</code>.</p>
           <small>Inspect: SQL Trace, Spring Data</small>
@@ -419,6 +424,7 @@
   const chatStatus = document.getElementById('ai-chat-status')
   const chatResult = document.getElementById('ai-chat-result')
   const productsButton = document.getElementById('products-button')
+  const mongodbWorkloadButton = document.getElementById('mongodb-workload-button')
   const sqlQueryButton = document.getElementById('sql-query-button')
   const hibernateCacheButton = document.getElementById('hibernate-cache-button')
   const transactionSamplesButton = document.getElementById('transaction-samples-button')
@@ -487,6 +493,28 @@
     } finally {
       submitButton.disabled = false
     }
+  })
+
+  mongodbWorkloadButton.addEventListener('click', () => {
+    runSampleAction(mongodbWorkloadButton, 'Running Mongo document workload...', async () => {
+      const availabilityResponse = await fetch('api/sample/mongodb', {headers: {Accept: 'application/json'}})
+      if (!availabilityResponse.ok) throw new Error(`Availability request failed with HTTP ${availabilityResponse.status}`)
+      const availability = await availabilityResponse.json()
+      if (!availability.available) {
+        showSampleResult('Mongo workload unavailable', availability.message)
+        return
+      }
+      const csrfResponse = await fetch('api/sample/mongodb/csrf', {headers: {Accept: 'application/json'}})
+      if (!csrfResponse.ok) throw new Error(`CSRF request failed with HTTP ${csrfResponse.status}. Reload and retry.`)
+      const csrf = await csrfResponse.json()
+      const response = await fetch('api/sample/mongodb/workload', {
+        method: 'POST',
+        headers: {Accept: 'application/json', [csrf.headerName]: csrf.token}
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || `Workload failed with HTTP ${response.status}. Check the local fixture and retry.`)
+      showSampleResult('Mongo workload complete — H2 relational data is unchanged', JSON.stringify(body, null, 2))
+    })
   })
 
   async function runSampleAction(button, loadingText, action) {

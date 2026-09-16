@@ -46,6 +46,7 @@ public final class BootUiPanels {
 
     public static final String POSTGRESQL = "postgresql";
     public static final String MYSQL = "mysql";
+    public static final String MONGODB = "mongodb";
     public static final String CACHE = "cache";
     public static final String SPRING_SECURITY = "spring-security";
     public static final String SECURITY = "security";
@@ -151,7 +152,8 @@ public final class BootUiPanels {
             new Panel(RABBITMQ, "RabbitMQ", true, "/rabbitmq"),
             new Panel(JMS, "JMS", true, "/jms"),
             new Panel(FAULT_TOLERANCE, "Fault Tolerance", false, "/fault-tolerance"),
-            new Panel(WEBSOCKETS, "WebSockets", true, "/websockets"));
+            new Panel(WEBSOCKETS, "WebSockets", true, "/websockets"),
+            new Panel(MONGODB, "MongoDB", true, "/mongodb"));
 
     private static final Map<String, Panel> BY_ID =
             PANELS.stream().collect(Collectors.toUnmodifiableMap(Panel::id, Function.identity()));

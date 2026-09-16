@@ -42,6 +42,7 @@
         <module>flyway</module>
         <module>liquibase</module>
         <module>datasource</module>
+        <module>mongodb</module>
         <module>rest-client</module>
         <module>websockets</module>
         <module>prod-shell-guard</module>

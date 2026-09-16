@@ -117,6 +117,9 @@ class ToolManifestGeneratorTests {
         assertThat(manifest.tools()).allSatisfy(tool -> {
             McpToolCatalog.Entry entry = McpToolCatalog.byName(tool.name()).orElseThrow();
             assertThat(tool.schema()).isEqualTo(entry.schema().name());
+            assertThat(tool.arguments())
+                    .containsExactlyElementsOf(entry.schema().argumentNames());
+            assertThat(tool.required()).containsExactlyElementsOf(entry.schema().requiredArgumentNames());
             assertThat(tool.panel()).isEqualTo(entry.panelId());
             assertThat(tool.action()).isEqualTo(entry.action());
             assertThat(tool.summary()).isNotBlank();

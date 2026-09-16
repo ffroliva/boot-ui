@@ -11,6 +11,7 @@ const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vu
 const DatabaseAdvisor = () => import('./views/DatabaseAdvisor.vue')
 const PostgreSql = () => import('./views/PostgreSql.vue')
 const MySql = () => import('./views/MySql.vue')
+const MongoDb = () => import('./views/MongoDb.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
 const Transactions = () => import('./views/Transactions.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
@@ -572,6 +573,18 @@ export const routes = [
       title: 'MySQL',
       shortcut: 'my',
       keywords: ['mysql', 'innodb', 'performance schema', 'sessions', 'locks', 'replication', 'jdbc']
+    }
+  },
+  {
+    path: '/mongodb',
+    name: 'mongodb',
+    component: MongoDb,
+    meta: {
+      group: groups.database,
+      icon: 'bi-leaf',
+      title: 'MongoDB',
+      shortcut: 'mg',
+      keywords: ['mongodb', 'collections', 'indexes', 'mongo', 'document mapping', 'reactive']
     }
   },
   {

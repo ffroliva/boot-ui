@@ -108,6 +108,15 @@ class ActionReferenceTests(unittest.TestCase):
             self.assertIn("generated.lock.yml", result.stderr)
             self.assertIn("Non-allowlisted action", result.stderr)
 
+    def test_baseline_cannot_omit_required_mongodb_live_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / ".github/workflows/build.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("jobs:\n  build:\n    steps:\n      - uses: actions/checkout@v7\n", encoding="utf-8")
+            result = subprocess.run(["bash", str(SCRIPT)], cwd=directory, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("missing required MongoDB live evidence", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

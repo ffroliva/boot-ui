@@ -5,6 +5,21 @@ set -euo pipefail
 readonly WORKFLOW_DIRECTORY=".github/workflows"
 readonly ACTION_DIRECTORY=".github/actions"
 
+# Baseline feature evidence is mandatory, independently of remote-action pinning. Keep this
+# narrow invariant alongside build.yml so a workflow edit cannot quietly remove live Mongo tests.
+if [[ $# -eq 0 && -f "$WORKFLOW_DIRECTORY/build.yml" ]]; then
+  for required in \
+    'check-mongodb-live-tests.py --since' \
+    'MongoDbAdapterLiveTests MongoDbHttpLiveTests MongoDbTransactionsLiveTests' \
+    'BootUiQuarkusMongoDbDiscoveryLiveTest BootUiQuarkusMongoDbTimeoutLiveTest' \
+    'DockerMongoDbProfileLiveTests'; do
+    if ! grep -Fq -- "$required" "$WORKFLOW_DIRECTORY/build.yml"; then
+      printf 'Java 17 baseline is missing required MongoDB live evidence: %s\n' "$required" >&2
+      exit 1
+    fi
+  done
+fi
+
 is_trusted_action() {
   case "$1" in
     actions/checkout | \

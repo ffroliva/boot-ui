@@ -29,6 +29,7 @@ describe('SpinnerButton', () => {
   it('renders the idle icon when not loading and hides it while loading', async () => {
     const wrapper = mount(SpinnerButton, {props: {icon: 'bi-play-circle', label: 'Migrate'}})
     expect(wrapper.find('i.bi.bi-play-circle').exists()).toBe(true)
+    expect(wrapper.find('i.bi.bi-play-circle').attributes('aria-hidden')).toBe('true')
     await wrapper.setProps({loading: true})
     expect(wrapper.find('i.bi.bi-play-circle').exists()).toBe(false)
     expect(wrapper.find('.spinner-border').exists()).toBe(true)

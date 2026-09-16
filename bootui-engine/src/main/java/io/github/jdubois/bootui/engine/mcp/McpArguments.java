@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import java.util.Map;
+
 /**
  * Normalized arguments passed to a tool handler.
  *
@@ -15,7 +17,16 @@ package io.github.jdubois.bootui.engine.mcp;
  * @param scanId the completed snapshot identifier for advisor detail reads, otherwise {@code null}
  * @param offset the retained detail offset for advisor reads (defaults to zero), otherwise {@code null}
  */
-public record McpArguments(String query, Integer limit, String id, String scanId, Integer offset) {
+public record McpArguments(
+        String query, Integer limit, String id, String scanId, Integer offset, Map<String, String> mongoDb) {
+
+    public McpArguments {
+        mongoDb = mongoDb == null ? Map.of() : Map.copyOf(mongoDb);
+    }
+
+    public McpArguments(String query, Integer limit, String id, String scanId, Integer offset) {
+        this(query, limit, id, scanId, offset, Map.of());
+    }
 
     /** Backward-compatible constructor for existing tools. */
     public McpArguments(String query, Integer limit, String id) {
@@ -25,6 +36,15 @@ public record McpArguments(String query, Integer limit, String id, String scanId
     /** Applies advisor page defaults without changing any existing tool's default. */
     public static McpArguments normalize(McpRequest request, McpToolSchema schema, int maxResults) {
         McpArguments base = normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
+        if (schema == McpToolSchema.MONGODB_REPORT || schema == McpToolSchema.MONGODB_INSPECT) {
+            return new McpArguments(
+                    base.query(),
+                    Math.min(request.rawLimit() == null ? 50 : request.rawLimit(), Math.min(200, maxResults)),
+                    base.id(),
+                    null,
+                    request.rawOffset() == null ? 0 : request.rawOffset(),
+                    request.rawMongoDb());
+        }
         if (schema != McpToolSchema.RULE_VIOLATIONS) {
             return base;
         }

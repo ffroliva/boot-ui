@@ -5,14 +5,19 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.MongoDbInspectRequest;
+import io.github.jdubois.bootui.core.dto.MongoDbReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
 import io.github.jdubois.bootui.engine.mcp.McpToolSchema;
+import io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.quarkus.web.*;
@@ -21,6 +26,68 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class QuarkusMcpToolsTest {
+    @Test
+    void mongoDbToolsForwardEveryArgumentAndAreAbsentWithoutTheCapability() {
+        var availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        var service = mock(MongoDbInspectionService.class);
+        var report = mock(MongoDbReport.class);
+        var inspected = mock(MongoDbReport.class);
+        var request = new MongoDbInspectRequest("client", "SELECTED", "database", "collection", "snapshot");
+        when(service.report("snapshot", "INDEXES", "database", "collection", "compound", 7, 13))
+                .thenReturn(report);
+        when(service.inspect(request)).thenReturn(inspected);
+        var tools = tools(availability, mock(SqlTraceResource.class), mock(RestClientTraceResource.class), service);
+        verifyNoInteractions(service);
+
+        var reportTool = tools.stream()
+                .filter(tool -> tool.name().equals("get_mongodb_report"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(reportTool.panelId()).isEqualTo(BootUiPanels.MONGODB);
+        assertThat(reportTool.schema()).isEqualTo(McpToolSchema.MONGODB_REPORT);
+        assertThat(reportTool.action()).isFalse();
+        assertThat(reportTool.invoke(new McpArguments(
+                        "compound",
+                        13,
+                        null,
+                        null,
+                        7,
+                        Map.of(
+                                "snapshotId", "snapshot",
+                                "section", "INDEXES",
+                                "databaseId", "database",
+                                "collectionId", "collection"))))
+                .isSameAs(report);
+
+        var inspectTool = tools.stream()
+                .filter(tool -> tool.name().equals("mongodb_inspect"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(inspectTool.panelId()).isEqualTo(BootUiPanels.MONGODB);
+        assertThat(inspectTool.schema()).isEqualTo(McpToolSchema.MONGODB_INSPECT);
+        assertThat(inspectTool.action()).isTrue();
+        assertThat(inspectTool.invoke(new McpArguments(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of(
+                                "clientId", "client",
+                                "scope", "SELECTED",
+                                "databaseId", "database",
+                                "collectionId", "collection",
+                                "snapshotId", "snapshot"))))
+                .isSameAs(inspected);
+        verify(service).report("snapshot", "INDEXES", "database", "collection", "compound", 7, 13);
+        verify(service).inspect(request);
+        when(availability.isPanelAvailable(BootUiPanels.MONGODB)).thenReturn(false);
+        assertThat(tools(availability, mock(SqlTraceResource.class), mock(RestClientTraceResource.class), service))
+                .extracting(McpTool::name)
+                .doesNotContain("get_mongodb_report", "mongodb_inspect");
+        verifyNoMoreInteractions(service);
+    }
 
     @Test
     void everyAdvisorPageForwardsAllArgumentsToItsNativeResource() throws Exception {
@@ -183,54 +250,63 @@ class QuarkusMcpToolsTest {
 
     private static List<McpTool> tools(
             QuarkusPanelAvailability availability, SqlTraceResource sqlTrace, RestClientTraceResource restClientTrace) {
-        return new QuarkusMcpTools(
-                        availability,
-                        mock(ArchitectureResource.class),
-                        mock(SpringResource.class),
-                        mock(HibernateResource.class),
-                        mock(MemoryResource.class),
-                        mock(SecurityResource.class),
-                        mock(PentestingResource.class),
-                        mock(RestApiResource.class),
-                        mock(ExceptionsResource.class),
-                        mock(LiveActivityResource.class),
-                        mock(SecurityLogsResource.class),
-                        sqlTrace,
-                        mock(TracesResource.class),
-                        mock(LogTailResource.class),
-                        mock(HttpExchangesResource.class),
-                        mock(HealthResource.class),
-                        mock(ConfigResource.class),
-                        mock(BeansResource.class),
-                        mock(MappingsResource.class),
-                        mock(OverviewResource.class),
-                        mock(DatabaseAdvisorResource.class),
-                        mock(PostgresqlResource.class),
-                        mock(MySqlResource.class),
-                        mock(VulnerabilitiesResource.class),
-                        mock(LoggersResource.class),
-                        mock(ScheduledResource.class),
-                        mock(FaultToleranceResource.class),
-                        mock(CacheResource.class),
-                        mock(ConnectionPoolsResource.class),
-                        mock(MetricsResource.class),
-                        mock(LiveMemoryResource.class),
-                        mock(JvmTuningResource.class),
-                        mock(HeapDumpResource.class),
-                        mock(ThreadsResource.class),
-                        mock(ProfileDiffResource.class),
-                        mock(FlywayResource.class),
-                        mock(LiquibaseResource.class),
-                        restClientTrace,
-                        mock(AiResource.class),
-                        mock(EmailResource.class),
-                        mock(KafkaResource.class),
-                        mock(RabbitResource.class),
-                        mock(DevServicesResource.class),
-                        mock(GitHubResource.class),
-                        mock(CopilotResource.class),
-                        mock(ClaudeCodeResource.class))
-                .tools();
+        return tools(availability, sqlTrace, restClientTrace, mock(MongoDbInspectionService.class));
+    }
+
+    private static List<McpTool> tools(
+            QuarkusPanelAvailability availability,
+            SqlTraceResource sqlTrace,
+            RestClientTraceResource restClientTrace,
+            MongoDbInspectionService mongodb) {
+        QuarkusMcpTools registry = new QuarkusMcpTools(
+                availability,
+                mock(ArchitectureResource.class),
+                mock(SpringResource.class),
+                mock(HibernateResource.class),
+                mock(MemoryResource.class),
+                mock(SecurityResource.class),
+                mock(PentestingResource.class),
+                mock(RestApiResource.class),
+                mock(ExceptionsResource.class),
+                mock(LiveActivityResource.class),
+                mock(SecurityLogsResource.class),
+                sqlTrace,
+                mock(TracesResource.class),
+                mock(LogTailResource.class),
+                mock(HttpExchangesResource.class),
+                mock(HealthResource.class),
+                mock(ConfigResource.class),
+                mock(BeansResource.class),
+                mock(MappingsResource.class),
+                mock(OverviewResource.class),
+                mock(DatabaseAdvisorResource.class),
+                mock(PostgresqlResource.class),
+                mock(MySqlResource.class),
+                mock(VulnerabilitiesResource.class),
+                mock(LoggersResource.class),
+                mock(ScheduledResource.class),
+                mock(FaultToleranceResource.class),
+                mock(CacheResource.class),
+                mock(ConnectionPoolsResource.class),
+                mock(MetricsResource.class),
+                mock(LiveMemoryResource.class),
+                mock(JvmTuningResource.class),
+                mock(HeapDumpResource.class),
+                mock(ThreadsResource.class),
+                mock(ProfileDiffResource.class),
+                mock(FlywayResource.class),
+                mock(LiquibaseResource.class),
+                restClientTrace,
+                mock(AiResource.class),
+                mock(EmailResource.class),
+                mock(KafkaResource.class),
+                mock(RabbitResource.class),
+                mock(DevServicesResource.class),
+                mock(GitHubResource.class),
+                mock(CopilotResource.class),
+                mock(ClaudeCodeResource.class));
+        registry.addMongoDbTools(availability, mongodb);
+        return registry.tools();
     }
 
     private static void invoke(List<McpTool> tools, String name, McpArguments arguments) {

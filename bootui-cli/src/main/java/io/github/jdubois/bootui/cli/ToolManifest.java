@@ -55,7 +55,17 @@ public final class ToolManifest {
                     tool.get("stacks").values().stream()
                             .map(stack -> stack.asString(""))
                             .toList(),
-                    tool.get("summary").asString("")));
+                    tool.get("summary").asString(""),
+                    tool.get("arguments").isMissing()
+                            ? null
+                            : tool.get("arguments").values().stream()
+                                    .map(value -> value.asString(""))
+                                    .toList(),
+                    tool.get("required").isMissing()
+                            ? null
+                            : tool.get("required").values().stream()
+                                    .map(value -> value.asString(""))
+                                    .toList()));
         }
         return new ToolManifest(tools);
     }
@@ -92,12 +102,29 @@ public final class ToolManifest {
             String panel,
             boolean action,
             List<String> stacks,
-            String summary) {
+            String summary,
+            List<String> arguments,
+            List<String> required) {
 
         public Tool {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(command, "command");
             stacks = stacks == null ? List.of() : List.copyOf(stacks);
+            // Compatibility with pre-argument-metadata manifests. Newly generated manifests always
+            // carry these lists directly from McpToolSchema, never from a CLI-owned Mongo registry.
+            arguments = arguments == null ? legacyArguments(schema) : List.copyOf(arguments);
+            required = required == null ? legacyRequired(schema) : List.copyOf(required);
+        }
+
+        public Tool(
+                String name,
+                String command,
+                String schema,
+                String panel,
+                boolean action,
+                List<String> stacks,
+                String summary) {
+            this(name, command, schema, panel, action, stacks, summary, null, null);
         }
 
         /** The command path split into its words. */
@@ -107,27 +134,52 @@ public final class ToolManifest {
 
         /** Whether this tool takes a {@code query} filter. */
         public boolean takesQuery() {
-            return "QUERY_LIMIT".equals(schema);
+            return arguments.contains("query");
         }
 
         /** Whether this tool takes a {@code limit}. */
         public boolean takesLimit() {
-            return "LIMIT".equals(schema) || "QUERY_LIMIT".equals(schema) || takesScanId();
+            return arguments.contains("limit");
         }
 
         /** Whether this tool requires an {@code id} positional. */
         public boolean takesId() {
-            return "ID".equals(schema) || takesScanId();
+            return arguments.contains("id");
         }
 
         /** Whether this tool requires a completed advisor snapshot identifier. */
         public boolean takesScanId() {
-            return "RULE_VIOLATIONS".equals(schema);
+            return arguments.contains("scanId");
         }
 
         /** Whether this tool accepts an offset into retained advisor details. */
         public boolean takesOffset() {
-            return "RULE_VIOLATIONS".equals(schema);
+            return arguments.contains("offset");
+        }
+
+        public List<String> selectionArguments() {
+            return arguments.stream()
+                    .filter(name ->
+                            !List.of("id", "query", "limit", "scanId", "offset").contains(name))
+                    .toList();
+        }
+
+        private static List<String> legacyArguments(String schema) {
+            return switch (schema) {
+                case "ID" -> List.of("id");
+                case "LIMIT" -> List.of("limit");
+                case "QUERY_LIMIT" -> List.of("query", "limit");
+                case "RULE_VIOLATIONS" -> List.of("id", "scanId", "offset", "limit");
+                default -> List.of();
+            };
+        }
+
+        private static List<String> legacyRequired(String schema) {
+            return switch (schema) {
+                case "ID" -> List.of("id");
+                case "RULE_VIOLATIONS" -> List.of("id", "scanId");
+                default -> List.of();
+            };
         }
 
         /** Whether every stack advertises this tool. */

@@ -4,6 +4,10 @@
       "name": "get_live_activity",
       "command": "activity",
       "schema": "LIMIT",
+      "arguments": [
+        "limit"
+      ],
+      "required": [],
       "panel": "activity",
       "action": false,
       "stacks": [
@@ -17,6 +21,8 @@
       "name": "get_ai_overview",
       "command": "ai overview",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "ai",
       "action": false,
       "stacks": [
@@ -30,6 +36,8 @@
       "name": "get_architecture_report",
       "command": "architecture report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "architecture",
       "action": false,
       "stacks": [
@@ -43,6 +51,8 @@
       "name": "architecture_scan",
       "command": "architecture scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "architecture",
       "action": true,
       "stacks": [
@@ -56,6 +66,16 @@
       "name": "get_architecture_rule_violations",
       "command": "architecture violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "architecture",
       "action": false,
       "stacks": [
@@ -69,6 +89,11 @@
       "name": "get_beans",
       "command": "beans",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "beans",
       "action": false,
       "stacks": [
@@ -82,6 +107,8 @@
       "name": "get_cache_stats",
       "command": "cache",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "cache",
       "action": false,
       "stacks": [
@@ -95,6 +122,11 @@
       "name": "get_conditions",
       "command": "conditions",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "conditions",
       "action": false,
       "stacks": [
@@ -107,6 +139,11 @@
       "name": "get_config",
       "command": "config",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "config",
       "action": false,
       "stacks": [
@@ -120,6 +157,8 @@
       "name": "get_crac_report",
       "command": "crac report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "crac",
       "action": false,
       "stacks": [
@@ -132,6 +171,8 @@
       "name": "crac_scan",
       "command": "crac scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "crac",
       "action": true,
       "stacks": [
@@ -144,6 +185,8 @@
       "name": "get_flyway_migrations",
       "command": "db flyway",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "flyway",
       "action": false,
       "stacks": [
@@ -157,6 +200,8 @@
       "name": "get_liquibase_changesets",
       "command": "db liquibase",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "liquibase",
       "action": false,
       "stacks": [
@@ -167,9 +212,57 @@
       "summary": "Return the current Liquibase change-set history and status without running update."
     },
     {
+      "name": "mongodb_inspect",
+      "command": "db mongodb inspect",
+      "schema": "MONGODB_INSPECT",
+      "arguments": [
+        "clientId",
+        "scope",
+        "databaseId",
+        "collectionId",
+        "snapshotId"
+      ],
+      "required": [
+        "clientId"
+      ],
+      "panel": "mongodb",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Explicitly inspect one initialized application MongoDB clientId."
+    },
+    {
+      "name": "get_mongodb_report",
+      "command": "db mongodb report",
+      "schema": "MONGODB_REPORT",
+      "arguments": [
+        "snapshotId",
+        "section",
+        "databaseId",
+        "collectionId",
+        "query",
+        "offset",
+        "limit"
+      ],
+      "required": [],
+      "panel": "mongodb",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Read existing local MongoDB client declarations and the retained inspection without database I/O."
+    },
+    {
       "name": "mysql_read",
       "command": "db mysql read",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "mysql",
       "action": true,
       "stacks": [
@@ -183,6 +276,8 @@
       "name": "get_mysql_report",
       "command": "db mysql report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "mysql",
       "action": false,
       "stacks": [
@@ -196,6 +291,8 @@
       "name": "get_database_connection_pools",
       "command": "db pools",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "database-connection-pools",
       "action": false,
       "stacks": [
@@ -209,6 +306,8 @@
       "name": "postgresql_read",
       "command": "db postgres read",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "postgresql",
       "action": true,
       "stacks": [
@@ -222,6 +321,8 @@
       "name": "get_postgresql_report",
       "command": "db postgres report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "postgresql",
       "action": false,
       "stacks": [
@@ -235,6 +336,8 @@
       "name": "get_database_advisor_report",
       "command": "db report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "database-advisor",
       "action": false,
       "stacks": [
@@ -248,6 +351,8 @@
       "name": "database_advisor_scan",
       "command": "db scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "database-advisor",
       "action": true,
       "stacks": [
@@ -261,6 +366,16 @@
       "name": "get_database_advisor_rule_violations",
       "command": "db violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "database-advisor",
       "action": false,
       "stacks": [
@@ -274,6 +389,8 @@
       "name": "get_dev_services",
       "command": "dev-services",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "dev-services",
       "action": false,
       "stacks": [
@@ -287,6 +404,8 @@
       "name": "trigger_devtools_livereload",
       "command": "devtools livereload",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "devtools",
       "action": true,
       "stacks": [
@@ -299,6 +418,8 @@
       "name": "get_devtools_status",
       "command": "devtools status",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "devtools",
       "action": false,
       "stacks": [
@@ -311,6 +432,8 @@
       "name": "clear_exceptions",
       "command": "exceptions clear",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "exceptions",
       "action": true,
       "stacks": [
@@ -324,6 +447,8 @@
       "name": "get_exceptions",
       "command": "exceptions list",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "exceptions",
       "action": false,
       "stacks": [
@@ -337,6 +462,12 @@
       "name": "get_exception_detail",
       "command": "exceptions show",
       "schema": "ID",
+      "arguments": [
+        "id"
+      ],
+      "required": [
+        "id"
+      ],
       "panel": "exceptions",
       "action": false,
       "stacks": [
@@ -350,6 +481,8 @@
       "name": "get_fault_tolerance",
       "command": "fault-tolerance",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "fault-tolerance",
       "action": false,
       "stacks": [
@@ -363,6 +496,8 @@
       "name": "get_github_dashboard",
       "command": "github",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "github",
       "action": false,
       "stacks": [
@@ -376,6 +511,8 @@
       "name": "get_graalvm_report",
       "command": "graalvm report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "graalvm",
       "action": false,
       "stacks": [
@@ -388,6 +525,8 @@
       "name": "graalvm_scan",
       "command": "graalvm scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "graalvm",
       "action": true,
       "stacks": [
@@ -400,6 +539,8 @@
       "name": "get_health",
       "command": "health",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "health",
       "action": false,
       "stacks": [
@@ -413,6 +554,8 @@
       "name": "get_hibernate_report",
       "command": "hibernate report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "hibernate",
       "action": false,
       "stacks": [
@@ -426,6 +569,8 @@
       "name": "hibernate_scan",
       "command": "hibernate scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "hibernate",
       "action": true,
       "stacks": [
@@ -439,6 +584,16 @@
       "name": "get_hibernate_rule_violations",
       "command": "hibernate violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "hibernate",
       "action": false,
       "stacks": [
@@ -452,6 +607,10 @@
       "name": "get_http_exchanges",
       "command": "http exchanges",
       "schema": "LIMIT",
+      "arguments": [
+        "limit"
+      ],
+      "required": [],
       "panel": "http-exchanges",
       "action": false,
       "stacks": [
@@ -465,6 +624,8 @@
       "name": "get_http_sessions",
       "command": "http sessions",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "http-sessions",
       "action": false,
       "stacks": [
@@ -476,6 +637,8 @@
       "name": "get_jms_activity",
       "command": "jms",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "jms",
       "action": false,
       "stacks": [
@@ -488,6 +651,8 @@
       "name": "get_jvm_tuning",
       "command": "jvm tuning",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "jvm-tuning",
       "action": false,
       "stacks": [
@@ -501,6 +666,8 @@
       "name": "get_kafka_activity",
       "command": "kafka",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "kafka",
       "action": false,
       "stacks": [
@@ -514,6 +681,11 @@
       "name": "get_loggers",
       "command": "loggers",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "loggers",
       "action": false,
       "stacks": [
@@ -527,6 +699,8 @@
       "name": "get_log_tail",
       "command": "logs tail",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "log-tail",
       "action": false,
       "stacks": [
@@ -540,6 +714,8 @@
       "name": "get_emails",
       "command": "mail",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "email",
       "action": false,
       "stacks": [
@@ -553,6 +729,11 @@
       "name": "get_mappings",
       "command": "mappings",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "mappings",
       "action": false,
       "stacks": [
@@ -566,6 +747,8 @@
       "name": "analyze_heap_dump",
       "command": "memory heap analyze",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "heap-dump",
       "action": true,
       "stacks": [
@@ -579,6 +762,8 @@
       "name": "get_heap_dump_report",
       "command": "memory heap report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "heap-dump",
       "action": false,
       "stacks": [
@@ -592,6 +777,8 @@
       "name": "get_live_memory",
       "command": "memory live",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "live-memory",
       "action": false,
       "stacks": [
@@ -605,6 +792,8 @@
       "name": "get_memory_report",
       "command": "memory report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "memory",
       "action": false,
       "stacks": [
@@ -618,6 +807,8 @@
       "name": "memory_scan",
       "command": "memory scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "memory",
       "action": true,
       "stacks": [
@@ -631,6 +822,16 @@
       "name": "get_memory_rule_violations",
       "command": "memory violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "memory",
       "action": false,
       "stacks": [
@@ -644,6 +845,11 @@
       "name": "get_metrics",
       "command": "metrics",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "metrics",
       "action": false,
       "stacks": [
@@ -657,6 +863,8 @@
       "name": "get_overview",
       "command": "overview",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "overview",
       "action": false,
       "stacks": [
@@ -670,6 +878,8 @@
       "name": "get_pentest_report",
       "command": "pentest report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "pentesting",
       "action": false,
       "stacks": [
@@ -683,6 +893,8 @@
       "name": "pentest_scan",
       "command": "pentest scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "pentesting",
       "action": true,
       "stacks": [
@@ -696,6 +908,8 @@
       "name": "get_profile_diff",
       "command": "profile diff",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "profile-diff",
       "action": false,
       "stacks": [
@@ -709,6 +923,8 @@
       "name": "get_rabbitmq_activity",
       "command": "rabbitmq",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rabbitmq",
       "action": false,
       "stacks": [
@@ -722,6 +938,8 @@
       "name": "get_spring_data_repositories",
       "command": "repositories",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "data",
       "action": false,
       "stacks": [
@@ -734,6 +952,8 @@
       "name": "get_rest_api_report",
       "command": "rest-api report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-api",
       "action": false,
       "stacks": [
@@ -747,6 +967,8 @@
       "name": "rest_api_scan",
       "command": "rest-api scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-api",
       "action": true,
       "stacks": [
@@ -760,6 +982,16 @@
       "name": "get_rest_api_rule_violations",
       "command": "rest-api violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "rest-api",
       "action": false,
       "stacks": [
@@ -773,6 +1005,8 @@
       "name": "clear_rest_client_traces",
       "command": "rest-client clear",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-client-trace",
       "action": true,
       "stacks": [
@@ -786,6 +1020,8 @@
       "name": "pause_rest_client_recording",
       "command": "rest-client pause",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-client-trace",
       "action": true,
       "stacks": [
@@ -799,6 +1035,8 @@
       "name": "resume_rest_client_recording",
       "command": "rest-client resume",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-client-trace",
       "action": true,
       "stacks": [
@@ -812,6 +1050,8 @@
       "name": "get_rest_client_traces",
       "command": "rest-client traces",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "rest-client-trace",
       "action": false,
       "stacks": [
@@ -825,6 +1065,8 @@
       "name": "get_scheduled_tasks",
       "command": "scheduled",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "scheduled",
       "action": false,
       "stacks": [
@@ -838,6 +1080,8 @@
       "name": "get_spring_security",
       "command": "security config",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "spring-security",
       "action": false,
       "stacks": [
@@ -850,6 +1094,10 @@
       "name": "get_security_logs",
       "command": "security logs",
       "schema": "LIMIT",
+      "arguments": [
+        "limit"
+      ],
+      "required": [],
       "panel": "security-logs",
       "action": false,
       "stacks": [
@@ -863,6 +1111,8 @@
       "name": "get_security_report",
       "command": "security report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "security",
       "action": false,
       "stacks": [
@@ -876,6 +1126,8 @@
       "name": "security_scan",
       "command": "security scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "security",
       "action": true,
       "stacks": [
@@ -889,6 +1141,16 @@
       "name": "get_security_rule_violations",
       "command": "security violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "security",
       "action": false,
       "stacks": [
@@ -902,6 +1164,8 @@
       "name": "get_claude_code_sessions",
       "command": "sessions claude",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "claude-code",
       "action": false,
       "stacks": [
@@ -915,6 +1179,8 @@
       "name": "get_copilot_sessions",
       "command": "sessions copilot",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "copilot",
       "action": false,
       "stacks": [
@@ -928,6 +1194,8 @@
       "name": "get_spring_report",
       "command": "spring report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "spring",
       "action": false,
       "stacks": [
@@ -941,6 +1209,8 @@
       "name": "spring_scan",
       "command": "spring scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "spring",
       "action": true,
       "stacks": [
@@ -954,6 +1224,16 @@
       "name": "get_spring_rule_violations",
       "command": "spring violations",
       "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset",
+        "limit"
+      ],
+      "required": [
+        "id",
+        "scanId"
+      ],
       "panel": "spring",
       "action": false,
       "stacks": [
@@ -967,6 +1247,8 @@
       "name": "clear_sql_traces",
       "command": "sql clear",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "sql-trace",
       "action": true,
       "stacks": [
@@ -980,6 +1262,8 @@
       "name": "pause_sql_trace_recording",
       "command": "sql pause",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "sql-trace",
       "action": true,
       "stacks": [
@@ -993,6 +1277,8 @@
       "name": "resume_sql_trace_recording",
       "command": "sql resume",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "sql-trace",
       "action": true,
       "stacks": [
@@ -1006,6 +1292,8 @@
       "name": "get_sql_traces",
       "command": "sql traces",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "sql-trace",
       "action": false,
       "stacks": [
@@ -1019,6 +1307,8 @@
       "name": "get_startup_timeline",
       "command": "startup",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "startup",
       "action": false,
       "stacks": [
@@ -1031,6 +1321,11 @@
       "name": "get_threads",
       "command": "threads",
       "schema": "QUERY_LIMIT",
+      "arguments": [
+        "query",
+        "limit"
+      ],
+      "required": [],
       "panel": "threads",
       "action": false,
       "stacks": [
@@ -1044,6 +1339,8 @@
       "name": "clear_traces",
       "command": "traces clear",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "traces",
       "action": true,
       "stacks": [
@@ -1057,6 +1354,10 @@
       "name": "get_traces",
       "command": "traces list",
       "schema": "LIMIT",
+      "arguments": [
+        "limit"
+      ],
+      "required": [],
       "panel": "traces",
       "action": false,
       "stacks": [
@@ -1070,6 +1371,8 @@
       "name": "clear_transactions",
       "command": "tx clear",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "transactions",
       "action": true,
       "stacks": [
@@ -1082,6 +1385,8 @@
       "name": "get_transactions",
       "command": "tx list",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "transactions",
       "action": false,
       "stacks": [
@@ -1094,6 +1399,8 @@
       "name": "pause_transaction_recording",
       "command": "tx pause",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "transactions",
       "action": true,
       "stacks": [
@@ -1106,6 +1413,8 @@
       "name": "resume_transaction_recording",
       "command": "tx resume",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "transactions",
       "action": true,
       "stacks": [
@@ -1118,6 +1427,8 @@
       "name": "get_vulnerabilities_report",
       "command": "vulnerabilities report",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "vulnerabilities",
       "action": false,
       "stacks": [
@@ -1131,6 +1442,8 @@
       "name": "vulnerabilities_scan",
       "command": "vulnerabilities scan",
       "schema": "NONE",
+      "arguments": [],
+      "required": [],
       "panel": "vulnerabilities",
       "action": true,
       "stacks": [

@@ -74,8 +74,20 @@ final class CliContext {
     }
 
     int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id, String scanId, Integer offset) {
+        return invokeTool(tool, query, limit, id, scanId, offset, Map.of());
+    }
+
+    int invokeTool(
+            ToolManifest.Tool tool,
+            String query,
+            Integer limit,
+            String id,
+            String scanId,
+            Integer offset,
+            Map<String, String> selection) {
         try (BootUiClient client = newClient()) {
             Map<String, JsonValue> arguments = new LinkedHashMap<>();
+            selection.forEach((key, value) -> arguments.put(key, JsonValue.of(value)));
             if (query != null) {
                 arguments.put("query", JsonValue.of(query));
             }

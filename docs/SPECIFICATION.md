@@ -1679,7 +1679,8 @@ Features:
   - Domain type and ID type.
   - Custom implementation class, if any.
   - Method list with origin badge (CRUD, derived-query, `@Query`, fragment, default-method).
-  - For `@Query`-annotated methods: the declared query string, native flag, and named-query reference if any.
+  - For non-Mongo `@Query` methods: the existing declared query string, native flag, and named-query reference.
+    Mongo query/aggregation methods expose safe language/kind/presence metadata instead of literal text.
 - Filter by repository interface, bean name, domain type, method, or query content.
 
 Out of scope for the current release surface:
@@ -1692,8 +1693,12 @@ Acceptance criteria:
 
 - When Spring Data is not on the classpath, the API endpoint is not registered.
 - When Spring Data is present but no repositories are detected, the panel shows a clear empty state.
-- Query strings declared via `@Query` are displayed verbatim; BootUI never rewrites or executes them.
+- Non-Mongo query strings retain their existing representation. MongoDB query/aggregation annotation literals are
+  withheld in every exposure mode and represented by safe language/kind/presence metadata.
 - No repository method is invoked as a side effect of opening the panel.
+- Discovery does not initialize lazy/prototype factories or dynamic proxy targets. Inaccessible declarations produce
+  bounded completeness warnings, not a misleading empty success. Mongo mappings/index declarations are static metadata;
+  collection/index expressions and tenant/routing factories are never evaluated.
 
 ### 5.17.1 Hibernate Panel
 
@@ -2222,6 +2227,52 @@ instrumentation enable/reset, persistent monitoring, precise end-to-end replicat
 Live restricted-account and MySQL-available REST/MCP/CLI contracts cover all three adapters, including custom mounts
 and pooled connection cleanup. See [MySQL](features/database.md#mysql) and the [roadmap](PLAN.md).
 
+### 5.17.9 MongoDB Panel
+
+One optional managed-client metadata capability on MVC, WebFlux and Quarkus. Driver style is independent of HTTP
+style: sync/reactive/named clients use their existing resources without introducing the other style or a new pool.
+Spring Data enrichment is complementary; Quarkus Panache metadata is not included.
+
+- `GET <api-path>/mongodb` observes local declarations/topology and one retained sanitized snapshot. It never runs a
+  Mongo command, creates/resolves a lazy client or invokes Health. Unknown topology is not failed health.
+- `POST <api-path>/mongodb/inspect` requires opaque `clientId`; `scope` defaults to CONFIGURED. SELECTED uses known
+  `databaseId` and optional `collectionId`, with `snapshotId` for observed selections. No arbitrary URI/command/query.
+- AUTHORIZED_NAMES requires explicit configuration and explicit request. It reads only authorized names; the Mongo
+  command's initial response is not server-paged, and retained caps do not bound its decoding.
+- Collection-name reads use least-privilege authorized name-only semantics. Rich options/index reads fail independently.
+  Preserve names and successful neighbors with typed capability reasons; do not turn denied metadata into zero.
+- Report states are NOT_READ/READ/PARTIAL/ERROR/DISABLED. READ means completed scope, not healthy MongoDB or good indexes.
+  `truncated` identifies omitted retained items or shortened text, separately from denied/unsupported/timeout evidence.
+  Retained external names or server metadata followed by failure is PARTIAL; purely local declarations cannot
+  manufacture external success. Configured targets omitted by the database cap are explicitly partial coverage.
+- GET/read-tool paging accepts snapshotId, section (DATABASES/COLLECTIONS/INDEXES), parent IDs, query, offset and limit.
+  Counts describe retained rows; BootUI retains no driver cursor between actions or resumes one during GET.
+  Owned cursors are closed/cancelled before action return; remote asynchronous cleanup may finish later. Stale snapshots are 409.
+  Missing required selectors are 400 and unknown targets 404. Unknown/duplicate query fields, duplicate JSON keys and
+  trailing JSON values are rejected. Failed paging keeps the UI's last accepted section and rows.
+- Defaults: 16 local clients, one action client, 8 databases, 50 collections/database, 32 indexes/collection, 1,000 total
+  retained items, 512 KiB metadata, 256-character text; 10-second cooperative total and 2-second operation CSOT.
+  Existing tighter positive client timeouts win. Zero never represents expired time. Cleanup/server work is not a hard
+  end-to-end deadline. All effective bounds are returned; [Properties](PROPERTIES.md#mongodb) defines ranges.
+- Index keys preserve order and conventional key kinds; exact BSON int64 options are decimal strings. No documents,
+  validators/pipelines/partial predicates/projection literals, credentials, auth sources, TLS material or raw errors,
+  even in FULL exposure. Dynamic mapping/index expressions are not executed.
+- Shared service and single-flight across UI/REST/MCP/CLI. Panel enable/read-only, global read-only, localhost/Host/CSRF,
+  mounts and production-dark policies remain aligned. Exposure changes invalidate/discard stale results without I/O.
+  Replacing a client invalidates its executable IDs independently of exposure or snapshot creation. Current inventory
+  and retained external evidence share one metadata budget, reaccounted on passive reads or explicitly invalidated.
+  Fixed metadata reads use built-in BSON codecs on resource-sharing timeout views. Recognizable original credential
+  strings are masked before truncation. Reactive cancellation initiates, but does not await, remote driver cleanup;
+  synchronous owned close/cancel calls remain inside admission and cleanup errors retain the primary safe failure.
+- `get_mongodb_report` / `mongodb_inspect` mechanically project to `bootui db mongodb report` / `inspect`.
+  No new client dependency or bespoke CLI collector. Agent approval names the client/scope; retries are never automatic.
+- No statistics, scores, index recommendations, command listeners, profiling, schema inference, shell, writes,
+  migrations or topology administration. Standalone Mongo sample retains H2 for JPA/Flyway/Liquibase and Caffeine;
+  ordinary sample dependencies remain behind the isolated Maven profile.
+
+Positive authenticated live contracts, not unavailable-only conformance, establish the supported server/driver matrix.
+See [MongoDB](features/database.md#mongodb) for limitations and sample use.
+
 ### 5.18 Cache Panel
 
 Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
@@ -2543,6 +2594,8 @@ Initial endpoints:
 | `/bootui/api/postgresql/read`        | POST   | Run an explicit bounded, read-only PostgreSQL statistics read                          |
 | `/bootui/api/mysql`                  | GET    | Latest cached MySQL report; never opens a connection or runs SQL                        |
 | `/bootui/api/mysql/read`             | POST   | Explicit bounded MySQL operational read through application JDBC datasources            |
+| `/bootui/api/mongodb`                | GET    | Passive local client inventory and snapshot-bound retained catalog paging               |
+| `/bootui/api/mongodb/inspect`        | POST   | Explicit selected-scope metadata inspection through one existing initialized client     |
 | `/bootui/api/sql-trace`                       | GET    | Retained SQL execution report and aggregate statistics                                |
 | `/bootui/api/sql-trace/insights`              | GET    | Ranked normalized statements and request-route attribution over the retained window   |
 | `/bootui/api/sql-trace/clear`                 | POST   | Clear the retained SQL execution buffer                                                |
@@ -2798,7 +2851,7 @@ Design rules:
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
-    `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+    `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_mongodb_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -2806,7 +2859,7 @@ Design rules:
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
-    `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+    `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `mongodb_inspect`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
 
   MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
   argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
@@ -2965,6 +3018,7 @@ Top-level navigation:
   - Database Connection Pools.
   - PostgreSQL.
   - MySQL.
+  - MongoDB.
   - Transactions.
   - SQL Trace.
   - Hibernate Statistics.

@@ -4,10 +4,10 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 58 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The current surface covers 61 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. A **MySQL**
-operational sibling to PostgreSQL is delivered (§3.17); the planned **MongoDB** operational view (§3.5) remains
-a separate workstream.
+operational sibling to PostgreSQL is delivered (§3.17); **MongoDB** selected-scope metadata inspection (§3.5) is
+implemented for the next release without becoming a SQL or advisor abstraction.
 
 The priorities for every item below remain unchanged:
 
@@ -33,15 +33,14 @@ MySQL's bounded operational view is **delivered**, with Oracle MySQL 8.4.6 live 
 stacks. Its source/runtime acceptance and browser integration are verified (§3.17).
 MariaDB remains a separate unsupported follow-up.
 
-MongoDB remains the next planned feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
-Spring Data panel, but it has no framework-neutral operational view of MongoDB clients, topology, databases,
-collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
-will therefore be additive rather than an extension of the SQL-specific panels.
+MongoDB now has a framework-neutral local client/topology inventory and explicit bounded database/collection/index
+inspection. Safe static Spring Data enrichment complements the operational view. JDBC/Flyway/Liquibase contracts
+are unchanged; the isolated Mongo sample keeps H2 for those relational features.
 
 | Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
 | -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
 | Delivered | MySQL operational view  | Database | Existing application JDBC datasources | No application-data mutation; explicit read | Delivered |
-| Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
+| Implemented | MongoDB operational view | Database | Existing Spring/Quarkus sync/reactive/named clients | Explicit metadata read only | Unreleased |
 | Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
 | Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
@@ -56,11 +55,11 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 
 ## 3. Feature specifications
 
-### 3.5 MongoDB operational view — Database 📋 Planned
+### 3.5 MongoDB operational view — Database — implemented, unreleased
 
 BootUI already detects Spring Data MongoDB repository metadata under the existing Spring Data panel. This new panel
-addresses a different question: "Which MongoDB clients and data structures is this running application connected to, and
-which operational risks should I review?" It must not force document-database concepts into JDBC connection-pool, SQL
+addresses a different question: "Which MongoDB clients and data structures does this application declare, and what
+catalog metadata can its account observe?" It does not force document-database concepts into JDBC connection-pool, SQL
 Trace, Flyway, or Liquibase contracts.
 
 Scope:
@@ -72,15 +71,15 @@ Scope:
   databases, collections, and indexes. Results must be capped and paged where cardinality can grow, and a permissions
   failure for one database or collection must be reported against that target without discarding the rest of the
   snapshot.
-- Surface read-only review prompts for high-value, evidence-based issues such as missing indexes for declared repository
-  metadata where this can be determined safely, unexpectedly large unindexed collections, or unsafe development
-  configuration. Do not infer a finding when the server or required metadata is unavailable.
+- Keep declared Spring Data metadata separate from observed catalog evidence. Show safe static mapping, query kind and
+  imperative/reactive type without executing expressions or returning query/pipeline literals. No missing-index,
+  large-collection, performance advice or scoring is part of v1.
 - Support named/multiple clients and both supported driver styles where the host framework exposes them, while returning
   the same stable DTOs and UI on every adapter.
 
 Architecture:
 
-- Put report assembly, bounds, ordering, and advisory policy in a JSON-free, framework-neutral engine service. Define a
+- Put report assembly, bounds, ordering, and exposure policy in a JSON-free, framework-neutral engine service. Define a
   neutral MongoDB provider SPI; adapters translate their native driver metadata into core records.
 - Keep MongoDB driver imports out of the engine. Spring wiring must be classpath/bean-gated. Quarkus wiring must be
   capability-gated and exclude the optional driver-dependent provider classes when the MongoDB extension is absent, using
@@ -110,6 +109,14 @@ Acceptance criteria:
   equivalent MongoDB metadata.
 - The sample applications cover absent-client, unreachable-server, insufficient-permission, empty-database, and
   multi-client states without requiring MongoDB for the default Docker-free test path.
+
+Validation includes authenticated MongoDB 8.0.19 standalone/replica-set fixtures, positive MVC/WebFlux/Quarkus
+REST/MCP/executable CLI and browser contracts, non-creating lazy/inactive discovery, restricted metadata permissions,
+CSOT/cursor cleanup, exact numeric strings, all four browser suites and Java17 coverage.
+Configured scope is the default; opt-in authorized names have an unpaged initial server response. Retained item/byte
+bounds and cooperative deadlines are described precisely in [the feature guide](features/database.md#mongodb).
+No statistics, missing-index verdicts, profiling, document browsing, tenant resolution or managed-compatible-server
+certification is implied. Paired consumer packages verify optional dependencies and unchanged idle Mongo resources.
 
 ### 3.6 Declarative HTTP client registry — Services 📋 Planned
 

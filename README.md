@@ -22,6 +22,7 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 | Setup | <https://www.julien-dubois.com/boot-ui/setup> |
 | Features | <https://www.julien-dubois.com/boot-ui/features> |
 | MySQL operational view | [Feature guide](docs/features/database.md#mysql) |
+| MongoDB client and catalog inspection | [Feature guide](docs/features/database.md#mongodb) |
 | Properties | <https://www.julien-dubois.com/boot-ui/properties> |
 | AI agents | <https://www.julien-dubois.com/boot-ui/ai-agents> |
 | Command line | <https://www.julien-dubois.com/boot-ui/cli> |

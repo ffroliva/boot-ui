@@ -9,7 +9,10 @@ import io.github.jdubois.bootui.core.dto.TransactionReport;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.transaction.ConfigurableTransactionManager;
 
 class TransactionsControllerSupportTests {
@@ -39,8 +42,7 @@ class TransactionsControllerSupportTests {
         TransactionReport report = TransactionsControllerSupport.trace(provider(recorder), provider(null));
 
         assertThat(report.available()).isFalse();
-        assertThat(report.unavailableReason())
-                .isEqualTo("No configurable PlatformTransactionManager bean is available");
+        assertThat(report.unavailableReason()).isEqualTo("No configurable transaction manager bean is available");
     }
 
     @Test
@@ -112,6 +114,43 @@ class TransactionsControllerSupportTests {
                 new TransactionRecordingRequest(true));
 
         assertThat(report.available()).isFalse();
+    }
+
+    @Test
+    void beanFactoryOverloadsReportDeclaredReactiveManagersWithoutInitializingThem() {
+        var beans = new DefaultListableBeanFactory();
+        var lazy =
+                new RootBeanDefinition(org.springframework.data.mongodb.ReactiveMongoTransactionManager.class, () -> {
+                    throw new AssertionError("A passive transaction report must not instantiate a lazy manager");
+                });
+        lazy.setLazyInit(true);
+        beans.registerBeanDefinition("reactive", lazy);
+        var recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
+        assertThat(TransactionsControllerSupport.trace(provider(recorder), beans)
+                        .available())
+                .isTrue();
+        assertThat(TransactionsControllerSupport.clear(provider(recorder), beans)
+                        .available())
+                .isTrue();
+        assertThat(TransactionsControllerSupport.recording(
+                                provider(recorder), beans, new TransactionRecordingRequest(false))
+                        .available())
+                .isTrue();
+        assertThat(beans.containsSingleton("reactive")).isFalse();
+    }
+
+    @Test
+    void nonEagerAvailabilityDoesNotInitializeAnUnresolvedFactoryBean() {
+        var beans = new DefaultListableBeanFactory();
+        var lazy = new RootBeanDefinition(FactoryBean.class, () -> {
+            throw new AssertionError("Availability must not instantiate a factory to ask for its object type");
+        });
+        lazy.setLazyInit(true);
+        beans.registerBeanDefinition("unknownFactory", lazy);
+        var recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
+        TransactionReport report = TransactionsControllerSupport.trace(provider(recorder), beans);
+        assertThat(report.available()).isFalse();
+        assertThat(beans.containsSingleton("unknownFactory")).isFalse();
     }
 
     @SuppressWarnings("unchecked")

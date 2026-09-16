@@ -8,7 +8,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
-import org.springframework.transaction.ConfigurableTransactionManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,13 +34,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class TransactionsController {
 
     private final ObjectProvider<TransactionRecorder> recorderProvider;
-    private final ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider;
+    private final org.springframework.beans.factory.ListableBeanFactory transactionManagerProvider;
     private final BootUiChangeStream changeStream;
     private Runnable recorderUnsubscribe;
 
     public TransactionsController(
             ObjectProvider<TransactionRecorder> recorderProvider,
-            ObjectProvider<ConfigurableTransactionManager> transactionManagerProvider) {
+            org.springframework.beans.factory.ListableBeanFactory transactionManagerProvider) {
         this.recorderProvider = recorderProvider;
         this.transactionManagerProvider = transactionManagerProvider;
         this.changeStream = new BootUiChangeStream("transactions");

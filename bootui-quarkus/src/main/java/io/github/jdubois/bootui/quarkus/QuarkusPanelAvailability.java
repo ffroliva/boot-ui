@@ -149,6 +149,11 @@ import org.eclipse.microprofile.config.Config;
 @ApplicationScoped
 public class QuarkusPanelAvailability {
 
+    public static final String MONGODB_PRESENT_KEY = "bootui.internal.mongodb-present";
+
+    @Inject
+    io.github.jdubois.bootui.quarkus.mongodb.MongoDbClientsSnapshot mongoDbClients;
+
     /**
      * Runtime-config key carrying the build-time {@code HIBERNATE_ORM} capability decision. The deployment
      * processor emits it as a {@code RunTimeConfigurationDefaultBuildItem} (default {@code false}); this bean
@@ -451,6 +456,10 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
             Map.entry(BootUiPanels.POSTGRESQL, POSTGRESQL_ABSENT),
             Map.entry(BootUiPanels.MYSQL, MYSQL_ABSENT),
+            Map.entry(
+                    BootUiPanels.MONGODB,
+                    "Not available: no managed MongoDB client declaration. Add quarkus-mongodb-client"
+                            + " and inject the application's default or named Mongo client. BootUI never initializes clients."),
             Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
             Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
             Map.entry(BootUiPanels.SECURITY_LOGS, SECURITY_LOGS_ABSENT),
@@ -582,6 +591,10 @@ public class QuarkusPanelAvailability {
         this.accessConfig = new QuarkusPanelAccessConfig(config);
         this.dynamicAvailability = Map.ofEntries(
                 Map.entry(BootUiPanels.HIBERNATE, hibernatePresent),
+                Map.entry(
+                        BootUiPanels.MONGODB,
+                        config.getOptionalValue(MONGODB_PRESENT_KEY, Boolean.class)
+                                .orElse(false)),
                 Map.entry(BootUiPanels.HIBERNATE_STATISTICS, hibernatePresent),
                 Map.entry(BootUiPanels.SCHEDULED, schedulingPresent),
                 Map.entry(BootUiPanels.FAULT_TOLERANCE, faultTolerancePresent),
@@ -743,6 +756,11 @@ public class QuarkusPanelAvailability {
      * git config fresh on every call.
      */
     public boolean isPanelAvailable(String panelId) {
+        if (BootUiPanels.MONGODB.equals(panelId)) {
+            return dynamicAvailability.getOrDefault(panelId, false)
+                    && mongoDbClients != null
+                    && !mongoDbClients.declarations().isEmpty();
+        }
         return AVAILABLE_PANELS.contains(panelId)
                 || dynamicAvailability.getOrDefault(panelId, Boolean.FALSE)
                 || (BootUiPanels.GITHUB.equals(panelId) && githubAvailable());

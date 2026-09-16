@@ -162,9 +162,11 @@ onUnmounted(() => {
       <li v-for="rule in matches" :key="rule.id">
         <a :href="`#${rule.slug}`">
           <code class="rule-index__id">{{ rule.id }}</code>
-          <span class="rule-index__badge" :class="`rule-index__badge--${rule.severity.toLowerCase()}`">{{
-            rule.severity
-          }}</span>
+          <span
+            class="rule-index__badge"
+            :class="`rule-index__badge--${(rule.severity || 'unspecified').toLowerCase()}`"
+            >{{ rule.severity || 'Not specified' }}</span
+          >
           <span class="rule-index__title">{{ rule.title }}</span>
         </a>
       </li>

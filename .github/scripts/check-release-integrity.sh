@@ -101,6 +101,7 @@ readonly expected_exclusions=(
   bootui-quarkus-hibernate-integration-tests
   bootui-quarkus-liquibase-integration-tests
   bootui-quarkus-micrometer-integration-tests
+  bootui-quarkus-mongodb-integration-tests
   bootui-quarkus-otel-integration-tests
   bootui-quarkus-prod-shell-guard-integration-tests
   bootui-quarkus-rabbit-integration-tests

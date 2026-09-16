@@ -76,6 +76,11 @@ public final class McpToolsRegistryFixture {
     private static Object[] providersFor(Type[] parameterTypes, Map<Class<?>, Object> controllers) {
         Object[] arguments = new Object[parameterTypes.length];
         for (int i = 0; i < parameterTypes.length; i++) {
+            if (parameterTypes[i] == io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService.class) {
+                Class<?> service = io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService.class;
+                arguments[i] = controllers.containsKey(service) ? controllers.get(service) : mock(service);
+                continue;
+            }
             Class<?> controller = controllerType(parameterTypes[i]);
             arguments[i] = provider(controller, controllers.get(controller));
         }

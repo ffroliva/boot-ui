@@ -34,6 +34,7 @@ const PANEL_HEADINGS = {
   'database-connection-pools': /Database Connection Pools/,
   postgresql: /^PostgreSQL/,
   mysql: /^MySQL/,
+  mongodb: /^MongoDB/,
   'database-advisor': /^Database$/,
   'sql-trace': /SQL Trace/,
   data: /Spring Data repositories/,

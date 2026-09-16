@@ -19,6 +19,24 @@ import org.junit.jupiter.api.Test;
  */
 class QuarkusPanelAvailabilityTest {
 
+    @Test
+    void mongoAvailabilityNeedsNativeCapabilityAndLocalDeclarationWithoutResolvingAClient() {
+        var available = new QuarkusPanelAvailability(
+                new StubConfig(Map.of(QuarkusPanelAvailability.MONGODB_PRESENT_KEY, "true")));
+        var snapshot = new io.github.jdubois.bootui.quarkus.mongodb.MongoDbClientsSnapshot();
+        available.mongoDbClients = snapshot;
+        assertThat(available.isPanelAvailable("mongodb")).isFalse();
+        snapshot.install(
+                List.of(new io.github.jdubois.bootui.quarkus.mongodb.MongoDbClientsSnapshot.Declaration(
+                        "removed", "orders", "SYNC", true)),
+                false);
+        assertThat(available.isPanelAvailable("mongodb")).isTrue();
+        var absent = new QuarkusPanelAvailability(StubConfig.empty());
+        absent.mongoDbClients = snapshot;
+        assertThat(absent.isPanelAvailable("mongodb")).isFalse();
+        assertThat(absent.panelUnavailableReason("mongodb")).contains("quarkus-mongodb-client");
+    }
+
     private Map<String, PanelDto> manifestById() {
         return manifestById(StubConfig.empty());
     }

@@ -125,7 +125,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".unavailableReason")
-                            .value("No configurable PlatformTransactionManager bean is available"))
+                            .value("No configurable transaction manager bean is available"))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HIBERNATE) + ".unavailableReason")
@@ -196,7 +196,7 @@ class PanelsControllerTests {
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.TRANSACTIONS) + ".unavailableReason")
-                            .value("No configurable PlatformTransactionManager bean is available"));
+                            .value("No configurable transaction manager bean is available"));
         }
     }
 

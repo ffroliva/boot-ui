@@ -122,6 +122,117 @@ The diagnostic grants in [`docker/mysql/init.sql`](docker/mysql/init.sql) run on
 data directory. Existing databases need those grants applied by an administrator. The sample creates its JPA
 schema on startup and is for disposable development data.
 
+## Run it with MongoDB documents and H2
+
+This opt-in variant starts **one authenticated MongoDB 8.0.19 standalone container**, and nothing else:
+
+```bash
+./bootui-spring-sample-app/run-local-mongodb.sh
+```
+
+The launcher supplies Maven profile `mongodb-sample` for both installation and launch, uses this worktree's `.m2`,
+and activates Spring profile `docker-mongodb`. It accepts additional Maven arguments, for example
+`-Dspring-boot.run.arguments=--server.port=8085`. For parallel worktrees also set a unique `COMPOSE_PROJECT_NAME`.
+The Mongo host port is dynamically allocated and bound to `127.0.0.1`; the sample HTTP listener is loopback-only too.
+Mongo dependencies, repository/workload sources (`src/mongodb/java`), and their tests are absent from ordinary builds.
+The optional profile builds into `target-mongodb`, separate from ordinary `target`, so switching profiles cannot
+leave Mongo classes on the default classpath. The opt-in sources also
+disable Mongo auto-configuration outside their matching Spring profile, so compiling them does not make `dev`
+connect to an implicit localhost Mongo server.
+
+Equivalent commands from the repository root:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pmongodb-sample \
+  -pl bootui-spring-sample-app -am -DskipTests clean install
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pmongodb-sample \
+  -pl bootui-spring-sample-app spring-boot:run -Dspring-boot.run.profiles=docker-mongodb
+```
+
+### Separate document and relational roles
+
+Open <http://localhost:8080/> and choose **Run Mongo document workload**. The action first checks local availability,
+obtains the application's CSRF token, and POSTs to `/api/sample/mongodb/workload`. It upserts only three fixed
+synthetic product IDs, performs a derived top-three repository query and a bounded annotated aggregation, and shows
+a compact summary. One workload runs at a time; driver operations time out after two seconds (at most five serial
+operations). Nothing runs on page load or on a schedule. Outside this profile the action explains how to enable it
+without attempting a Mongo connection.
+
+- **MongoDB** stores `sample_mongo_products` and the TTL demonstration collection `sample_mongo_events`.
+  `docker/mongodb/init.js`, not BootUI or Spring auto-index creation, seeds documents and unique, compound, sparse,
+  partial, and TTL indexes. Spring Data annotations describe the same mappings; auto-index creation stays off.
+- **H2** still backs the existing `sample_products`, `catalog_*`, and `inventory_*` relational data, JPA, Hibernate,
+  SQL Trace, Flyway, and Liquibase. Their existing endpoints and migration checksums are unchanged, including two
+  pending Flyway migrations and two pending Liquibase change sets.
+- **Caffeine** handles caching. Redis, Kafka, and Spring AI/Ollama clients are disabled; there is no model download.
+
+Open <http://localhost:8080/bootui/#/mongodb> to inspect the application client. Initial
+`GET /bootui/api/mongodb` returns `status=NOT_READ` with local `inventory.clients`; it sends no diagnostic command.
+The explicit `POST /bootui/api/mongodb/inspect` body is
+`{"clientId":"<inventory.clients[].id>","scope":"CONFIGURED"}`. Obtain the opaque ID from inventory rather than
+guessing a bean name; the browser handles this and its CSRF header. Scope is `bootui_sample` only. This account has
+no cluster-monitoring grants, so unsupported or unauthorized optional metadata must remain honestly partial.
+The BootUI report never contains application documents or partial-filter literal values.
+
+### Disposable authentication and shared fixture
+
+The administrator (`bootui_root`, disposable password `bootui-root-demo`, auth database `admin`) exists only for
+container initialization/administration. The application user is `bootui`, disposable password `bootui-demo`,
+auth database **`bootui_sample`**, with only `readWrite` on that database. Do not use either account outside this fixture.
+Optional `BOOTUI_SAMPLE_MONGODB_USERNAME` and `BOOTUI_SAMPLE_MONGODB_PASSWORD` environment variables change the
+application account consistently in Compose initialization and MVC configuration; recreate the disposable container
+when changing them.
+
+Boot 4's `MongoDockerComposeConnectionDetailsFactory` lives in `spring-boot-mongodb`, package
+`org.springframework.boot.mongodb.docker.compose`. Its connection details contain the dynamic endpoint **and root
+credentials with `authSource=admin`**. `MongoSampleConfiguration` consumes those details but replaces the credential
+before creating the application-owned, shutdown-managed client. Its template and repository explicitly use
+`bootui_sample`. BootUI neither creates another client nor uses a privileged inspector.
+
+The WebFlux and Quarkus profiles below can reuse this fixture. To run just the fixture independently of MVC
+(commands from the repository root, using the default disposable account):
+
+```bash
+docker compose -f bootui-spring-sample-app/compose-mongodb.yaml up -d --wait
+MONGODB_ADDRESS=$(docker compose -f bootui-spring-sample-app/compose-mongodb.yaml port mongodb 27017)
+export BOOTUI_SAMPLE_MONGODB_URL="mongodb://bootui:bootui-demo@${MONGODB_ADDRESS}/bootui_sample?authSource=bootui_sample&timeoutMS=2000"
+```
+
+Do not print or commit a real connection string. These examples contain only synthetic fixture credentials.
+Stop applications first, then remove only this disposable fixture and its anonymous data volumes:
+
+```bash
+docker compose -f bootui-spring-sample-app/compose-mongodb.yaml down --volumes
+```
+
+Use the same `COMPOSE_PROJECT_NAME` for launch, port discovery, and cleanup if you overrode it.
+
+### Focused validation
+
+After installing the current worktree's upstream modules, the following selectors cover structural isolation,
+credential replacement, bounded workload composition, and a Docker-free `dev` application with the optional
+sources compiled:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app \
+  -Pmongodb-sample test -Dtest=DockerMongoDbProfileTests,MongoSampleConfigurationTests,MongoSampleDevIsolationTests
+```
+
+Real-server smoke is **separately opt-in**; Docker unavailability fails it rather than silently skipping:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app \
+  -Pmongodb-sample,mongodb-live test -Dtest=DockerMongoDbProfileLiveTests
+```
+
+That test starts a standalone container with random application/admin credentials and a dynamic loopback port,
+uses the real bootstrap script, verifies the authenticated principal and account roles independently, checks
+H2/cache/migration preservation, asserts no Mongo commands on discovery/report GETs, exercises the CSRF-protected
+workload, and explicitly inspects the catalog. It supplies Boot's Compose-shaped connection details to test the
+same application wiring; the launcher remains the real Compose lifecycle walkthrough.
+The live sources are under `src/mongodb-live/java`; no local Mongo installation or external fixture variables
+are required for this test. These commands are validation instructions, not a claim that they have been run.
+
 ## Optional MySQL diagnostics
 
 Keep the default H2 application and migrations while inspecting an existing local MySQL 8.4 database through a

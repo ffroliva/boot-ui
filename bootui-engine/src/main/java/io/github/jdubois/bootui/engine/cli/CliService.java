@@ -157,7 +157,8 @@ public final class CliService {
                 body.keySet(),
                 parsed.error,
                 parsed.scanId,
-                parsed.offset);
+                parsed.offset,
+                parsed.mongoDb);
         McpDispatchOutcome outcome = dispatcher.dispatch(request);
         return CliOutcomes.toResponse(outcome);
     }
@@ -237,7 +238,16 @@ public final class CliService {
             }
             offset = integral.intValue();
         }
-        return new ParsedArguments(query, limit, id, null, scanId, offset);
+        Map<String, String> mongoDb = new LinkedHashMap<>();
+        for (String key : io.github.jdubois.bootui.engine.mongodb.MongoDbRequests.SELECTION_FIELDS) {
+            if (arguments.containsKey(key)) {
+                if (!(arguments.get(key) instanceof String value)) {
+                    return ParsedArguments.error(McpProtocol.invalidArgumentTypeMessage(key, "a string"));
+                }
+                mongoDb.put(key, value);
+            }
+        }
+        return new ParsedArguments(query, limit, id, null, scanId, offset, mongoDb);
     }
 
     /** The value as a whole number, or {@code null} when it is not an integral JSON number. */
@@ -260,14 +270,27 @@ public final class CliService {
         private final String error;
         private final String scanId;
         private final Integer offset;
+        private final Map<String, String> mongoDb;
 
         private ParsedArguments(String query, Integer limit, String id, String error, String scanId, Integer offset) {
+            this(query, limit, id, error, scanId, offset, Map.of());
+        }
+
+        private ParsedArguments(
+                String query,
+                Integer limit,
+                String id,
+                String error,
+                String scanId,
+                Integer offset,
+                Map<String, String> mongoDb) {
             this.query = query;
             this.limit = limit;
             this.id = id;
             this.error = error;
             this.scanId = scanId;
             this.offset = offset;
+            this.mongoDb = mongoDb;
         }
 
         private static ParsedArguments error(String error) {

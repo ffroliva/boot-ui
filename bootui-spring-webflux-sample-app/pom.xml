@@ -19,6 +19,7 @@
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
+        <sample.build.directory>${project.basedir}/target</sample.build.directory>
     </properties>
 
     <dependencies>
@@ -116,7 +117,12 @@
     </dependencies>
 
     <build>
+        <directory>${sample.build.directory}</directory>
         <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId>
+                <configuration><java><includes><include>src/**/*.java</include></includes></java></configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
@@ -149,6 +155,45 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>mongodb-diagnostics</id>
+            <properties>
+                <sample.build.directory>${project.basedir}/target-mongodb</sample.build.directory>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-data-mongodb-reactive</artifactId>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>mongodb-source</id>
+                                <phase>generate-sources</phase>
+                                <goals><goal>add-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/mongodb/java</source></sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>mongodb-test-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/mongodb-test/java</source></sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>mysql-diagnostics</id>
             <dependencies>

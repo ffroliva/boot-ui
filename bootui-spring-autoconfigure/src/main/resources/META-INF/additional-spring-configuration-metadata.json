@@ -1,6 +1,77 @@
 {
   "properties": [
     {
+      "name": "bootui.mongodb.inspect-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow explicit MongoDB metadata inspection. Does not schedule any work. Requires restart.",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.mongodb.authorized-database-enumeration-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow an explicitly selected AUTHORIZED_NAMES action. Never broadens configured scope. Requires restart.",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.mongodb.max-clients",
+      "type": "java.lang.Integer",
+      "description": "Maximum locally inventoried MongoDB clients, from 1 through 64. Requires restart.",
+      "defaultValue": 16
+    },
+    {
+      "name": "bootui.mongodb.max-databases",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained databases per inspection, from 1 through 32. Requires restart.",
+      "defaultValue": 8
+    },
+    {
+      "name": "bootui.mongodb.max-collections-per-database",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained collections per database, from 1 through 200. Requires restart.",
+      "defaultValue": 50
+    },
+    {
+      "name": "bootui.mongodb.max-indexes-per-collection",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained indexes per collection, from 1 through 128. Requires restart.",
+      "defaultValue": 32
+    },
+    {
+      "name": "bootui.mongodb.max-total-items",
+      "type": "java.lang.Integer",
+      "description": "Whole-inspection retained item budget, from 1 through 5000. Requires restart.",
+      "defaultValue": 1000
+    },
+    {
+      "name": "bootui.mongodb.max-metadata-bytes",
+      "type": "java.lang.Integer",
+      "description": "Retained metadata byte budget, from 16384 through 2097152. Requires restart.",
+      "defaultValue": 524288
+    },
+    {
+      "name": "bootui.mongodb.max-text-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained text length, from 1 through 1024. Requires restart.",
+      "defaultValue": 256
+    },
+    {
+      "name": "bootui.mongodb.timeout-ms",
+      "type": "java.lang.Integer",
+      "description": "Cooperative total inspection budget in milliseconds, from 1 through 30000. Requires restart.",
+      "defaultValue": 10000
+    },
+    {
+      "name": "bootui.mongodb.operation-timeout-ms",
+      "type": "java.lang.Integer",
+      "description": "Positive operation timeout, no greater than the total budget. A tighter existing client timeout wins. Requires restart.",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.mongodb.clients",
+      "type": "java.util.Map<java.lang.String,java.lang.Object>",
+      "description": "Explicit scope keyed by the exact Spring client bean name: clients.<name>.databases is a comma-separated list of exact database names. No URI or authentication-database inference. Requires restart."
+    },
+    {
       "name": "bootui.startup.enabled",
       "type": "java.lang.Boolean",
       "description": "Install a BufferingApplicationStartup automatically while BootUI is active so the Startup Timeline panel has data.",

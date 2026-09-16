@@ -135,8 +135,18 @@ final class CommandTree {
             spec.addOption(OptionSpec.builder("--offset")
                     .paramLabel("<offset>")
                     .type(Integer.class)
-                    .description("Zero-based retained violation offset (default 0).")
+                    .description("Zero-based retained result offset (default 0).")
                     .setter(setter((Integer value) -> command.offset = value))
+                    .build());
+        }
+        for (String argument : tool.selectionArguments()) {
+            String flag = "--" + argument.replaceAll("([A-Z])", "-$1").toLowerCase(Locale.ROOT);
+            spec.addOption(OptionSpec.builder(flag)
+                    .type(String.class)
+                    .required(tool.required().contains(argument))
+                    .paramLabel("<" + argument + ">")
+                    .description("Exact " + argument + " for the declared tool schema; see runtime catalog.")
+                    .setter(setter((String value) -> command.selection.put(argument, value)))
                     .build());
         }
         configure(context, spec);
@@ -335,6 +345,7 @@ final class CommandTree {
         private String id;
         private String scanId;
         private Integer offset;
+        private final java.util.Map<String, String> selection = new java.util.LinkedHashMap<>();
 
         ToolCommand(CliContext context, ToolManifest.Tool tool) {
             this.context = context;
@@ -343,7 +354,7 @@ final class CommandTree {
 
         @Override
         public Integer call() {
-            return context.invokeTool(tool, query, limit, id, scanId, offset);
+            return context.invokeTool(tool, query, limit, id, scanId, offset, selection);
         }
     }
 }

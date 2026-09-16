@@ -292,6 +292,17 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
+    io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService bootUiMongoDbInspectionService(
+            io.github.jdubois.bootui.spi.MongoDbProvider provider,
+            BootUiExposure exposure,
+            io.github.jdubois.bootui.engine.mongodb.MongoDbSettings settings) {
+        return io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService.using(
+                provider, exposure, Clock.systemUTC(), settings);
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
     RestApiScanner bootUiRestApiScanner(
             BasePackageProvider basePackageProvider,
             Environment environment,

@@ -33,6 +33,16 @@ final class ToolManifestGenerator {
             tool.put("name", JsonValue.of(entry.name()));
             tool.put("command", JsonValue.of(CliCommandPaths.BY_TOOL.get(entry.name())));
             tool.put("schema", JsonValue.of(entry.schema().name()));
+            tool.put(
+                    "arguments",
+                    JsonValue.array(entry.schema().argumentNames().stream()
+                            .map(JsonValue::of)
+                            .toList()));
+            tool.put(
+                    "required",
+                    JsonValue.array(entry.schema().requiredArgumentNames().stream()
+                            .map(JsonValue::of)
+                            .toList()));
             tool.put("panel", JsonValue.of(entry.panelId()));
             tool.put("action", JsonValue.of(entry.action()));
             tool.put(

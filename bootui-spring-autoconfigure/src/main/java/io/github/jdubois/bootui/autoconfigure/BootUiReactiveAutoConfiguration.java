@@ -246,6 +246,7 @@ import tools.jackson.databind.ObjectMapper;
     DatabaseAdvisorController.class,
     PostgresqlController.class,
     MySqlController.class,
+    BootUiMongoDbConfiguration.class,
     SpringCacheController.class,
     DevServicesController.class,
     VulnerabilitiesController.class,
@@ -321,6 +322,7 @@ public class BootUiReactiveAutoConfiguration {
             DatabaseAdvisorController.class.getName(),
             PostgresqlController.class.getName(),
             MySqlController.class.getName(),
+            "io.github.jdubois.bootui.autoconfigure.mongodb.MongoDbController",
             HttpExchangesController.class.getName(),
             HttpProbeController.class.getName(),
             HeapDumpController.class.getName(),
@@ -781,10 +783,9 @@ public class BootUiReactiveAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "bootui.transactions", name = "enabled", matchIfMissing = true)
     @ConditionalOnProperty(prefix = "bootui.panels.transactions", name = "enabled", matchIfMissing = true)
-    public BootUiTransactionManagerListenerRegistrar bootUiTransactionManagerListenerRegistrar(
-            ObjectProvider<org.springframework.transaction.ConfigurableTransactionManager> transactionManagers,
-            BootUiTransactionExecutionListener bootUiTransactionExecutionListener) {
-        return new BootUiTransactionManagerListenerRegistrar(transactionManagers, bootUiTransactionExecutionListener);
+    public static BootUiTransactionManagerListenerRegistrar bootUiTransactionManagerListenerRegistrar(
+            ObjectProvider<BootUiTransactionExecutionListener> listener) {
+        return new BootUiTransactionManagerListenerRegistrar(listener);
     }
 
     /**

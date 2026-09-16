@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.mcp;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -41,10 +42,41 @@ public record McpRequest(
         Set<String> argumentNames,
         String argumentsError,
         String rawScanId,
-        Integer rawOffset) {
+        Integer rawOffset,
+        Map<String, String> rawMongoDb) {
 
     public McpRequest {
         argumentNames = argumentNames == null ? Set.of() : Set.copyOf(argumentNames);
+        rawMongoDb = rawMongoDb == null ? Map.of() : Map.copyOf(rawMongoDb);
+    }
+
+    public McpRequest(
+            String jsonrpc,
+            String method,
+            boolean notification,
+            String requestedProtocolVersion,
+            String toolName,
+            String rawQuery,
+            Integer rawLimit,
+            String rawId,
+            Set<String> argumentNames,
+            String argumentsError,
+            String rawScanId,
+            Integer rawOffset) {
+        this(
+                jsonrpc,
+                method,
+                notification,
+                requestedProtocolVersion,
+                toolName,
+                rawQuery,
+                rawLimit,
+                rawId,
+                argumentNames,
+                argumentsError,
+                rawScanId,
+                rawOffset,
+                Map.of());
     }
 
     /** Backward-compatible constructor for codecs without advisor detail arguments. */

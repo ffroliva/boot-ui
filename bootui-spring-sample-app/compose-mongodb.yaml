@@ -1,0 +1,22 @@
+# Disposable development credentials only. Never use this fixture for production data.
+name: bootui-spring-sample-mongodb
+
+services:
+  mongodb:
+    image: mongo:8.0.19
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: bootui_root
+      MONGO_INITDB_ROOT_PASSWORD: bootui-root-demo
+      MONGO_INITDB_DATABASE: bootui_sample
+      BOOTUI_SAMPLE_MONGODB_USERNAME: ${BOOTUI_SAMPLE_MONGODB_USERNAME:-bootui}
+      BOOTUI_SAMPLE_MONGODB_PASSWORD: ${BOOTUI_SAMPLE_MONGODB_PASSWORD:-bootui-demo}
+    volumes:
+      - ./docker/mongodb/init.js:/docker-entrypoint-initdb.d/01-bootui.js:ro
+    ports:
+      - "127.0.0.1::27017"
+    healthcheck:
+      test: [ "CMD", "mongosh", "--quiet", "--host", "127.0.0.1", "--eval", "const d = db.getSiblingDB('bootui_sample'); if (!d.auth(process.env.BOOTUI_SAMPLE_MONGODB_USERNAME, process.env.BOOTUI_SAMPLE_MONGODB_PASSWORD)) quit(1); if (d.runCommand({ping: 1}).ok !== 1) quit(1);" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

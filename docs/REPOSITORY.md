@@ -18,6 +18,8 @@
 - `bootui-quarkus`: Quarkus runtime adapter.
 - `bootui-quarkus-deployment`: Quarkus build-time wiring module.
 - `bootui-quarkus-integration-tests`: Quarkus `@QuarkusTest` suites.
+- Its `mongodb` fixture keeps local declaration tests Docker-free; `-Pmongodb-live` activates required authenticated
+  catalog, transport, cursor/deadline and no-passive-I/O evidence. It is not a published module.
 - `bootui-quarkus-sample-app`: Quarkus sample app.
 
 ## Compatibility version source of truth

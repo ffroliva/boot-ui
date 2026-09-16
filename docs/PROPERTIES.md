@@ -80,6 +80,61 @@ Quarkus by `QuarkusPanelAccessFilter` at full behavioral parity with Spring's `P
 config keys, same `BootUiPanels` path resolution, same canonical JSON 403 body); see "Panel access
 settings" below.
 
+## MongoDB
+
+MongoDB uses the same keys on MVC, WebFlux and Quarkus. Bounds and configured scope are read at startup and require
+restart; exposure and panel access keep their existing live policy. No setting schedules an inspection.
+
+| Property | Default | Meaning / accepted range |
+| --- | --- | --- |
+| `bootui.panels.mongodb.enabled` | `true` | Enable the panel; disabled reads/actions receive the canonical refusal. |
+| `bootui.panels.mongodb.read-only` | `false` | Block explicit metadata inspection; global `bootui.read-only` also applies. |
+| `bootui.mongodb.inspect-enabled` | `true` | Permit explicit inspection through existing initialized clients. |
+| `bootui.mongodb.authorized-database-enumeration-enabled` | `false` | Permit explicitly requested AUTHORIZED_NAMES; does not broaden configured scope. |
+| `bootui.mongodb.clients.<name>.databases` | absent | Up to 32 exact, distinct comma-separated database names per Spring bean/Quarkus client; at most 64 configured client scopes. No credential or URI. |
+| `bootui.mongodb.max-clients` | `16` | 1–64 local declarations; one client per action. |
+| `bootui.mongodb.max-databases` | `8` | 1–32 retained/visited database names. |
+| `bootui.mongodb.max-collections-per-database` | `50` | 1–200. |
+| `bootui.mongodb.max-indexes-per-collection` | `32` | 1–128 conventional indexes. |
+| `bootui.mongodb.max-total-items` | `1000` | 1–5000 total retained metadata items, including nested fields/selection identity accounting. |
+| `bootui.mongodb.max-metadata-bytes` | `524288` | 16384–2097152 conservative retained-metadata byte budget, not heap size or initial response size. |
+| `bootui.mongodb.max-text-length` | `256` | 1–1024 characters; oversize namespace names are not silently renamed for execution. |
+| `bootui.mongodb.timeout-ms` | `10000` | 1–30000 ms cooperative whole-inspection budget. |
+| `bootui.mongodb.operation-timeout-ms` | `2000` | Positive and no greater than total timeout; the remaining deadline and a tighter positive client timeout win. |
+
+Fixed limits include concurrency one, cursor batch size at most 20, 32 topology servers/client, 32 index keys and
+32 diagnostic summaries, one retained snapshot, and retained page size default 50/max 200 (also constrained by
+MCP/CLI max-results). Invalid active settings fail startup rather than silently disabling bounds.
+
+Examples: `bootui.mongodb.clients.mongoClient.databases=orders,catalog` on Spring;
+`bootui.mongodb.clients.named.databases=orders` for a named Quarkus client. Framework database configuration is used
+only when its association is known, never by treating `authSource` as an application database. Custom/routing
+bindings may remain unknown.
+
+Both adapters reject blank values/names, duplicates, surrounding whitespace, control characters and MongoDB's
+prohibited database-name characters; names must be less than 64 UTF-8 bytes. Values are never trimmed or renamed.
+Scope validation occurs at startup when the optional integration is present; unrelated application properties do not
+consume Mongo scope limits. Spring uses resolved property-source precedence rather than counting a property twice.
+The declaration bound of 32 is independent of `max-databases`: declaring nine with the default inspection cap of eight
+produces explicitly truncated inventory and PARTIAL CONFIGURED coverage, not a claim to have read all nine.
+
+Current inventory, retained external metadata, nested fields and private selection identities share the item/byte
+budgets. Fixed report envelopes and bounded explanations reserve byte space separately. Passive inventory growth
+reaccounts the snapshot, or invalidates it with a visible reason when it no longer fits; it never triggers a new read.
+Display shortening is reported as truncation; a value exactly at its limit is not truncated.
+
+`AUTHORIZED_NAMES` uses client-level `listDatabases` on a timeout view, but MongoDB returns its initial names in one
+unpaged response. Retained limits do not cap that initial BSON decoding. The default CONFIGURED scope avoids it.
+Fixed metadata reads also use the driver's built-in codec registry, never application metadata codecs, on those same
+resource-sharing views. Cleanup can exceed the cooperative budget; no hard server-work deadline is implied.
+Single-flight admission is held through owned synchronous close/cancel calls. Reactive driver cancellation initiates
+asynchronous server cleanup; it does not certify instantaneous remote cursor termination. Cleanup failures are reported
+separately without replacing the primary metadata failure.
+
+Forbidden Mongo data remains withheld in every exposure mode, even FULL: raw connection strings/credentials,
+authentication sources, documents, validators, query/pipeline/projection/partial-index literals and raw exceptions.
+See [MongoDB](features/database.md#mongodb).
+
 ## Global settings
 
 | Property                         | Default                                 | Description                                                                                                                     |
@@ -188,6 +243,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
 | Database        | PostgreSQL                | `postgresql`                | `bootui.panels.postgresql.enabled`                | `bootui.panels.postgresql.read-only`      |
 | Database        | MySQL                    | `mysql`                     | `bootui.panels.mysql.enabled`                     | `bootui.panels.mysql.read-only`           |
+| Database        | MongoDB                  | `mongodb`                   | `bootui.panels.mongodb.enabled`                   | `bootui.panels.mongodb.read-only`         |
 | Database        | Transactions              | `transactions`              | `bootui.panels.transactions.enabled`              | `bootui.panels.transactions.read-only`    |
 | Database        | SQL Trace                 | `sql-trace`                 | `bootui.panels.sql-trace.enabled`                 | `bootui.panels.sql-trace.read-only`       |
 | Database        | Hibernate Statistics      | `hibernate-statistics`      | `bootui.panels.hibernate-statistics.enabled`      | `bootui.panels.hibernate-statistics.read-only` |

@@ -16,13 +16,18 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 60-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 61-panel manifest the servlet adapter
 reports, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
 **MySQL uses the same shared controller/report on MVC and WebFlux** when the application has a supported **JDBC**
 datasource. Oracle MySQL 8.4 LTS is the tested line, with 8.4.6 live coverage using Connector/J 9.7.0 and
 HikariCP 7.0.2. R2DBC-only applications and MariaDB are outside this scope. See [MySQL](features/database.md#mysql).
+
+**MongoDB supports existing sync and reactive-streams clients independently of the HTTP stack.** The shared controller
+uses the established `ReactiveBootUiHandlerAdapter` worker boundary. A reactive-only application does not need the
+sync driver, JPA or JDBC for Mongo inspection. Local discovery/cached paging never initializes clients or evaluates
+health; only the selected-scope POST performs bounded metadata work. See [MongoDB](features/database.md#mongodb).
 
 ::: details Action-capable panels (identical to servlet)
 
@@ -42,6 +47,7 @@ HikariCP 7.0.2. R2DBC-only applications and MariaDB are outside this scope. See 
 | REST Client          | clear / toggle recording             |
 | PostgreSQL           | read vital signs                      |
 | MySQL                | operational read                     |
+| MongoDB              | selected-scope metadata inspection   |
 | Exceptions           | triage                               |
 | Advisor scans        | Architecture, Spring, Hibernate, Pentesting, REST API, Security, Memory, Vulnerabilities/OSV |
 

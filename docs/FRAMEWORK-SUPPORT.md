@@ -32,6 +32,14 @@ follow-up; the Database advisor's existing MySQL/MariaDB checks do not establish
 No other MySQL line or compatible flavor is certified by this test target; the feature guide lists the tested
 driver/pool combinations.
 
+### MongoDB is client-specific
+
+[MongoDB](features/database.md#mongodb) supports existing initialized sync/reactive clients on MVC, WebFlux and Quarkus,
+including named clients. Driver style is independent of HTTP style; Spring reactive-only applications do not acquire
+a sync driver from BootUI. Without a managed declaration the panel is unavailable. Lazy/inactive declarations remain
+local metadata, not a reason to initialize a client. Quarkus Spring Data remains not applicable; no Panache enrichment
+or production/native Mongo console is implied.
+
 ## Spring WebFlux
 
 Everything works, including every action — setting log levels, running migrations, capturing heap dumps, and every

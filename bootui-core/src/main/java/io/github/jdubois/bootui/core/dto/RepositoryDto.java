@@ -11,4 +11,28 @@ public record RepositoryDto(
         String storeModule,
         String customImplementation,
         int queryMethodCount,
-        int fragmentCount) {}
+        int fragmentCount,
+        String executionKind,
+        RepositoryMongoDbDto mongodb) {
+    public RepositoryDto(
+            String beanName,
+            String repositoryInterface,
+            String domainType,
+            String idType,
+            String storeModule,
+            String customImplementation,
+            int queryMethodCount,
+            int fragmentCount) {
+        this(
+                beanName,
+                repositoryInterface,
+                domainType,
+                idType,
+                storeModule,
+                customImplementation,
+                queryMethodCount,
+                fragmentCount,
+                null,
+                null);
+    }
+}

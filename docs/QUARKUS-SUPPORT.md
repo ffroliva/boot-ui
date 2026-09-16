@@ -247,13 +247,14 @@ synthetic bean, with masked config and logs/restart unavailable. Service `type` 
 
 :::
 
-### 5.2 Ported by swapping the data source (12)
+### 5.2 Ported by swapping the data source (13)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
 | Panel                 | Quarkus source                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `Health`              | → SmallRye Health                                                                                          |
+| `MongoDB`             | Existing sync/reactive/named clients through a capability-gated, non-creating Arc inventory and a shared bounded inspection service. No Panache dependency. |
 | `Configuration`       | **Implemented** — → SmallRye Config; read path enumerates/masks/pages the effective config. Read-only on Quarkus because the runtime-override write path is Spring-bootstrap-specific |
 | `Profile Diff`        | **Implemented** — → SmallRye Config; groups active `%profile.`-prefixed keys                              |
 | `Loggers`             | → JBoss LogManager                                                                                         |
@@ -265,6 +266,11 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
 | `Overview`            | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
+
+Quarkus 3.33.3.2's own Mongo extension starts both synthetic driver styles for declared named clients, including
+otherwise unused named declarations. A packaged control without BootUI verifies this behavior. BootUI does not request
+those clients, consume Mongo's retaining build item, or create counterpart pools: it observes existing contextual
+instances and leaves inactive clients and genuinely lazy custom producers unresolved.
 
 ::: details Fault Tolerance fidelity
 
@@ -528,10 +534,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 50 of the 60 panels ship on Quarkus: 27 are statically available and 23 are capability/detector-gated. The
+**Result:** 51 of the 61 panels ship on Quarkus: 27 are statically available and 24 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 50 supported entries comprise 22 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 51 supported entries comprise 22 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -751,6 +757,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Command Line        | as-is       | Port    | BootUI CLI endpoint              | —                                           |
 | Dev Services        | as-is       | Port    | Dev Services model               | Quarkus Dev Services source                 |
 | Overview            | equiv       | Adapt   | Client-side dashboard + `OverviewDto` | `QuarkusApplicationInfo` (chrome; scoring is client-side) |
+| MongoDB             | equiv       | Adapt   | `MongoDbInspectionService` | Existing sync/reactive/named clients, capability-gated non-creating Arc discovery; explicit bounded catalog inspection only. |
 | Health              | equiv       | Adapt   | Health mapper                    | `HealthProvider` → SmallRye Health          |
 | Configuration       | equiv       | Adapt   | Config mapper + masking          | `EnvironmentProvider` → SmallRye Config     |
 | Loggers             | equiv       | Adapt   | Logger mapper                    | `LoggerProvider` → JBoss LogManager         |

@@ -187,6 +187,11 @@ public class PanelsController {
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.POSTGRESQL -> availability(postgresAvailable(), postgresUnavailableReason());
+            case BootUiPanels.MONGODB ->
+                availability(
+                        mongoClientDeclared("com.mongodb.client.MongoClient")
+                                || mongoClientDeclared("com.mongodb.reactivestreams.client.MongoClient"),
+                        "No managed MongoDB client is declared. Add Spring Boot's MongoDB or reactive MongoDB starter.");
             case BootUiPanels.MYSQL ->
                 availability(
                         declaredDatabaseAvailable(MySqlDataSourceDetection::isMySqlJdbcUrl, "com.mysql.cj.jdbc.Driver"),
@@ -196,7 +201,7 @@ public class PanelsController {
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
-                        "No configurable PlatformTransactionManager bean is available");
+                        "No configurable transaction manager bean is available");
             case BootUiPanels.REST_CLIENT_TRACE ->
                 availability(restClientTraceAvailable(), restClientTraceUnavailableReason());
             case BootUiPanels.THREADS ->
@@ -240,7 +245,7 @@ public class PanelsController {
     }
 
     private boolean beanPresent(Class<?> type) {
-        return applicationContext.getBeanNamesForType(type).length > 0;
+        return applicationContext.getBeanNamesForType(type, true, false).length > 0;
     }
 
     private boolean classPresent(String className) {
@@ -383,7 +388,20 @@ public class PanelsController {
     }
 
     private RestClientTraceRecorder restClientTraceRecorder() {
-        return applicationContext.getBeanProvider(RestClientTraceRecorder.class).getIfAvailable();
+        // ObjectProvider's default type lookup can instantiate unrelated lazy FactoryBeans merely
+        // to decide their product type (including getIfAvailable on a non-eager provider). Resolve
+        // names without eager type discovery, then only the known local recorder by its exact name.
+        if (applicationContext.getAutowireCapableBeanFactory()
+                instanceof org.springframework.beans.factory.config.ConfigurableListableBeanFactory factory) {
+            for (String name : factory.getBeanNamesForType(RestClientTraceRecorder.class, false, false)) {
+                Object existing = factory.getSingleton(name);
+                if (existing instanceof RestClientTraceRecorder recorder) return recorder;
+                if ("bootUiRestClientTraceRecorder".equals(name)) {
+                    return factory.getBean(name, RestClientTraceRecorder.class);
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -570,6 +588,18 @@ public class PanelsController {
             Class<?> type = ClassUtils.forName(className, getClass().getClassLoader());
             return beanPresent(type);
         } catch (ClassNotFoundException ex) {
+            return false;
+        }
+    }
+
+    private boolean mongoClientDeclared(String className) {
+        try {
+            Class<?> type = ClassUtils.forName(className, applicationContext.getClassLoader());
+            return org.springframework.beans.factory.BeanFactoryUtils.beanNamesForTypeIncludingAncestors(
+                                    applicationContext, type, true, false)
+                            .length
+                    > 0;
+        } catch (ClassNotFoundException | LinkageError ex) {
             return false;
         }
     }

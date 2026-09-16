@@ -174,6 +174,18 @@ public final class McpToolDescriptions {
                             + "the cached report. Check readAt, per-section scope and limitations before using it. "
                             + "Use mysql_read only when an explicitly approved fresh observation is needed."),
             Map.entry(
+                    "get_mongodb_report",
+                    "Read existing local MongoDB client declarations and the retained inspection without database I/O."
+                            + " Page DATABASES, COLLECTIONS or INDEXES using snapshotId; counts describe retained rows,"
+                            + " not all server data. Unknown topology is not failed health. Prefer this before inspection."),
+            Map.entry(
+                    "mongodb_inspect",
+                    "Explicitly inspect one initialized application MongoDB clientId. Ask approval for the selected"
+                            + " scope first. CONFIGURED reads configured databases; SELECTED uses known target IDs and"
+                            + " snapshotId. Opt-in AUTHORIZED_NAMES only lists names: its initial server response is"
+                            + " not paged. Uses shared resources, operation timeouts, cooperative deadline and retained"
+                            + " caps. No documents, writes, shell, statistics or index advice. Never automatically retry."),
+            Map.entry(
                     "get_memory_report",
                     "Return the last completed Memory advisor report without triggering a class histogram or full GC. "
                             + "Use this cached evidence before deciding whether an active memory_scan is necessary."),

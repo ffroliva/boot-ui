@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Documentation check indexes render entries with no fixed severity without failing server-side rendering.
+
 - WebFlux filter rejections close their Reactor Netty HTTP/1.x connection after responding, preventing a queued
   keep-alive rejection from stranding the next request. HTTP/2 and successful request behavior are unchanged.
 - MySQL diagnostics now qualify disabled or unreadable table/object and metadata-lock instrumentation instead
@@ -25,6 +27,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Permission failures, timeouts, and other incomplete reads remain prominent; the API coverage contract is unchanged.
 
 ### Added
+
+- **MongoDB metadata inventory and inspection.** Existing synchronous/reactive application clients on Spring MVC,
+  WebFlux and Quarkus expose local declarations and explicitly selected, bounded database/collection/conventional-index
+  metadata through the UI, REST, MCP and generated CLI. Spring Data adds safe static Mongo mapping/query-kind metadata
+  without evaluating expressions or returning document/query literals. No statistics, scoring, shell or database writes.
+- **Isolated MongoDB sample.** `run-local-mongodb.sh` enables sample-only dependencies and an authenticated standalone
+  MongoDB document workload alongside H2-backed JPA/Flyway/Liquibase and Caffeine. Ordinary development stays Docker-free;
+  PostgreSQL, MySQL, Redis, Kafka and Ollama containers are not required.
 
 - **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead
   of PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for

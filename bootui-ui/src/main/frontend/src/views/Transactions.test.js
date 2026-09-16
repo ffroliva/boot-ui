@@ -122,6 +122,85 @@ describe('Transactions', () => {
     expect(text).toContain('captured since startup')
   })
 
+  it('labels Mongo JDBC evidence as not applicable instead of measured zeros', async () => {
+    const mongo = {
+      ...transactionReport().entries[0],
+      methodName: 'MongoOrders.create',
+      managerType: 'org.springframework.data.mongodb.ReactiveMongoTransactionManager',
+      executionKind: 'REACTIVE',
+      correlationStatus: 'NOT_APPLICABLE',
+      isolation: 'UNKNOWN',
+      sqlStatementCount: 0,
+      connectionCount: 0,
+      traceId: null,
+      limitations: [
+        'Parent and trace context are not observed by these transaction callbacks.',
+        'Thread identifies the begin callback only, not transaction ownership.'
+      ]
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(transactionReport({entries: [mongo]}))))
+    wrapper = mount(Transactions, {props: {panel: {id: 'transactions'}}})
+    await flushPromises()
+    expect(wrapper.get('tr.tx-row').text()).toContain('Not applicable')
+    expect(wrapper.get('tr.tx-row').text()).not.toContain('0 / 0')
+    expect(wrapper.get('tr.tx-row').text()).not.toContain('held')
+    await wrapper.get('button.tx-row-toggle').trigger('click')
+    expect(wrapper.text()).toContain(mongo.managerType)
+    expect(wrapper.text()).toContain('REACTIVE')
+    expect(wrapper.text()).toContain('JDBC evidence is not applicable')
+    expect(wrapper.text()).toContain(mongo.limitations[0])
+    expect(wrapper.text()).not.toContain('trace-abc')
+  })
+
+  it('distinguishes unavailable SQL correlation from legacy numeric evidence in mixed rows', async () => {
+    const report = transactionReport()
+    report.entries[1] = {...report.entries[1], correlationStatus: 'UNAVAILABLE'}
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+    wrapper = mount(Transactions, {props: {panel: {id: 'transactions'}}})
+    await flushPromises()
+    expect(wrapper.get('tr.tx-row').text()).toContain('3 / 1')
+    expect(wrapper.get('tr.tx-row-nested').text()).toContain('Not observed')
+    expect(wrapper.get('tr.tx-row-nested').text()).not.toContain('1 / 1')
+  })
+
+  it('keeps unknown callback context and outcomes distinct from not-applicable JDBC evidence', async () => {
+    const report = transactionReport()
+    report.entries = [
+      {
+        ...report.entries[0],
+        methodName: 'MongoOrders.unknownOutcome',
+        managerType: 'org.springframework.data.mongodb.MongoTransactionManager',
+        executionKind: 'UNKNOWN',
+        status: 'UNKNOWN',
+        isolation: 'UNKNOWN',
+        correlationStatus: 'NOT_APPLICABLE',
+        parentId: null,
+        traceId: null,
+        sqlStatementCount: 0,
+        connectionCount: 0,
+        connectionHeld: true,
+        limitations: ['Parent and trace context are not observed by these transaction callbacks.']
+      }
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report)))
+    wrapper = mount(Transactions, {props: {panel: {id: 'transactions'}}})
+    await flushPromises()
+    const row = wrapper.get('tr.tx-row')
+    expect(row.text()).toContain('UNKNOWN')
+    expect(row.text().match(/Not applicable/g)).toHaveLength(2)
+    expect(row.text()).not.toContain('0 / 0')
+    expect(row.text()).not.toContain('held')
+    expect(wrapper.find('tr.tx-row-nested').exists()).toBe(false)
+    await row.get('button.tx-row-toggle').trigger('click')
+    const labels = wrapper.findAll('dt')
+    expect(labels.find((label) => label.text() === 'Trace id').element.nextElementSibling.textContent.trim()).toBe('—')
+    expect(labels.find((label) => label.text() === 'Execution').element.nextElementSibling.textContent.trim()).toBe(
+      'UNKNOWN'
+    )
+    expect(wrapper.text()).toContain('JDBC evidence is not applicable')
+    expect(wrapper.text()).toContain(report.entries[0].limitations[0])
+  })
+
   it('refreshes on an SSE update and closes the stream on unmount', async () => {
     const sources = []
     class MockEventSource {

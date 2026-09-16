@@ -1,5 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
+import io.github.jdubois.bootui.autoconfigure.data.SpringRepositoryInventory;
+import io.github.jdubois.bootui.autoconfigure.data.SpringRepositoryInventory.Entry;
+import io.github.jdubois.bootui.autoconfigure.mongodb.SpringDataMongoMetadataProvider;
 import io.github.jdubois.bootui.core.dto.RepositoriesReport;
 import io.github.jdubois.bootui.core.dto.RepositoryDetailDto;
 import io.github.jdubois.bootui.core.dto.RepositoryDto;
@@ -11,6 +15,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.repository.core.RepositoryInformation;
 import org.springframework.data.repository.core.support.RepositoryFactoryInformation;
@@ -33,25 +38,47 @@ import org.springframework.web.bind.annotation.RestController;
 public class DataController {
 
     private final ObjectProvider<ListableBeanFactory> beanFactoryProvider;
+    private final SpringRepositoryInventory inventory = new SpringRepositoryInventory();
+    private final SpringDataMongoMetadataProvider mongoMetadata;
 
     public DataController(ObjectProvider<ListableBeanFactory> beanFactoryProvider) {
+        this(beanFactoryProvider, new io.github.jdubois.bootui.spi.ExposurePolicy() {
+            public io.github.jdubois.bootui.core.ValueExposure valueExposure() {
+                return io.github.jdubois.bootui.core.ValueExposure.MASKED;
+            }
+
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+    }
+
+    @Autowired
+    public DataController(ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
+        this(beanFactoryProvider, (io.github.jdubois.bootui.spi.ExposurePolicy) exposure);
+    }
+
+    public DataController(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            io.github.jdubois.bootui.spi.ExposurePolicy exposure) {
         this.beanFactoryProvider = beanFactoryProvider;
+        this.mongoMetadata = new SpringDataMongoMetadataProvider(exposure);
     }
 
     @GetMapping("/repositories")
     public RepositoriesReport repositories() {
-        List<RepositoryEntry> entries = discover();
-        List<RepositoryDto> summaries = entries.stream()
+        SpringRepositoryInventory.DiscoveryResult discovered = discover();
+        List<RepositoryDto> summaries = discovered.entries().stream()
                 .map(this::toSummary)
                 .sorted(Comparator.comparing(
                         RepositoryDto::repositoryInterface, Comparator.nullsLast(String::compareTo)))
                 .toList();
-        return new RepositoriesReport(true, summaries.size(), summaries);
+        return new RepositoriesReport(true, summaries.size(), summaries, discovered.discovery());
     }
 
     @GetMapping("/repositories/{name}")
     public ResponseEntity<RepositoryDetailDto> repository(@PathVariable String name) {
-        for (RepositoryEntry entry : discover()) {
+        for (Entry entry : discover().entries()) {
             if (matches(entry, name)) {
                 return ResponseEntity.ok(toDetail(entry));
             }
@@ -59,32 +86,11 @@ public class DataController {
         return ResponseEntity.notFound().build();
     }
 
-    private List<RepositoryEntry> discover() {
-        ListableBeanFactory factory = beanFactoryProvider.getIfAvailable();
-        if (factory == null) {
-            return List.of();
-        }
-        String[] beanNames = factory.getBeanNamesForType(RepositoryFactoryInformation.class);
-        List<RepositoryEntry> entries = new ArrayList<>(beanNames.length);
-        for (String beanName : beanNames) {
-            RepositoryFactoryInformation<?, ?> info;
-            try {
-                info = factory.getBean(beanName, RepositoryFactoryInformation.class);
-            } catch (Exception ex) {
-                continue;
-            }
-            RepositoryInformation repositoryInformation;
-            try {
-                repositoryInformation = info.getRepositoryInformation();
-            } catch (Exception ex) {
-                continue;
-            }
-            entries.add(new RepositoryEntry(strip(beanName), info, repositoryInformation));
-        }
-        return entries;
+    private SpringRepositoryInventory.DiscoveryResult discover() {
+        return inventory.discover(beanFactoryProvider.getIfAvailable());
     }
 
-    private boolean matches(RepositoryEntry entry, String name) {
+    private boolean matches(Entry entry, String name) {
         if (name == null) {
             return false;
         }
@@ -95,7 +101,7 @@ public class DataController {
         return iface != null && (name.equals(iface.getName()) || name.equals(iface.getSimpleName()));
     }
 
-    private RepositoryDto toSummary(RepositoryEntry entry) {
+    private RepositoryDto toSummary(Entry entry) {
         RepositoryInformation info = entry.information();
         Class<?> iface = info.getRepositoryInterface();
         Class<?> domainType = info.getDomainType();
@@ -111,10 +117,12 @@ public class DataController {
                 detectStoreModule(iface),
                 custom == null ? null : custom.getName(),
                 queryMethods,
-                fragments);
+                fragments,
+                executionKind(iface),
+                "MONGO".equals(detectStoreModule(iface)) ? mongoMetadata.summary(domainType) : null);
     }
 
-    private RepositoryDetailDto toDetail(RepositoryEntry entry) {
+    private RepositoryDetailDto toDetail(Entry entry) {
         RepositoryInformation info = entry.information();
         Class<?> iface = info.getRepositoryInterface();
         Class<?> domainType = info.getDomainType();
@@ -125,6 +133,7 @@ public class DataController {
             Method[] declared = iface.getMethods();
             Arrays.sort(declared, Comparator.comparing(Method::getName));
             for (Method method : declared) {
+                if (methods.size() >= 256) break;
                 if (method.getDeclaringClass() == Object.class) {
                     continue;
                 }
@@ -139,7 +148,9 @@ public class DataController {
                 detectStoreModule(iface),
                 custom == null ? null : custom.getName(),
                 methods,
-                Collections.emptyList());
+                Collections.emptyList(),
+                executionKind(iface),
+                "MONGO".equals(detectStoreModule(iface)) ? mongoMetadata.describe(domainType) : null);
     }
 
     private RepositoryMethodDto toMethodDto(RepositoryInformation info, Method method) {
@@ -159,6 +170,16 @@ public class DataController {
         if (queryAnnotation != null && "QUERY".equals(origin) && queryAnnotation.hasValue) {
             origin = "ANNOTATED";
         }
+        if ("MONGO".equals(detectStoreModule(info.getRepositoryInterface()))) {
+            return new RepositoryMethodDto(
+                    method.getName(),
+                    signatureOf(method),
+                    origin,
+                    null,
+                    false,
+                    null,
+                    mongoMetadata.query(method, origin));
+        }
         return new RepositoryMethodDto(
                 method.getName(),
                 signatureOf(method),
@@ -174,7 +195,9 @@ public class DataController {
         if (iface == null) {
             return 0;
         }
+        int visited = 0;
         for (Method method : iface.getMethods()) {
+            if (++visited > 256) break;
             if (method.getDeclaringClass() == Object.class) {
                 continue;
             }
@@ -185,13 +208,15 @@ public class DataController {
         return count;
     }
 
-    private int fragmentCount(RepositoryEntry entry) {
+    private int fragmentCount(Entry entry) {
         Class<?> iface = entry.information().getRepositoryInterface();
         if (iface == null) {
             return 0;
         }
         int count = 0;
+        int visited = 0;
         for (Method method : iface.getMethods()) {
+            if (++visited > 256) break;
             if (entry.information().isCustomMethod(method)) {
                 count++;
             }
@@ -256,7 +281,7 @@ public class DataController {
     }
 
     private void collect(Class<?> type, List<Class<?>> sink) {
-        if (type == null || sink.contains(type)) {
+        if (type == null || sink.contains(type) || sink.size() >= 256) {
             return;
         }
         sink.add(type);
@@ -314,14 +339,15 @@ public class DataController {
         }
     }
 
-    private String strip(String beanName) {
-        return beanName.startsWith("&") ? beanName.substring(1) : beanName;
+    private String executionKind(Class<?> iface) {
+        if (iface == null) return "UNKNOWN";
+        return collectRepositoryInterfaces(iface).stream()
+                        .anyMatch(type -> type.getName().contains(".reactive.")
+                                || type.getName().contains(".rxjava3.")
+                                || type.getName().contains(".coroutine."))
+                ? "REACTIVE"
+                : "IMPERATIVE";
     }
-
-    private record RepositoryEntry(
-            String beanName,
-            RepositoryFactoryInformation<?, ?> factoryInformation,
-            RepositoryInformation information) {}
 
     private record QueryAnnotation(
             @Nullable String value, @Nullable String name, boolean nativeQuery, boolean hasValue) {}

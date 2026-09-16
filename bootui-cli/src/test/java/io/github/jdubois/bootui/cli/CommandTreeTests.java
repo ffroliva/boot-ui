@@ -56,6 +56,7 @@ class CommandTreeTests {
         for (ToolManifest.Tool tool : ToolManifest.bundled().tools()) {
             paths.clear();
             List<String> args = new ArrayList<>(tool.path());
+            if (tool.selectionArguments().contains("clientId")) args.addAll(List.of("--client-id", "client"));
             if (tool.takesId()) {
                 args.add("some-id");
             }
@@ -81,6 +82,14 @@ class CommandTreeTests {
             check(failures, tool, "--limit", tool.takesLimit());
             check(failures, tool, "--scan-id", tool.takesScanId());
             check(failures, tool, "--offset", tool.takesOffset());
+            for (String argument :
+                    List.of("clientId", "scope", "snapshotId", "section", "databaseId", "collectionId")) {
+                check(
+                        failures,
+                        tool,
+                        "--" + argument.replaceAll("([A-Z])", "-$1").toLowerCase(java.util.Locale.ROOT),
+                        tool.selectionArguments().contains(argument));
+            }
         }
 
         assertThat(failures)
@@ -142,6 +151,9 @@ class CommandTreeTests {
     private void check(Map<String, String> failures, ToolManifest.Tool tool, String flag, boolean supported) {
         paths.clear();
         List<String> args = new ArrayList<>(tool.path());
+        if (tool.selectionArguments().contains("clientId") && !"--client-id".equals(flag)) {
+            args.addAll(List.of("--client-id", "client"));
+        }
         if (tool.takesId()) {
             args.add("some-id");
         }

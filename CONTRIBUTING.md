@@ -354,6 +354,37 @@ skipped is not MySQL validation. Complete all four browser suites and `npm insta
 the integrated change; capture the feature screenshot only after the final runtime/fixture contract agrees.
 See the [MySQL feature contract](docs/features/database.md#mysql).
 
+### Required live MongoDB validation
+
+Use Java 17 and the absolute worktree-local Maven repository. Ordinary tests remain Docker-free for Mongo;
+the explicit `mongodb-live` lane requires Docker and must fail, not skip, when unavailable.
+The pinned fixture is authenticated `mongo:8.0.19`, with standalone catalog and replica-set transaction coverage.
+Spring's driver is 5.8.1 and Quarkus's is 5.6.4 under their respective BOMs.
+
+Install the current coverage reactor first, including the CLI all-jar and UI. Bootstrap browser dependencies because
+the positive live tests also execute the real CLI and Chromium, not only the HTTP facades:
+
+```sh
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pcoverage clean install
+(cd bootui-spring-sample-app/e2e && npm ci && npx playwright install --with-deps chromium)
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-autoconfigure -Pmongodb-live test -Dtest='MongoDb*LiveTests'
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-quarkus-integration-tests/mongodb -Pmongodb-live test -Dtest='BootUiQuarkusMongoDb*LiveTest'
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -pl bootui-spring-sample-app -Pmongodb-sample,mongodb-live test -Dtest=DockerMongoDbProfileLiveTests
+```
+
+The Spring suites cover real sync/reactive metadata, restricted permissions, timeout views, cursor ownership,
+non-creating discovery, MVC/WebFlux default/custom mounts, and replica-set transaction metadata. The Quarkus suites
+cover native named/sync/reactive clients, inactive/lazy producers, application customizer preservation, deadlines and
+default/custom-mount REST/MCP/executable CLI/browser contracts. The isolated MVC sample proves non-root Mongo workload,
+H2 JPA/Flyway/Liquibase, Caffeine and no Kafka/Ollama/Redis requirement.
+
+`.github/scripts/check-mongodb-live-tests.py --since <lane-start-epoch>` requires fresh nonempty reports and rejects
+failures, errors, duplicate cases and skips. Keep the workflow's required suite list synchronized. Generic no-Mongo
+conformance and mocked browser fixtures are not substitutes. Run all four full Playwright suites, format, docs build,
+and package/dependency/idle-resource comparisons too. A Quarkus native named-client counterpart may already exist:
+3.33.3.2 starts both synthetic styles itself, independently verified without BootUI. Assert no additional BootUI
+clients/pools/commands, not an inaccurate assumption that the native counterpart was absent.
+
 ### Panel metadata workflow
 
 Backend panel metadata (`id`, manifest title/order, action capability, and guarded

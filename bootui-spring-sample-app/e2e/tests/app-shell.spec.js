@@ -25,6 +25,7 @@ const allPanelLinks = [
   {id: 'database-connection-pools', title: 'Database Connection Pools', heading: /Database Connection Pools/},
   {id: 'postgresql', title: 'PostgreSQL', heading: /^PostgreSQL/},
   {id: 'mysql', title: 'MySQL', heading: /^MySQL/},
+  {id: 'mongodb', title: 'MongoDB', heading: /^MongoDB/},
   {id: 'transactions', title: 'Transactions', heading: /^Transactions/},
   {id: 'sql-trace', title: 'SQL Trace', heading: /SQL Trace/},
   {id: 'data', title: 'Spring Data', heading: /Spring Data repositories/},
@@ -420,7 +421,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Advisors', count: 9},
       {title: 'Runtime', count: 10},
       {title: 'Configuration', count: 6},
-      {title: 'Database', count: 9},
+      {title: 'Database', count: 10},
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
@@ -445,11 +446,12 @@ test.describe('BootUI app shell', () => {
       'Vulnerabilities'
     ])
 
-    await page.getByRole('button', {name: /Database\s+9/}).click()
+    await page.getByRole('button', {name: /Database\s+10/}).click()
     await expect(page.getByRole('group', {name: 'Database panels'}).locator('.bootui-nav-link__label')).toHaveText([
       'Database Connection Pools',
       'PostgreSQL',
       'MySQL',
+      'MongoDB',
       'Transactions',
       'SQL Trace',
       'Hibernate Statistics',

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,6 +13,7 @@ import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.core.RepositoryInformation;
 import org.springframework.data.repository.core.support.RepositoryFactoryInformation;
@@ -30,13 +30,13 @@ import org.springframework.test.web.servlet.MockMvc;
 class DataControllerTests {
 
     private static ListableBeanFactory beanFactoryWithRepository(String beanName, Class<?> repositoryInterface) {
-        ListableBeanFactory factory = mock(ListableBeanFactory.class);
+        ConfigurableListableBeanFactory factory = mock(ConfigurableListableBeanFactory.class);
         RepositoryFactoryInformation<?, ?> info = mock(RepositoryFactoryInformation.class);
         RepositoryInformation information = mock(RepositoryInformation.class);
 
-        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class)).thenReturn(new String[] {beanName});
-        when(factory.getBean(eq(beanName), eq(RepositoryFactoryInformation.class)))
-                .thenAnswer(invocation -> info);
+        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class, true, false))
+                .thenReturn(new String[] {beanName});
+        when(factory.getSingleton(beanName)).thenAnswer(invocation -> info);
         when(info.getRepositoryInformation()).thenReturn(information);
 
         // Mockito cannot return Class<?> from raw-typed getters without an unchecked
@@ -90,8 +90,9 @@ class DataControllerTests {
 
     @Test
     void repositoriesReturnsEmptyReportWhenNoRepositoryBeans() throws Exception {
-        ListableBeanFactory factory = mock(ListableBeanFactory.class);
-        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class)).thenReturn(new String[0]);
+        ConfigurableListableBeanFactory factory = mock(ConfigurableListableBeanFactory.class);
+        when(factory.getBeanNamesForType(RepositoryFactoryInformation.class, true, false))
+                .thenReturn(new String[0]);
 
         MockMvc mvc = standaloneSetup(new DataController(providerOf(factory))).build();
 
@@ -130,6 +131,7 @@ class DataControllerTests {
         mvc.perform(get("/bootui/api/data/repositories/widgetRepository"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.beanName").value("widgetRepository"))
+                .andExpect(jsonPath("$.executionKind").value("IMPERATIVE"))
                 .andExpect(jsonPath("$.repositoryInterface").value(WidgetRepository.class.getName()))
                 .andExpect(jsonPath("$.methods").isArray())
                 .andExpect(jsonPath("$.methods[?(@.name=='findByName')]").exists())

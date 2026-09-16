@@ -378,6 +378,77 @@ Primary MySQL documentation: [thread scope and visibility](https://docs.oracle.c
 [replication evidence](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-replication-tables.html),
 and [Connector/J buffering and why its auxiliary cancellation path is avoided](https://docs.oracle.com/cd/E17952_01/connector-j-en/connector-j-reference-implementation-notes.html).
 
+## MongoDB
+
+![BootUI MongoDB inspection](../images/bootui-mongodb.webp)
+
+MongoDB is an operational inventory, not another Database advisor. It works with existing managed synchronous and
+reactive MongoDB clients on Spring MVC/WebFlux and Quarkus, including named clients. Spring Data and Panache are not
+prerequisites. A missing integration is unavailable; a declared lazy/inactive client remains visible without being
+initialized.
+
+Opening the page reads local driver topology and retained metadata only. Topology is the driver's current knowledge,
+not a fresh health/authentication check. **Inspect selected scope** explicitly contacts one selected existing client.
+There are no document reads, writes, shell commands, statistics, continuous listeners or index-performance verdicts.
+
+| Transport | Passive read | Explicit action |
+| --- | --- | --- |
+| REST | `GET <api-path>/mongodb` | `POST <api-path>/mongodb/inspect` |
+| MCP | `get_mongodb_report` | `mongodb_inspect` |
+| CLI | `bootui db mongodb report` | `bootui db mongodb inspect` |
+
+The action takes an opaque `clientId`, with `scope=CONFIGURED` by default. Configure known database names through
+`bootui.mongodb.clients.<client-name>.databases`; BootUI never substitutes the authentication database for an unknown
+application database. `SELECTED` takes a known `databaseId`, optional `collectionId`, and the retained `snapshotId`
+when selecting observed targets. There is no arbitrary URI, command, query or credential input.
+Missing required selectors return 400, unknown targets 404, and a supplied stale snapshot 409. Both adapters reject
+unknown/duplicate GET fields, duplicate JSON object keys and trailing JSON values rather than ignoring input.
+Client replacement/removal changes executable IDs even before an inspection exists; unchanged clients keep their IDs.
+
+Optional `AUTHORIZED_NAMES` requires `bootui.mongodb.authorized-database-enumeration-enabled=true`. It reads only
+authorized database names, not all their collections. MongoDB returns these names in one **unpaged server response**:
+retained count/byte caps do not bound its initial decoding. Select a database and run a separate explicit action to
+inspect its catalog.
+
+Collection-name listing uses authorized name-only semantics. Rich collection metadata and conventional index listing
+have independent permissions. A denial preserves usable neighboring names/indexes. Views are not traversed; time-series,
+encryption and unsupported index options are explicitly limited. Search/Vector Search indexes are not conventional
+`listIndexes` evidence. Compound-key order is preserved; TTL and BSON int64 quantities use exact decimal strings.
+
+`NOT_READ`, `READ`, `PARTIAL`, `ERROR` and `DISABLED` describe inspection coverage, never health. `truncated` identifies
+omitted retained metadata, including shortened text or configured databases beyond the inspection cap;
+timeout/denied/unsupported sections have distinct reason codes. Server-only success or retained authorized names followed
+by a timeout is PARTIAL. Local configured declarations alone do not turn a failed external read into success.
+Default bounds are one client
+per action, 8 databases, 50 collections/database, 32 indexes/collection, 1,000 total metadata items, 512 KiB retained
+metadata and 256-character text. The cooperative total budget is 10 seconds, with at most 2 seconds per operation.
+Driver CSOT uses timeout views sharing existing pools; cleanup and initial response decoding are not hard wall-clock
+guarantees. See [properties](../PROPERTIES.md#mongodb).
+
+Page retained `DATABASES`, `COLLECTIONS` or `INDEXES` with `snapshotId`, optional parent filters/query, `offset` and
+`limit` (50 by default, at most 200). Counts are retained totals, not complete server counts. Paging never resumes a
+server cursor. A replaced snapshot returns 409 rather than mixing observations. REST/MCP/CLI share one cache and
+single-flight action; read-only policy blocks Inspect despite its non-mutating commands.
+Failed/stale page requests retain the last successfully accepted section, filters and rows. A successful SELECTED
+action keeps its selection and adopts the new snapshot so it can be repeated explicitly.
+
+Raw connection strings, credentials/authentication sources, TLS material, documents, validators, view/aggregation
+pipelines, partial-filter/projection literals and raw exceptions are withheld in **every** exposure mode. Exposed
+configuration/metadata is recognized and masked before any text shortening, then cached. Exposure changes invalidate
+retained snapshots without MongoDB I/O, including results collected while policy changed. Current inventory and cached
+metadata share one budget; inventory growth may explicitly invalidate an old snapshot, without querying MongoDB.
+
+The sample's `run-local-mongodb.sh` enables isolated `mongodb-sample` dependencies and the `docker-mongodb` profile:
+authenticated standalone `mongo:8.0.19`, a non-root application account, Mongo document workload, H2 for existing
+JPA/Flyway/Liquibase features, and Caffeine. No PostgreSQL/MySQL/Redis/Kafka/Ollama container is needed; ordinary dev
+remains Docker-free. Mongo transactions are tested separately on a replica set. Managed/compatible services, older
+server lines, sharded deployments and broad native-image support are not certified by this fixture.
+
+Spring Data's existing `MONGO` recognition is enriched with static document/index declarations and imperative/reactive
+kind. Dynamic collection/index expressions and routing factories are not executed; unknown bindings remain unknown.
+Mongo query text is withheld and represented by safe query-kind/presence metadata. Declared indexes are not claims
+about observed indexes or performance. Quarkus Spring Data remains not applicable; Panache enrichment is not included.
+
 ## SQL Trace
 
 ![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)
@@ -589,10 +660,18 @@ twice.
 
 The panel is read-mostly: transaction metadata (method names, propagation, isolation, thread names, trace ids) is not
 sensitive application data the way bound SQL parameters are, so none of it is masked or gated behind value-exposure
-settings. It fails closed — reporting unavailable with a clear reason — when no `PlatformTransactionManager` bean exists,
-or when a WebFlux application uses only a `ReactiveTransactionManager` (R2DBC), since Spring's transaction-execution
-listener hook exists solely on the blocking `PlatformTransactionManager` SPI. Capture, the initial recording state,
+settings. It reports unavailable when no `ConfigurableTransactionManager` declaration exists. Spring's reactive base
+manager also implements that interface. Mongo/reactive callbacks use bounded execution-identity association rather
+than a thread-local stack, preserving outcomes across thread hops without inventing JDBC correlation or parentage.
+Mongo isolation, SQL/connection counts and connection-held diagnostics are marked not applicable; unknown trace/parent
+context remains unknown. Outcomes describe manager callbacks, not independent server verification or arbitrary Mongo
+session tracing. Capture, the initial recording state,
 buffer size, and the slow-transaction and connection-hold thresholds are all configurable under `bootui.transactions.*`.
+
+Registration observes actual manager-bean initialization without resolving lazy/proxy targets. A lazy managed target
+is instrumented when the application first creates it, including behind an opaque lazy proxy. An externally-created
+opaque/dynamic proxy whose target never passes through Spring's bean lifecycle cannot be safely instrumented: BootUI
+logs that limitation instead of invoking the proxy to force initialization. Existing application listeners are preserved.
 
 The panel refreshes over **Server-Sent Events**: the browser subscribes to `/bootui/api/transactions/stream` and the
 server pushes a small coalesced notification whenever a transaction completes, the buffer is cleared, or recording is

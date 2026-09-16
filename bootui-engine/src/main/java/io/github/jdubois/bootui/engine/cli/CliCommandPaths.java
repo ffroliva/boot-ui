@@ -48,6 +48,8 @@ public final class CliCommandPaths {
             Map.entry("get_database_advisor_rule_violations", "db violations"),
             Map.entry("get_postgresql_report", "db postgres report"),
             Map.entry("get_mysql_report", "db mysql report"),
+            Map.entry("get_mongodb_report", "db mongodb report"),
+            Map.entry("mongodb_inspect", "db mongodb inspect"),
             Map.entry("get_database_connection_pools", "db pools"),
             Map.entry("get_dev_services", "dev-services"),
             Map.entry("get_devtools_status", "devtools status"),

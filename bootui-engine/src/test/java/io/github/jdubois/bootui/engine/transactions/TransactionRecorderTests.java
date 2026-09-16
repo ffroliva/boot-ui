@@ -8,7 +8,11 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder.Status;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class TransactionRecorderTests {
@@ -252,5 +256,243 @@ class TransactionRecorderTests {
         assertThat(report.unavailableReason()).isEqualTo("No PlatformTransactionManager bean is available");
         assertThat(report.entries()).isEmpty();
         assertThat(report.stats().totalTransactions()).isZero();
+    }
+
+    @Test
+    void detachedIdentitySurvivesThreadHopsWithoutBorrowingJdbcOrMdcEvidence() throws Exception {
+        SqlTraceRecorder sql = new SqlTraceRecorder(true, true, false, false, 50, 100, 2000, 200, 5);
+        TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 1, 1, sql);
+        long jdbc = recorder.beginTransaction("jdbc", false, "SERIALIZABLE", "worker", "jdbc-trace");
+        Object mongo = new Object();
+        detached(recorder, mongo, "mongo");
+        sql.record(
+                StatementType.STATEMENT,
+                Category.SELECT,
+                "select 1",
+                List.of(),
+                1,
+                true,
+                null,
+                null,
+                0,
+                "jdbc-connection",
+                "worker");
+        Thread.sleep(20);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            executor.submit(() -> recorder.completeDetachedTransaction(mongo, Status.COMMITTED, null))
+                    .get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        recorder.completeTransaction(jdbc, Status.COMMITTED, null);
+
+        TransactionEntryDto mongoEntry = recorder.recent().stream()
+                .filter(entry -> entry.methodName().equals("mongo"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(mongoEntry.parentId()).isNull();
+        assertThat(mongoEntry.traceId()).isNull();
+        assertThat(mongoEntry.isolation()).isEqualTo("UNKNOWN");
+        assertThat(mongoEntry.sqlStatementCount()).isZero();
+        assertThat(mongoEntry.connectionCount()).isZero();
+        assertThat(mongoEntry.connectionHeld()).isFalse();
+        assertThat(recorder.isConnectionHeld(mongoEntry.durationMillis())).isTrue();
+        assertThat(mongoEntry.correlationStatus()).isEqualTo("NOT_APPLICABLE");
+        assertThat(mongoEntry.limitations()).isNotEmpty();
+        assertThat(recorder.recent().get(0).sqlStatementCount()).isEqualTo(1);
+        long next = recorder.beginTransaction("next", false, null, "worker", null);
+        recorder.completeTransaction(next, Status.COMMITTED, null);
+        assertThat(recorder.recent().get(0).parentId()).isNull();
+    }
+
+    @Test
+    void equalButDistinctExecutionsDoNotShareAnAssociationAndDuplicateCallbacksAreIgnored() {
+        TransactionRecorder recorder = recorder(true, 10, 100, 100);
+        Object first = new String("equal");
+        Object second = new String("equal");
+        detached(recorder, first, "first");
+        detached(recorder, second, "second");
+        detached(recorder, first, "duplicate");
+        recorder.completeDetachedTransaction(new String("equal"), Status.COMMITTED, null);
+        assertThat(recorder.recent()).isEmpty();
+        recorder.completeDetachedTransaction(first, Status.COMMITTED, null);
+        recorder.completeDetachedTransaction(second, Status.UNKNOWN, "rollback failed");
+        recorder.completeDetachedTransaction(first, Status.ROLLED_BACK, null);
+        assertThat(recorder.recent())
+                .extracting(TransactionEntryDto::methodName)
+                .containsExactly("second", "first");
+        assertThat(recorder.recent()).extracting(TransactionEntryDto::status).containsExactly("UNKNOWN", "COMMITTED");
+        assertThat(recorder.recent())
+                .allSatisfy(entry -> assertThat(entry.parentId()).isNull());
+    }
+
+    @Test
+    void detachedCapacityEvictsIncompleteObservationsInsteadOfRetainingExecutionsForever() {
+        TransactionRecorder recorder = recorder(true, 2, 100, 100);
+        Object abandoned = new Object();
+        Object second = new Object();
+        Object third = new Object();
+        detached(recorder, abandoned, "abandoned");
+        detached(recorder, second, "second");
+        detached(recorder, third, "third");
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.methodName()).isEqualTo("abandoned");
+            assertThat(entry.status()).isEqualTo("UNKNOWN");
+            assertThat(entry.errorMessage()).isNull();
+            assertThat(entry.limitations()).anyMatch(reason -> reason.contains("in-flight capture limit"));
+        });
+        recorder.completeDetachedTransaction(abandoned, Status.COMMITTED, null);
+        assertThat(recorder.totalCaptured()).isEqualTo(1);
+        recorder.completeDetachedTransaction(second, Status.COMMITTED, null);
+        recorder.completeDetachedTransaction(third, Status.COMMITTED, null);
+        assertThat(recorder.totalCaptured()).isEqualTo(3);
+        assertThat(recorder.report().warnings()).anyMatch(warning -> warning.contains("1 detached transaction"));
+    }
+
+    @Test
+    void hardCapAppliesEvenWhenTheCompletedBufferIsConfiguredLarger() {
+        TransactionRecorder recorder = recorder(true, 2000, 100, 100);
+        List<Object> executions = new ArrayList<>();
+        for (int index = 0; index < 1030; index++) {
+            Object execution = new Object();
+            executions.add(execution);
+            detached(recorder, execution, "transaction-" + index);
+        }
+        assertThat(recorder.stats().unknownCount()).isEqualTo(6);
+        for (Object execution : executions) {
+            recorder.completeDetachedTransaction(execution, Status.COMMITTED, null);
+        }
+        assertThat(recorder.stats().committedCount()).isEqualTo(1024);
+        assertThat(recorder.totalCaptured()).isEqualTo(1030);
+    }
+
+    @Test
+    void missingOrCancelledCompletionExpiresOnReportAccessUsingMonotonicTime() {
+        AtomicLong ticker = new AtomicLong();
+        TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null, ticker::get);
+        Object cancelled = new Object();
+        detached(recorder, cancelled, "cancelled");
+        ticker.set(TransactionRecorder.DETACHED_MAX_AGE_NANOS - 1);
+        assertThat(recorder.recent()).isEmpty();
+        ticker.incrementAndGet();
+        TransactionReport expired = recorder.report();
+        assertThat(expired.totalCaptured()).isEqualTo(1);
+        assertThat(expired.stats().unknownCount()).isEqualTo(1);
+        assertThat(expired.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.status()).isEqualTo("UNKNOWN");
+            assertThat(entry.limitations()).anyMatch(reason -> reason.contains("five-minute capture window"));
+        });
+        recorder.completeDetachedTransaction(cancelled, Status.COMMITTED, null);
+        assertThat(recorder.totalCaptured()).isEqualTo(1);
+    }
+
+    @Test
+    void recordingChangesClearAndIdleReleaseDetachedOwnershipWithoutResurrectingOldCallbacks() {
+        TransactionRecorder recorder = recorder(true, 10, 100, 100);
+        Object paused = new Object();
+        detached(recorder, paused, "paused");
+        recorder.setRecording(false);
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.status()).isEqualTo("UNKNOWN");
+            assertThat(entry.limitations()).anyMatch(reason -> reason.contains("Recording paused"));
+        });
+        Object whilePaused = new Object();
+        detached(recorder, whilePaused, "not-captured");
+        recorder.setRecording(true);
+        recorder.completeDetachedTransaction(paused, Status.COMMITTED, null);
+        recorder.completeDetachedTransaction(whilePaused, Status.COMMITTED, null);
+        assertThat(recorder.totalCaptured()).isEqualTo(1);
+        Object cleared = new Object();
+        detached(recorder, cleared, "cleared");
+        recorder.clear();
+        recorder.completeDetachedTransaction(cleared, Status.COMMITTED, null);
+        assertThat(recorder.recent()).isEmpty();
+        Object idle = new Object();
+        detached(recorder, idle, "idle");
+        recorder.suspendForIdle();
+        detached(recorder, new Object(), "suspended");
+        recorder.resumeFromIdle();
+        recorder.completeDetachedTransaction(idle, Status.COMMITTED, null);
+        assertThat(recorder.recent()).isEmpty();
+        assertThat(recorder.report().warnings()).anyMatch(warning -> warning.contains("2 in-flight detached"));
+    }
+
+    @Test
+    void disabledDetachedCaptureAndUnknownMetadataDoNotInventEvidence() {
+        TransactionRecorder disabled = recorder(false, 10, 100, 100);
+        Object execution = new Object();
+        detached(disabled, execution, "disabled");
+        disabled.completeDetachedTransaction(execution, Status.COMMITTED, null);
+        assertThat(disabled.recent()).isEmpty();
+        TransactionRecorder recorder = recorder(true, 10, 100, 100);
+        recorder.beginDetachedTransaction(execution, null, false, false, null, null, null, false);
+        recorder.completeDetachedTransaction(execution, null, null);
+        assertThat(recorder.recent()).singleElement().satisfies(entry -> {
+            assertThat(entry.methodName()).isEqualTo("unknown");
+            assertThat(entry.propagation()).isEqualTo("UNKNOWN");
+            assertThat(entry.managerType()).isEqualTo("UNKNOWN");
+            assertThat(entry.executionKind()).isEqualTo("UNKNOWN");
+            assertThat(entry.correlationStatus()).isEqualTo("UNAVAILABLE");
+            assertThat(entry.thread()).isNull();
+            assertThat(entry.status()).isEqualTo("UNKNOWN");
+        });
+    }
+
+    @Test
+    void legacyDtoConstructorAndNewLimitationsRemainCompatibleAndImmutable() {
+        TransactionEntryDto legacy = new TransactionEntryDto(
+                1,
+                "method",
+                "NEW",
+                "UNKNOWN",
+                "COMMITTED",
+                1,
+                2,
+                1,
+                null,
+                "worker",
+                null,
+                0,
+                0,
+                false,
+                false,
+                false,
+                null);
+        assertThat(legacy.managerType()).isEqualTo("UNKNOWN");
+        assertThat(legacy.limitations()).isEmpty();
+        List<String> limitations = new ArrayList<>(List.of("No trace context"));
+        TransactionEntryDto entry = new TransactionEntryDto(
+                1,
+                "method",
+                "NEW",
+                "UNKNOWN",
+                "COMMITTED",
+                1,
+                2,
+                1,
+                null,
+                "worker",
+                null,
+                0,
+                0,
+                false,
+                false,
+                false,
+                null,
+                "MongoTransactionManager",
+                "IMPERATIVE",
+                "NOT_APPLICABLE",
+                limitations);
+        limitations.clear();
+        assertThat(entry.limitations()).containsExactly("No trace context");
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> entry.limitations().add("changed"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private static void detached(TransactionRecorder recorder, Object execution, String name) {
+        recorder.beginDetachedTransaction(
+                execution, name, false, true, "worker", "MongoTransactionManager", "REACTIVE", true);
     }
 }

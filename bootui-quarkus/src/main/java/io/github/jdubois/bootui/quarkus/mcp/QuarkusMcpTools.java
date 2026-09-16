@@ -86,7 +86,7 @@ import java.util.function.Function;
 @Singleton
 public class QuarkusMcpTools {
 
-    private final List<McpTool> tools;
+    private List<McpTool> tools;
 
     public QuarkusMcpTools(
             QuarkusPanelAvailability availability,
@@ -593,6 +593,28 @@ public class QuarkusMcpTools {
     }
 
     /** All tools in advertised order. */
+    @jakarta.inject.Inject
+    void addMongoDbTools(
+            QuarkusPanelAvailability availability,
+            io.github.jdubois.bootui.engine.mongodb.MongoDbInspectionService mongodb) {
+        List<McpTool> registry = new ArrayList<>(tools);
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_mongodb_report",
+                        McpToolDescriptions.quarkus("get_mongodb_report"),
+                        args -> io.github.jdubois.bootui.engine.mongodb.MongoDbTools.report(mongodb, args)));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "mongodb_inspect",
+                        McpToolDescriptions.quarkus("mongodb_inspect"),
+                        args -> io.github.jdubois.bootui.engine.mongodb.MongoDbTools.inspect(mongodb, args)));
+        tools = List.copyOf(registry);
+    }
+
     public List<McpTool> tools() {
         return tools;
     }

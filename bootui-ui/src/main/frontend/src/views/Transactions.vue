@@ -59,7 +59,10 @@ const filteredEntries = computed(() => {
       entry.status,
       entry.thread,
       entry.traceId,
-      entry.errorMessage
+      entry.errorMessage,
+      entry.managerType,
+      entry.executionKind,
+      entry.correlationStatus
     ]
       .join(' ')
       .toLowerCase()
@@ -98,6 +101,26 @@ function statusClass(status) {
       ROLLED_BACK: 'text-bg-danger',
       UNKNOWN: 'text-bg-secondary'
     }[status] || 'text-bg-secondary'
+  )
+}
+
+function sqlCounts(entry) {
+  if (entry.correlationStatus === 'NOT_APPLICABLE') return 'Not applicable'
+  if (entry.correlationStatus === 'UNAVAILABLE') return 'Not observed'
+  return `${entry.sqlStatementCount} / ${entry.connectionCount}`
+}
+
+function isolationLabel(entry) {
+  return entry.correlationStatus === 'NOT_APPLICABLE' ? 'Not applicable' : entry.isolation
+}
+
+function correlationLabel(entry) {
+  return (
+    {
+      NOT_APPLICABLE: 'JDBC evidence is not applicable',
+      UNAVAILABLE: 'SQL correlation is not observed',
+      THREAD_TIME_WINDOW: 'Estimated by thread and time window'
+    }[entry.correlationStatus] || 'Unknown'
   )
 }
 
@@ -417,14 +440,18 @@ function clearTransactions() {
                       <span class="badge text-bg-light border text-dark">{{ root.propagation }}</span>
                     </td>
                     <td>
-                      <span class="badge text-bg-light border text-dark">{{ root.isolation }}</span>
+                      <span class="badge text-bg-light border text-dark">{{ isolationLabel(root) }}</span>
                     </td>
-                    <td class="text-end text-nowrap">{{ root.sqlStatementCount }} / {{ root.connectionCount }}</td>
+                    <td class="text-end text-nowrap">{{ sqlCounts(root) }}</td>
                     <td>
                       <span :class="statusClass(root.status)" class="badge">{{ root.status }}</span>
                       <span v-if="root.slow" class="badge text-bg-warning ms-1">slow</span>
                       <span
-                        v-if="root.connectionHeld"
+                        v-if="
+                          root.connectionHeld &&
+                          root.correlationStatus !== 'NOT_APPLICABLE' &&
+                          root.executionKind !== 'REACTIVE'
+                        "
                         class="badge text-bg-danger ms-1"
                         title="Held a connection too long"
                         >held</span
@@ -445,6 +472,24 @@ function clearTransactions() {
                         </dd>
                         <dt class="col-sm-2">Read-only</dt>
                         <dd class="col-sm-10">{{ root.readOnly ? 'Yes' : 'No' }}</dd>
+                        <template v-if="root.managerType">
+                          <dt class="col-sm-2">Manager</dt>
+                          <dd class="col-sm-10 text-break">
+                            <code>{{ root.managerType }}</code>
+                          </dd>
+                          <dt class="col-sm-2">Execution</dt>
+                          <dd class="col-sm-10">{{ root.executionKind || 'UNKNOWN' }}</dd>
+                          <dt class="col-sm-2">SQL correlation</dt>
+                          <dd class="col-sm-10">{{ correlationLabel(root) }}</dd>
+                        </template>
+                        <template v-if="root.limitations?.length">
+                          <dt class="col-sm-2">Limitations</dt>
+                          <dd class="col-sm-10">
+                            <ul class="mb-0 ps-3">
+                              <li v-for="limitation in root.limitations" :key="limitation">{{ limitation }}</li>
+                            </ul>
+                          </dd>
+                        </template>
                         <template v-if="root.errorMessage">
                           <dt class="col-sm-2 text-danger">Error</dt>
                           <dd class="col-sm-10 text-danger">{{ root.errorMessage }}</dd>
@@ -487,10 +532,10 @@ function clearTransactions() {
                           <span class="badge text-bg-light border text-dark">{{ child.propagation }}</span>
                         </td>
                         <td>
-                          <span class="badge text-bg-light border text-dark">{{ child.isolation }}</span>
+                          <span class="badge text-bg-light border text-dark">{{ isolationLabel(child) }}</span>
                         </td>
                         <td class="text-end text-nowrap">
-                          {{ child.sqlStatementCount }} / {{ child.connectionCount }}
+                          {{ sqlCounts(child) }}
                         </td>
                         <td>
                           <span :class="statusClass(child.status)" class="badge">{{ child.status }}</span>
@@ -511,6 +556,24 @@ function clearTransactions() {
                             </dd>
                             <dt class="col-sm-2">Read-only</dt>
                             <dd class="col-sm-10">{{ child.readOnly ? 'Yes' : 'No' }}</dd>
+                            <template v-if="child.managerType">
+                              <dt class="col-sm-2">Manager</dt>
+                              <dd class="col-sm-10 text-break">
+                                <code>{{ child.managerType }}</code>
+                              </dd>
+                              <dt class="col-sm-2">Execution</dt>
+                              <dd class="col-sm-10">{{ child.executionKind || 'UNKNOWN' }}</dd>
+                              <dt class="col-sm-2">SQL correlation</dt>
+                              <dd class="col-sm-10">{{ correlationLabel(child) }}</dd>
+                            </template>
+                            <template v-if="child.limitations?.length">
+                              <dt class="col-sm-2">Limitations</dt>
+                              <dd class="col-sm-10">
+                                <ul class="mb-0 ps-3">
+                                  <li v-for="limitation in child.limitations" :key="limitation">{{ limitation }}</li>
+                                </ul>
+                              </dd>
+                            </template>
                             <template v-if="child.errorMessage">
                               <dt class="col-sm-2 text-danger">Error</dt>
                               <dd class="col-sm-10 text-danger">{{ child.errorMessage }}</dd>

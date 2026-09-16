@@ -70,6 +70,11 @@ The panel is identical on Quarkus, served over Micrometer directly (Quarkus has 
 `quarkus-micrometer-registry-prometheus`), and otherwise renders as unavailable while staying in the sidebar. As on Spring
 Boot, meters describing BootUI's own `/bootui/**` traffic are hidden so the console never reports on itself.
 
+MongoDB's native Micrometer command and pool families are recognized when the application already registers them.
+BootUI adds no Mongo listener or binder. Command duration is not full repository latency, pool gauges are not JDBC
+statistics, and absent instrumentation remains unavailable rather than zero. Open the [MongoDB page](database.md#mongodb)
+for local client declarations and explicitly selected catalog metadata.
+
 ## Live Memory
 
 ![BootUI Live Memory panel](../images/bootui-live-memory.webp)

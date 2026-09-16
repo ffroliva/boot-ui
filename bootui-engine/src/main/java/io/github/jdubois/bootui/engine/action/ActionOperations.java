@@ -15,6 +15,7 @@ public final class ActionOperations {
     public static final String PENTESTING_SCAN = "pentesting.scan";
     public static final String POSTGRESQL_READ = "postgresql.read";
     public static final String MYSQL_READ = "mysql.read";
+    public static final String MONGODB_INSPECT = "mongodb.inspect";
     public static final String REST_API_SCAN = "rest-api.scan";
     public static final String SECURITY_SCAN = "security.scan";
     public static final String SPRING_SCAN = "spring.scan";

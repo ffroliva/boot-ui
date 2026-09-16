@@ -105,4 +105,77 @@ describe('Data', () => {
     expect(wrapper.get('.table-responsive.bootui-table-scroll .data-methods-table').exists()).toBe(true)
     expect(wrapper.findAll('.data-methods-table .bootui-break-anywhere')).toHaveLength(2)
   })
+
+  it('shows Mongo declaration kind and unresolved mapping without rendering query literals or inspecting', async () => {
+    const summary = repositoriesReport()
+    summary.repositories[0].storeModule = 'MONGO'
+    summary.discovery = {complete: false, truncated: false, warnings: ['A lazy factory was not initialized.']}
+    const detail = repositoryDetail()
+    detail.storeModule = 'MONGO'
+    detail.executionKind = 'REACTIVE'
+    detail.mongodb = {
+      binding: 'UNRESOLVED',
+      mapping: {collection: null, collectionState: 'DYNAMIC', fields: []},
+      declaredIndexes: [],
+      limitations: ['Dynamic collection expressions were not evaluated.']
+    }
+    detail.methods[0].query = 'DO_NOT_RENDER_MONGO_LITERAL'
+    detail.methods[0].queryMetadata = {
+      language: 'MONGODB',
+      kind: 'MONGO_AGGREGATION',
+      dynamic: true,
+      textWithheld: true
+    }
+    const requests = vi.fn().mockResolvedValueOnce(jsonResponse(summary)).mockResolvedValueOnce(jsonResponse(detail))
+    vi.stubGlobal('fetch', requests)
+    wrapper = mount(Data, {global: {stubs: {RouterLink: true}}})
+    await flushPromises()
+    await wrapper.get('.list-group-item-action').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('REACTIVE')
+    expect(wrapper.text()).toContain('MONGO_AGGREGATION')
+    expect(wrapper.text()).toContain('Literal text withheld')
+    expect(wrapper.text()).toContain('DYNAMIC')
+    expect(wrapper.text()).not.toContain('DO_NOT_RENDER_MONGO_LITERAL')
+    expect(wrapper.get('router-link-stub').attributes('to')).toBe('/mongodb')
+    expect(requests).toHaveBeenCalledTimes(2)
+    expect(requests.mock.calls.every(([url]) => url.startsWith('api/data/'))).toBe(true)
+  })
+  it.each([
+    ['******', 'STATIC', 'Withheld'],
+    [null, 'STATIC', 'Withheld (metadata-only)'],
+    [null, 'DYNAMIC', 'Unresolved'],
+    [null, 'UNRESOLVED', 'Unresolved']
+  ])('distinguishes collection %s / %s from unresolved mapping', async (collection, collectionState, expected) => {
+    const detail = repositoryDetail()
+    detail.storeModule = 'MONGO'
+    detail.mongodb = {
+      binding: 'UNRESOLVED',
+      mapping: {
+        collection,
+        collectionState,
+        idField: '******',
+        versionField: '******',
+        fields: [{property: 'id', persistedName: '******', javaType: 'java.lang.String', state: 'STATIC'}]
+      },
+      declaredIndexes: [],
+      limitations: []
+    }
+    const requests = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(repositoriesReport()))
+      .mockResolvedValueOnce(jsonResponse(detail))
+    vi.stubGlobal('fetch', requests)
+    wrapper = mount(Data, {global: {stubs: {RouterLink: true}}})
+    await flushPromises()
+    await wrapper.get('.list-group-item-action').trigger('click')
+    await flushPromises()
+    const declarations = wrapper.get('[aria-label="MongoDB repository declarations"]')
+    expect(declarations.get('dd').text()).toBe(`${expected} · ${collectionState}`)
+    expect(declarations.text()).toContain('Withheld / Withheld')
+    expect(declarations.text()).toContain('id → Withheld')
+    expect(declarations.text()).not.toContain('******')
+    if (collectionState === 'STATIC') expect(declarations.text()).not.toContain('Unresolved')
+    expect(requests).toHaveBeenCalledTimes(2)
+  })
 })

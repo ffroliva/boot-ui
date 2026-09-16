@@ -251,6 +251,22 @@ refuse the action, and `panel disabled` when the panel is off. This is also how 
 Quarkus application advertises fewer tools than Spring MVC, and some Spring tools appear only when the
 corresponding library is on the classpath.
 
+### MongoDB inventory and inspection
+
+```sh
+bootui db mongodb report --json
+# Only after approval of this existing client's configured scope:
+bootui db mongodb inspect --client-id CLIENT_ID --scope CONFIGURED --json
+bootui db mongodb report --snapshot-id SNAPSHOT_ID --section COLLECTIONS --limit 50 --json
+bootui db mongodb report --snapshot-id SNAPSHOT_ID --section INDEXES --collection-id COLLECTION_ID --json
+```
+
+The read is local/cached; the action uses one initialized application client. SELECTED accepts `--database-id`,
+optional `--collection-id`, and `--snapshot-id` for observed targets. AUTHORIZED_NAMES requires explicit configuration
+and returns names only, with no server-side pagination promise. Flags are generated from the MCP schema; neither
+the CLI nor `bootui-client` installs a Mongo driver. Existing exit codes apply; transport success is not healthy
+MongoDB or complete evidence. See [MongoDB](features/database.md#mongodb).
+
 ### MySQL reads
 
 The MySQL command pair is the projection of `get_mysql_report` and `mysql_read`, not a SQL console. It supports
@@ -375,6 +391,8 @@ exposes a tool is still what `bootui tools` says.
 | `bootui db liquibase` | `get_liquibase_changesets` | — | read | all |
 | `bootui db mysql read` | `mysql_read` | — | action | all with MySQL JDBC |
 | `bootui db mysql report` | `get_mysql_report` | — | read | all with MySQL JDBC |
+| `bootui db mongodb report` | `get_mongodb_report` | snapshot/section/parent IDs, query, offset, limit | read | all with managed Mongo clients |
+| `bootui db mongodb inspect` | `mongodb_inspect` | clientId, scope, selected IDs/snapshot | action | all with initialized Mongo clients |
 | `bootui db pools` | `get_database_connection_pools` | — | read | all |
 | `bootui db postgres read` | `postgresql_read` | — | action | all |
 | `bootui db postgres report` | `get_postgresql_report` | — | read | all |
