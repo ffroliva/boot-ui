@@ -372,6 +372,7 @@
                             <excludeArtifact>bootui-quarkus-rest-client-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-scheduler-integration-tests</excludeArtifact>
                             <excludeArtifact>bootui-quarkus-security-integration-tests</excludeArtifact>
+                            <excludeArtifact>bootui-quarkus-websockets-integration-tests</excludeArtifact>
                         </excludeArtifacts>
                         <!--
                             Sonatype only mandates md5+sha1 checksums (sha256/sha512 are optional, see

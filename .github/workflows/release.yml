@@ -46,6 +46,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check release workflow integrity
+        run: bash .github/scripts/check-release-integrity.sh
+
       - name: Set up JDK 17
         # Releases stay on the Java 17 baseline; broader JDK compatibility is
         # validated in CI by .github/workflows/jdk-compatibility.yml.
