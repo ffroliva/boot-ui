@@ -48,6 +48,7 @@ require_order() {
 }
 
 require_literal 'resume_after_publish:' 'manual publication continuation input'
+require_literal 'run: bash .github/scripts/check-release-integrity.sh' 'release preflight integrity check'
 require_literal 'git verify-tag "$TAG"' 'new tag signature verification'
 require_literal 'git tag -s "$TAG"' 'signed annotated release tag creation'
 require_literal '--pinentry-mode loopback --passphrase-fd 3' 'headless tag-signing passphrase transport'
@@ -107,6 +108,7 @@ readonly expected_exclusions=(
   bootui-quarkus-rest-client-integration-tests
   bootui-quarkus-scheduler-integration-tests
   bootui-quarkus-security-integration-tests
+  bootui-quarkus-websockets-integration-tests
 )
 for artifact in "${expected_exclusions[@]}"; do
   if ! grep -Fq "<excludeArtifact>${artifact}</excludeArtifact>" <<<"$excluded_artifacts"; then
@@ -124,6 +126,8 @@ if grep -Fq '<skip>${maven.deploy.skip}</skip>' "$ROOT_POM"; then
   report_error "Central publishing does not support the legacy per-module <skip> configuration"
 fi
 
+require_order '- name: Check release workflow integrity' '- name: Set up JDK 17' \
+  'release integrity must be checked before importing signing credentials or preparing a version'
 require_order './mvnw -B -ntp -Prelease clean verify' 'git commit -m "Release $TAG"' \
   'release verification must happen before the release commit'
 require_order 'REMOTE_SOURCE_SHA=' 'git tag -s "$TAG"' \

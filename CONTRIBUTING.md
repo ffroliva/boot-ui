@@ -536,6 +536,15 @@ source branch advanced during preparation, the workflow aborts; it never rebases
 released contents. The selected branch must allow
 `github-actions[bot]` to push the release commit and tag.
 
+Before dispatching, cut `CHANGELOG.md`'s `[Unreleased]` heading to
+`## [VERSION] - YYYY-MM-DD`, complete the notes, and land them on the source branch
+as their own commit. Use the intended release date and recheck it if publication
+is delayed. The exact source SHA must be green on `build.yml`; avoid merging other
+changes during the release run. For preparation-only work, stop before dispatch:
+leave Maven/npm versions and install coordinates for the workflow, and do not
+create a tag or publish locally. The workflow checks release integrity, including
+the non-distribution artifact exclusions, before importing signing credentials.
+
 The workflow then resolves the remote tag to its peeled commit SHA, checks out that
 SHA in detached state, rechecks the Maven/npm/tag identity, and publishes exactly
 that checkout. After auto-publication it polls every published coordinate, runs the
