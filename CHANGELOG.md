@@ -5,38 +5,121 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0] - 2026-09-16
 
-### Fixed
-
-- WebFlux filter rejections close their Reactor Netty HTTP/1.x connection after responding, preventing a queued
-  keep-alive rejection from stranding the next request. HTTP/2 and successful request behavior are unchanged.
-- MySQL diagnostics now qualify disabled or unreadable table/object and metadata-lock instrumentation instead
-  of implying zero activity, include replication-coordinator errors, and preserve status-counter comparison
-  intervals independently of later collector latency. Required-metadata deadline expiry reports an explicit
-  timeout rather than an incidental indexing error.
-- Datasource discovery keeps unresolved/lazy pool candidates visible without resolving dynamic AOP targets,
-  honours Quarkus's real `jdbc=false` switch, resolves named beans only once, and no longer mistakes a non-MySQL
-  database named `mysql` for the MySQL protocol.
-
-### Changed
-
-- MySQL row-cap-only results use neutral labels and section-local explanations rather than warning banners.
-  Permission failures, timeouts, and other incomplete reads remain prominent; the API coverage contract is unchanged.
+Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,
+with matching REST, MCP, and CLI access. Advisors now retain bounded, paginated violation details beyond their compact
+previews, and Pentesting honors persisted dismissals. More precise architecture, Hibernate, and database checks reduce
+false positives, while vulnerability coverage improves for extracted Spring Boot applications.
 
 ### Added
 
-- **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead
-  of PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for
-  the MySQL panel. The dedicated `run-local-mysql.sh` launcher starts only MySQL and Redis, without Kafka,
-  Ollama, or AI model downloads; `run-local.sh` retains the Docker-free default.
+- **PostgreSQL operational diagnostics.** A dedicated panel reads vital signs, live sessions and blocking, normalized
+  statement rankings, index usage, table size and access, autovacuum, replication/WAL, and curated settings from existing
+  JDBC datasources on Spring MVC, WebFlux, and Quarkus. Collection is explicit, bounded, and read-only; opening the panel
+  or reading its cached REST/MCP/CLI report does not query the database. Partial reads retain available evidence and
+  explain missing permissions, extensions, and failed sections. In-memory comparisons show changes between reads.
+  This is a view of PostgreSQL's own statistics, not a scored advisor, an administration tool, or JVM-local SQL Trace
+  ([#1026](https://github.com/jdubois/boot-ui/pull/1026)).
 
-- **MySQL operational diagnostics.** A PostgreSQL sibling covering vital signs,
-  sessions/blocking, normalized statements, indexes, tables, InnoDB, basic replication, and curated settings through
-  existing JDBC datasources on Spring MVC, WebFlux, and Quarkus. The contract includes explicit collection, cached
-  REST/MCP/CLI reports, configurable row caps, exact large counters, and honest partial evidence without grades or
-  tuning recommendations. Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6;
-  MariaDB and R2DBC/reactive-client-only access remain outside this scope.
+- **MySQL operational diagnostics.** A PostgreSQL sibling covering vital signs, sessions/blocking, normalized
+  statements, indexes, tables, InnoDB, basic replication, and curated settings through existing JDBC datasources on
+  Spring MVC, WebFlux, and Quarkus. The contract includes explicit read-only collection, cached REST/MCP/CLI reports,
+  configurable row caps, exact large counters, and honest partial evidence without grades or tuning recommendations.
+  Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6; MariaDB and R2DBC/reactive-client-only
+  access remain outside this scope ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+- **Paginated advisor violation details.** Architecture, Hibernate, Spring/Quarkus application, REST API, Memory,
+  Security, and Database advisors expose **View violations**, per-rule REST pages, seven MCP read tools, and matching
+  CLI commands. Details come from the latest completed scan without rerunning checks. A required scan ID prevents
+  mixing snapshots; `bootui.advisors.max-retained-violations` defaults to 10,000 retained details per advisor, and pages
+  default to 100 with a maximum of 1,000. Existing counts, previews, scores, and dismissals are preserved. Retention
+  truncation is explicit and separate from evidence coverage; GraalVM/CRaC, Pentesting, and Vulnerabilities retain
+  their distinct result models ([#1037](https://github.com/jdubois/boot-ui/pull/1037)).
+
+- **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead of
+  PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for the MySQL
+  panel. The dedicated `run-local-mysql.sh` launcher starts only MySQL and Redis, without Kafka, Ollama, or AI model
+  downloads; `run-local.sh` retains the Docker-free default
+  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+### Changed
+
+- **Architecture coding checks exclude positively identified generated classes.** All 18 `ARCH-CODE` rules share
+  conservative, bounded Java/Kotlin source-ownership detection for supported Maven and Gradle layouts. Handwritten
+  findings remain visible, and other architecture checks retain the full class graph. Ambiguous ownership or missing
+  source provenance does not silently exempt code; lookup failures remain explicit
+  ([#1042](https://github.com/jdubois/boot-ui/pull/1042)).
+
+- **PostgreSQL row limits are configurable and easier to interpret.** Seven `bootui.postgresql.max-*` properties
+  default to 100 sessions, 100 statements, 500 indexes, 200 tables, 200 autovacuum rows, 10 replicas, and 40 settings.
+  A statement-ranking cap alone produces one section-level informational note rather than page-wide warnings.
+  Other row caps show **Limited results** with retained counts; permission failures, timeouts, and other incomplete
+  reads remain prominent. REST/MCP/CLI `PARTIAL`, `truncated`, and limitation semantics are unchanged
+  ([#1044](https://github.com/jdubois/boot-ui/pull/1044), [#1046](https://github.com/jdubois/boot-ui/pull/1046)).
+
+- **MySQL row-cap-only results use neutral labels and section-local explanations rather than warning banners.**
+  Permission failures, timeouts, and other incomplete reads remain prominent; the API coverage contract is unchanged
+  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+- **The engine reuses ArchUnit's embedded ASM reader instead of shipping a duplicate copy.** This removes roughly
+  125 KB of library code while retaining isolation from host-framework ASM versions and the existing ThreadFactory
+  analysis ([#1061](https://github.com/jdubois/boot-ui/pull/1061)).
+
+### Fixed
+
+- **Pentesting honors persisted rule dismissals across the UI, REST, MCP, and CLI on all three adapters.** Dismissed
+  findings retain their evidence but no longer contribute to active totals, severity bars, or panel/Overview penalties.
+  The panel adds Dismiss and Restore controls, cached-report refresh, and visible persistence failures.
+  `findingsFound` and `scan.findingsFound` count active findings; the `findings` array still includes dismissed entries.
+  Dismissal decisions survive restart, while findings reappear after the first explicit post-restart scan. Shared advisor
+  actions also wait for the initial cached report so a late response cannot overwrite a completed scan
+  ([#1040](https://github.com/jdubois/boot-ui/pull/1040), [#1041](https://github.com/jdubois/boot-ui/pull/1041)).
+
+- **Architecture checks recognize supported repository transactions, date conversions, and thread factories.**
+  `ARCH-SPRING-009` exempts recognized Spring Data repositories and their inherited fragment interfaces without
+  exempting ordinary interfaces. `ARCH-CODE-008` accepts exact standard `java.time` bridge calls and method references
+  while retaining other legacy-date findings. `ARCH-CODE-017` accepts verified Java/Kotlin `ThreadFactory` lambda
+  bodies without hiding unrelated thread construction
+  ([#1039](https://github.com/jdubois/boot-ui/pull/1039), [#1038](https://github.com/jdubois/boot-ui/pull/1038),
+  [#1043](https://github.com/jdubois/boot-ui/pull/1043)).
+
+- **Hibernate bulk-update checks recognize timestamp and parameter-based version maintenance.** `HIB-QUERY-008`
+  accepts `CURRENT_TIMESTAMP`, direct named/positional version parameters, and parameterized increments. Self-assignment,
+  constant resets, and arbitrary expressions remain outside the recognized forms; recognizing an assignment does not
+  guarantee its runtime value advances the version ([#1023](https://github.com/jdubois/boot-ui/pull/1023)).
+
+- **Database nullability checks no longer mistake view metadata for missing physical constraints.** `DB-HIB-003`
+  excludes JDBC-reported views and materialized views, including secondary views, while retaining genuine table
+  mismatches and the existing relation-name and column-name checks
+  ([#1035](https://github.com/jdubois/boot-ui/pull/1035)).
+
+- **Vulnerability archive coverage recognizes extracted Spring Boot applications.** Spring MVC/WebFlux discovery
+  supplements `java.class.path` with local JAR URLs from the application classloader hierarchy, including
+  `jarmode=tools extract --layers --launcher` layouts. Duplicate paths and classes directories are excluded; no remote
+  lookups or recursive directory search are added. Archive counts remain distinct from SBOM totals and OSV query
+  completion ([#1036](https://github.com/jdubois/boot-ui/pull/1036)).
+
+- **WebFlux filter rejections close their Reactor Netty HTTP/1.x connection after responding**, preventing a queued
+  keep-alive rejection from stranding the next request. HTTP/2 and successful request behavior are unchanged
+  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+- **MySQL diagnostics qualify disabled or unreadable instrumentation rather than implying zero activity.**
+  Table/object and metadata-lock coverage is explicit, replication-coordinator errors are included, and status-counter
+  comparison intervals remain independent of later collector latency. Required-metadata deadline expiry reports an
+  explicit timeout rather than an incidental indexing error
+  ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+- **Datasource discovery keeps unresolved/lazy pool candidates visible without resolving dynamic AOP targets.**
+  It honors Quarkus's real `jdbc=false` switch, resolves named beans only once, and no longer mistakes a non-MySQL
+  database named `mysql` for the MySQL protocol ([#1059](https://github.com/jdubois/boot-ui/pull/1059)).
+
+- **Shared loading buttons expose only their action text to assistive technology.** Decorative icons no longer
+  pollute accessible names, preserving exact button identification and keyboard activation without changing appearance
+  ([#1062](https://github.com/jdubois/boot-ui/pull/1062)).
+
+- **Release publication exclusions include the WebSockets integration-test module.** The integrity guard pins this
+  exclusion, and the Release workflow runs the guard before importing signing credentials or preparing a version.
 
 ## [1.17.0] - 2026-09-10
 
