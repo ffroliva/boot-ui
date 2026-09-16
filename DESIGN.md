@@ -244,6 +244,8 @@ BootUI is a **layered** system, not a flat one — but the elevation is calm. Fr
 - **Primary:** solid Spring green (`#198754`) fill, white text. Reserved for the main action on a panel.
 - **Hover / Focus:** subtle darken toward Spring Green Deep; every control needs a **visible, branded focus ring** — never `outline: none` without a replacement.
 - **Secondary / Ghost:** frosted surface with a hairline border for low-emphasis and "show raw detail" disclosure actions.
+- **Accessible names:** decorative icons and loading spinners use `aria-hidden="true"` so only the action text names
+  the button. `SpinnerButton` keeps the button itself exposed and marks loading with `aria-busy`.
 
 ### Chips / Pills
 - **Style:** fully rounded (999px), frosted surface (`rgba(255,255,255,0.82)`), hairline border, soft `0 0.5rem 1.2rem rgba(15,23,42,0.06)` shadow. Used for the topbar status pill and profile chip.

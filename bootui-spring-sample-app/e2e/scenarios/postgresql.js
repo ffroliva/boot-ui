@@ -36,6 +36,41 @@ export function registerPostgresqlTests(test, expect) {
     await expect(page.locator('main h2').filter({hasText: 'PostgreSQL'})).toBeVisible()
   }
 
+  test('PostgreSQL read button has an exact accessible name and supports keyboard activation', async ({page}) => {
+    let reads = 0
+    let finishRead
+    const pendingRead = new Promise((resolve) => {
+      finishRead = resolve
+    })
+    await page.route('**/bootui/api/postgresql/read', async (route) => {
+      expect(route.request().method()).toBe('POST')
+      reads++
+      await pendingRead
+      await route.fulfill({json: report([], {})})
+    })
+    await openReport(page, {...report([], {}), status: 'NOT_READ', databases: []})
+
+    const button = page.getByRole('button', {name: 'Run PostgreSQL read', exact: true})
+    await expect(button).toHaveCount(1)
+    await expect(button).toBeEnabled()
+    expect(reads).toBe(0)
+    await button.focus()
+    await expect(button).toBeFocused()
+    try {
+      await page.keyboard.press('Enter')
+      const loadingButton = page.getByRole('button', {name: 'Reading...', exact: true})
+      await expect(loadingButton).toHaveCount(1)
+      await expect(loadingButton).toBeDisabled()
+      await expect(loadingButton).toHaveAttribute('aria-busy', 'true')
+      await expect.poll(() => reads).toBe(1)
+    } finally {
+      finishRead()
+    }
+    await expect(button).toBeEnabled()
+    await expect(button).not.toHaveAttribute('aria-busy', 'true')
+    expect(reads).toBe(1)
+  })
+
   test.describe('PostgreSQL incomplete evidence', () => {
     for (const count of [25, 100]) {
       test(`explains a top-${count} statement ranking without implying a failed read`, async ({page}) => {
