@@ -17,7 +17,7 @@ describe('SpinnerButton', () => {
       props: {loading: true, label: 'Run checks', loadingLabel: 'Running...'}
     })
     expect(wrapper.get('button').attributes('aria-busy')).toBe('true')
-    expect(wrapper.find('.spinner-border').exists()).toBe(true)
+    expect(wrapper.get('.spinner-border').attributes('aria-hidden')).toBe('true')
     expect(wrapper.text()).toBe('Running...')
   })
 
@@ -26,12 +26,18 @@ describe('SpinnerButton', () => {
     expect(wrapper.text()).toBe('Scan')
   })
 
-  it('renders the idle icon when not loading and hides it while loading', async () => {
+  it('keeps the decorative icon and spinner hidden from assistive technology across loading states', async () => {
     const wrapper = mount(SpinnerButton, {props: {icon: 'bi-play-circle', label: 'Migrate'}})
-    expect(wrapper.find('i.bi.bi-play-circle').exists()).toBe(true)
+    expect(wrapper.get('i.bi.bi-play-circle').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.get('button').attributes('aria-hidden')).toBeUndefined()
     await wrapper.setProps({loading: true})
     expect(wrapper.find('i.bi.bi-play-circle').exists()).toBe(false)
-    expect(wrapper.find('.spinner-border').exists()).toBe(true)
+    expect(wrapper.get('.spinner-border').attributes('aria-hidden')).toBe('true')
+    await wrapper.setProps({loading: false})
+    expect(wrapper.get('i.bi.bi-play-circle').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.find('.spinner-border').exists()).toBe(false)
+    expect(wrapper.get('button').attributes('aria-busy')).toBeUndefined()
+    expect(wrapper.text()).toBe('Migrate')
   })
 
   it('forwards class, disabled, title and click to the root button', async () => {
