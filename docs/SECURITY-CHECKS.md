@@ -760,7 +760,7 @@ inconclusive rather than assumed to inherit application-chain policy.
 - **Severity**: MEDIUM
 - **Detects**: Observed production chains with known absence of direct server TLS and no supported unconditional chain-local HTTPS redirect. Explicit `server.ssl.enabled=false` wins over remaining key material; unresolved TLS placeholders remain incomplete rather than becoming `false`.
 - **Recommendation**: Confirm external ingress enforcement or configure direct TLS/appropriate chain redirects. Forwarded-header processing is not TLS enforcement, and another chain's redirect does not protect this chain.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/https.html>
+- **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/http.html>
 
 ### SEC-RXF-CONFIG-003 - Credentials or secrets should not be hardcoded in application properties
 

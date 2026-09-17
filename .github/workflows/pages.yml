@@ -59,6 +59,9 @@ jobs:
       - name: Check published install scripts
         run: bash .github/scripts/check-docs-downloads.sh docs/.vuepress/dist
 
+      - name: Check documentation fragment links
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
