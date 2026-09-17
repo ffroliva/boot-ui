@@ -16,7 +16,7 @@ class ReactiveSecurityDocumentationTests {
     private static final Pattern RULE_HEADING = Pattern.compile("(?m)^### (SEC-RXF-[A-Z0-9-]+) - ");
 
     @Test
-    void catalogDocumentsEveryActiveRuleWithMatchingTitleAndSeverity() throws IOException {
+    void catalogDocumentsEveryActiveRuleWithMatchingTitleSeverityAndLearnMoreUrl() throws IOException {
         String documentation = Files.readString(securityChecksDocumentation());
         Set<String> documentedRuleIds = new LinkedHashSet<>();
         Matcher headings = RULE_HEADING.matcher(documentation);
@@ -40,6 +40,9 @@ class ReactiveSecurityDocumentationTests {
             assertThat(section)
                     .as("documented severity for %s", definition.id())
                     .contains("- **Severity**: " + definition.severity());
+            assertThat(section)
+                    .as("documented learn-more URL for %s", definition.id())
+                    .contains("- **Learn more**: <" + definition.learnMoreUrl() + ">");
         }
 
         assertThat(documentedRuleIds).containsExactlyInAnyOrderElementsOf(activeRuleIds);

@@ -44,7 +44,7 @@ talks to the world:
   (GitHub Copilot, Claude Code, and other MCP-aware clients). The agent discovers tools, schemas, and descriptions
   automatically and calls them as native tool calls — no shell commands, no JSON parsing glue code. This is the
   primary path this page walks through, and what the [BootUI agent skill](#install-the-bootui-agent-skill) and
-  [Coffilot](#coffilot-bootui-in-the-github-copilot-apps-side-panel) wire up automatically.
+  [Coffilot](#coffilot-bootui-in-the-github-copilot-app-s-side-panel) wire up automatically.
 - **Use the [CLI](CLI.md)** when the agent's host can only run shell commands — a sandboxed or cloud agent without MCP
   wiring, a CI job, or a human running one-off checks in a terminal or script. The BootUI agent skill falls back to
   calling `bootui` commands directly whenever its host doesn't already expose BootUI's MCP tools natively.

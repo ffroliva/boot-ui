@@ -716,7 +716,7 @@ final class ReactiveHttpsEnforcementRule extends AbstractReactiveSecurityRule {
                 "MEDIUM",
                 "Reviews production chains without observed direct server TLS or a known unconditional chain-local HTTPS redirect. Forwarded-header handling does not prove TLS enforcement; external ingress remains unobserved.",
                 "Confirm upstream TLS enforcement explicitly or configure direct server TLS / chain-local HTTPS redirects. Forwarded headers alone do not establish enforcement.",
-                "https://docs.spring.io/spring-security/reference/reactive/exploits/https.html"));
+                "https://docs.spring.io/spring-security/reference/reactive/exploits/http.html"));
     }
 
     @Override
