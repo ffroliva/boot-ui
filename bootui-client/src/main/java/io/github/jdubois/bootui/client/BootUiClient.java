@@ -70,9 +70,7 @@ public final class BootUiClient implements AutoCloseable {
                     "No BootUI command-line endpoint at " + options.cliEndpoint()
                             + ". The application may predate it, be running BootUI at a different --api-path, or not be a BootUI application.");
         }
-        if (response.statusCode() / 100 != 2) {
-            throw new BootUiClientException(describeFailure(response));
-        }
+        requireSuccess(response);
         return BootUiCatalog.from(parse(response.body(), options.cliEndpoint()));
     }
 
@@ -122,9 +120,7 @@ public final class BootUiClient implements AutoCloseable {
     public JsonValue get(String apiPath) {
         String url = options.apiEndpoint(apiPath);
         HttpResponse<String> response = send(request(url).GET().build());
-        if (response.statusCode() / 100 != 2) {
-            throw new BootUiClientException(describeFailure(response));
-        }
+        requireSuccess(response);
         return parse(response.body(), url);
     }
 
@@ -135,10 +131,14 @@ public final class BootUiClient implements AutoCloseable {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body == null ? "{}" : body))
                 .build());
+        requireSuccess(response);
+        return response.body() == null || response.body().isBlank() ? JsonValue.MISSING : parse(response.body(), url);
+    }
+
+    private void requireSuccess(HttpResponse<String> response) {
         if (response.statusCode() / 100 != 2) {
             throw new BootUiClientException(describeFailure(response));
         }
-        return response.body() == null || response.body().isBlank() ? JsonValue.MISSING : parse(response.body(), url);
     }
 
     private ToolResult toResult(String toolName, HttpResponse<String> response) {
